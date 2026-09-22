@@ -7,6 +7,8 @@ import type { ElementContext } from '../lib/capture/context';
 import { buildOverlayShell } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
 import { pageKey } from '../utils/page-key';
+import { isEnabledForUrl } from '../lib/options/policy';
+import { readPolicy } from '../lib/options/storage';
 import {
   createCaptureController,
   isCaptureToggleMessage,
@@ -16,6 +18,9 @@ import {
 export default defineContentScript({
   matches: ['<all_urls>'],
   async main(ctx) {
+    const policy = await readPolicy();
+    if (!isEnabledForUrl(location.href, policy)) return;
+
     const bus = createEventBus<CaptureEvents>();
     let controller: ReturnType<typeof createCaptureController> | undefined;
     let pins: PinsController | undefined;
