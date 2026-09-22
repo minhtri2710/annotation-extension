@@ -44,6 +44,7 @@ export async function updateAnnotation(
       selector: changes.selector ?? existing.selector,
       elementContext: changes.elementContext ?? existing.elementContext,
       screenshot: changes.screenshot ?? existing.screenshot,
+      repro: changes.repro ?? existing.repro,
       createdAt: existing.createdAt,
       updatedAt: nextTimestamp(existing.updatedAt),
     };

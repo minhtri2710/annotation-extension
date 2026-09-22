@@ -113,6 +113,77 @@ describe('note panel', () => {
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
   });
 
+  it('saves a trimmed repro once and re-reads storage', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Repro target');
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    await render(panel, [], {
+      listAnnotations,
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+    });
+
+    (panel.querySelector('[data-annotation-repro-steps]') as HTMLTextAreaElement).value =
+      '  Open page  \n\n Click button  \n';
+    (panel.querySelector('[data-annotation-repro-expected]') as HTMLTextAreaElement).value =
+      ' Dialog opens ';
+    (panel.querySelector('[data-annotation-repro-actual]') as HTMLTextAreaElement).value =
+      ' Nothing happens ';
+    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.update',
+      pageUrl,
+      id: existing.id,
+      changes: {
+        repro: {
+          steps: ['Open page', 'Click button'],
+          expected: 'Dialog opens',
+          actual: 'Nothing happens',
+        },
+      },
+    } satisfies AnnotationWriteMessage);
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+  });
+
+  it('renders a saved repro read-out', async () => {
+    const panel = document.createElement('div');
+    const existing = {
+      ...annotation('Saved repro'),
+      repro: { steps: ['Open page', 'Click button'], expected: 'Dialog opens', actual: 'Nothing happens' },
+    };
+    await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot: vi.fn(),
+    });
+
+    const readout = panel.querySelector('[data-annotation-repro]');
+    expect(readout).not.toBeNull();
+    expect(readout?.querySelectorAll('ol > li')).toHaveLength(2);
+    expect(readout?.textContent).toContain('Open page');
+    expect(readout?.textContent).toContain('Click button');
+    expect(readout?.textContent).toContain('Expected: Dialog opens');
+    expect(readout?.textContent).toContain('Actual: Nothing happens');
+  });
+
+  it('does not save an all-empty repro', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([annotation('Empty repro')]),
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+    });
+
+    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    await Promise.resolve();
+
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+  });
+
   it('renders an existing screenshot preview', async () => {
     const panel = document.createElement('div');
     const existing = { ...annotation('Preview me'), screenshot: 'data:image/png;base64,existing' };

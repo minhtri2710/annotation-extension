@@ -122,7 +122,57 @@ export function createNotePanel(
         context,
       );
     });
-    item.append(note, edit, capture, remove);
+    const reproSteps = document.createElement('textarea');
+    reproSteps.dataset.annotationReproSteps = '';
+    reproSteps.value = annotation.repro?.steps.join('\n') ?? '';
+    reproSteps.setAttribute('aria-label', `Reproduction steps ${annotation.id}`);
+    const reproExpected = document.createElement('textarea');
+    reproExpected.dataset.annotationReproExpected = '';
+    reproExpected.value = annotation.repro?.expected ?? '';
+    reproExpected.setAttribute('aria-label', `Expected result ${annotation.id}`);
+    const reproActual = document.createElement('textarea');
+    reproActual.dataset.annotationReproActual = '';
+    reproActual.value = annotation.repro?.actual ?? '';
+    reproActual.setAttribute('aria-label', `Actual result ${annotation.id}`);
+    const saveRepro = document.createElement('button');
+    saveRepro.type = 'button';
+    saveRepro.dataset.annotationReproSave = '';
+    saveRepro.textContent = 'Save repro';
+    saveRepro.addEventListener('click', () => {
+      const steps = reproSteps.value
+        .split(/\r?\n/)
+        .map((step) => step.trim())
+        .filter(Boolean);
+      const expected = reproExpected.value.trim();
+      const actual = reproActual.value.trim();
+      if (steps.length === 0 && !expected && !actual) return;
+      void mutate(
+        {
+          type: 'annotation.update',
+          pageUrl: context.url,
+          id: annotation.id,
+          changes: { repro: { steps, expected, actual } },
+        },
+        context,
+      );
+    });
+    item.append(note, edit, capture, remove, reproSteps, reproExpected, reproActual, saveRepro);
+    if (annotation.repro) {
+      const readout = document.createElement('div');
+      readout.dataset.annotationRepro = '';
+      const stepsList = document.createElement('ol');
+      for (const step of annotation.repro.steps) {
+        const listItem = document.createElement('li');
+        listItem.textContent = step;
+        stepsList.append(listItem);
+      }
+      const expected = document.createElement('p');
+      expected.textContent = `Expected: ${annotation.repro.expected}`;
+      const actual = document.createElement('p');
+      actual.textContent = `Actual: ${annotation.repro.actual}`;
+      readout.append(stepsList, expected, actual);
+      item.append(readout);
+    }
     if (annotation.screenshot) {
       const preview = document.createElement('img');
       preview.dataset.annotationScreenshot = '';

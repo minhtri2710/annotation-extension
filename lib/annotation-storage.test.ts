@@ -86,6 +86,28 @@ describe('annotation storage', () => {
     ]);
   });
 
+  it('persists a repro on update while leaving other fields intact', async () => {
+    const created = await addAnnotation(firstPage, firstInput);
+    const repro = { steps: ['Open the page', 'Click the button'], expected: 'Dialog opens', actual: 'Nothing happens' };
+
+    const updated = await updateAnnotation(firstPage, created.id, { repro });
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      pageUrl: created.pageUrl,
+      note: created.note,
+      selector: created.selector,
+      elementContext: created.elementContext,
+      repro,
+      createdAt: created.createdAt,
+      updatedAt: expect.any(String),
+    });
+    expect(updated?.note).toBe(created.note);
+    expect(updated?.selector).toBe(created.selector);
+    expect(updated?.elementContext).toEqual(created.elementContext);
+    await expect(listAnnotations(firstPage)).resolves.toEqual([updated]);
+  });
+
   it('treats an update for a missing id as a null no-op', async () => {
     await expect(
       updateAnnotation(firstPage, 'missing-id', { note: 'Should not be stored' }),

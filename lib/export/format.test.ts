@@ -35,6 +35,36 @@ describe('Markdown annotation formatter', () => {
     },
   );
 
+  it('renders repro steps and expected versus actual details', () => {
+    const markdown = format(
+      [
+        annotation({
+          repro: {
+            steps: ['Open the page', 'Click the submit button'],
+            expected: 'The form submits',
+            actual: 'An error appears',
+          },
+        }),
+      ],
+      'generic',
+      pageUrl,
+    );
+
+    expect(markdown).toContain('### Reproduction');
+    expect(markdown).toContain('1. Open the page');
+    expect(markdown).toContain('2. Click the submit button');
+    expect(markdown).toContain('Expected: The form submits');
+    expect(markdown).toContain('Actual: An error appears');
+  });
+
+  it('omits the repro block when an annotation has no repro', () => {
+    const markdown = format([annotation()], 'generic', pageUrl);
+
+    expect(markdown).not.toContain('### Reproduction');
+    expect(markdown).not.toContain('Expected:');
+    expect(markdown).not.toContain('Actual:');
+  });
+
   it('omits the screenshot line when an annotation has no screenshot', () => {
     const markdown = format([annotation()], 'generic', pageUrl);
 

@@ -63,6 +63,33 @@ describe('annotation write messages', () => {
     ).toBe(false);
   });
 
+  it('accepts valid repro updates and rejects invalid repro shapes', () => {
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { repro: { steps: ['a', 'b'], expected: 'x', actual: 'y' } },
+      }),
+    ).toBe(true);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { repro: { steps: 'nope', expected: 'x', actual: 'y' } },
+      }),
+    ).toBe(false);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { repro: { steps: ['a'], expected: 5, actual: 'y' } },
+      }),
+    ).toBe(false);
+  });
+
   it('routes mutations through the background write owner', async () => {
     const created = await sendAnnotationWrite({
       type: 'annotation.add',

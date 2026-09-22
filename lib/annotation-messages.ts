@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import type { Annotation, AnnotationInput, AnnotationUpdate } from './annotation';
+import type { Annotation, AnnotationInput, AnnotationUpdate, Repro } from './annotation';
 
 export type AnnotationWriteMessage =
   | { type: 'annotation.add'; pageUrl: string; input: AnnotationInput }
@@ -48,7 +48,8 @@ function isAnnotationInput(value: unknown): value is AnnotationInput {
     typeof value.note === 'string' &&
     typeof value.selector === 'string' &&
     isRecord(value.elementContext) &&
-    (value.screenshot === undefined || typeof value.screenshot === 'string')
+    (value.screenshot === undefined || typeof value.screenshot === 'string') &&
+    (value.repro === undefined || isRepro(value.repro))
   );
 }
 
@@ -58,7 +59,18 @@ function isAnnotationUpdate(value: unknown): value is AnnotationUpdate {
     (value.note === undefined || typeof value.note === 'string') &&
     (value.selector === undefined || typeof value.selector === 'string') &&
     (value.elementContext === undefined || isRecord(value.elementContext)) &&
-    (value.screenshot === undefined || typeof value.screenshot === 'string')
+    (value.screenshot === undefined || typeof value.screenshot === 'string') &&
+    (value.repro === undefined || isRepro(value.repro))
+  );
+}
+
+function isRepro(value: unknown): value is Repro {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.steps) &&
+    value.steps.every((step) => typeof step === 'string') &&
+    typeof value.expected === 'string' &&
+    typeof value.actual === 'string'
   );
 }
 

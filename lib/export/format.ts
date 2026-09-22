@@ -40,6 +40,14 @@ export function format(annotations: Annotation[], template: ExportTemplate, page
       `- Selector: ${annotation.selector}`,
       sourcePath ? `- Source: ${sourcePath}` : undefined,
       annotation.screenshot ? `![Annotation screenshot](${annotation.screenshot})` : undefined,
+      annotation.repro
+        ? [
+            '### Reproduction',
+            ...annotation.repro.steps.map((step, stepIndex) => `${stepIndex + 1}. ${step}`),
+            `Expected: ${annotation.repro.expected}`,
+            `Actual: ${annotation.repro.actual}`,
+          ].join('\n')
+        : undefined,
     ];
     return lines.filter((line): line is string => line !== undefined).join('\n');
   });
