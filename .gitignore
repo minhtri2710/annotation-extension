@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Task-manager coordination artifact
+backlog.md
+
 # WXT build output
 .output/
 .wxt/
