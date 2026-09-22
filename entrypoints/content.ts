@@ -1,7 +1,11 @@
 import { browser } from 'wxt/browser';
+import { listAnnotations } from '../lib/annotation-storage';
+import { createNotePanel } from '../lib/notes/note-panel';
+import { createPinsController, type PinsController } from '../lib/pins/pins';
+import type { ElementContext } from '../lib/capture/context';
 import { buildOverlayShell } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
-import { createNotePanel } from '../lib/notes/note-panel';
+import { pageKey } from '../utils/page-key';
 import {
   createCaptureController,
   isCaptureToggleMessage,
@@ -13,7 +17,11 @@ export default defineContentScript({
   async main(ctx) {
     const bus = createEventBus<CaptureEvents>();
     let controller: ReturnType<typeof createCaptureController> | undefined;
+    let pins: PinsController | undefined;
     let unsubscribeSelection: (() => void) | undefined;
+    let unsubscribeCaptureState: (() => void) | undefined;
+    let storageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] | undefined;
+    let runtimeMessageListener: ((message: unknown) => void) | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
@@ -30,6 +38,24 @@ export default defineContentScript({
         unsubscribeSelection = bus.on('element:selected', (context) => {
           void notePanel.render(context);
         });
+        pins = createPinsController({
+          document,
+          container: shell.root,
+          toolbar: shell.toolbar,
+          onActivate: (annotation) => {
+            void notePanel.render(annotation.elementContext as unknown as ElementContext);
+          },
+        });
+        const url = document.location.href;
+        const refreshPins = async () => {
+          const annotations = await listAnnotations(url);
+          pins?.setAnnotations(annotations);
+        };
+        storageChanged = (changes, areaName) => {
+          if (areaName === 'local' && pageKey(url) in changes) void refreshPins();
+        };
+        browser.storage.onChanged.addListener(storageChanged);
+        void refreshPins();
         controller = createCaptureController({
           document,
           shadowHost,
@@ -40,16 +66,29 @@ export default defineContentScript({
       onRemove: () => {
         unsubscribeSelection?.();
         unsubscribeSelection = undefined;
+        unsubscribeCaptureState?.();
+        unsubscribeCaptureState = undefined;
+        if (storageChanged) {
+          browser.storage.onChanged.removeListener(storageChanged);
+          storageChanged = undefined;
+        }
+        if (runtimeMessageListener) {
+          browser.runtime.onMessage.removeListener(runtimeMessageListener);
+          runtimeMessageListener = undefined;
+        }
+        pins?.destroy();
+        pins = undefined;
         controller?.destroy();
         controller = undefined;
       },
     });
 
     ui.mount();
-    browser.runtime.onMessage.addListener((message) => {
+    runtimeMessageListener = (message) => {
       if (isCaptureToggleMessage(message)) controller?.toggle();
-    });
-    bus.on('capture:active', (active) => {
+    };
+    browser.runtime.onMessage.addListener(runtimeMessageListener);
+    unsubscribeCaptureState = bus.on('capture:active', (active) => {
       ui.shadowHost.toggleAttribute('data-annotation-active', active);
     });
   },
