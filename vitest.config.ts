@@ -5,5 +5,6 @@ export default defineConfig({
   plugins: [WxtVitest()],
   test: {
     environment: 'node',
+    setupFiles: ['./vitest.setup.ts'],
   },
 });

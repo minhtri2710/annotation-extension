@@ -10,8 +10,17 @@ import {
   deleteAnnotation,
   updateAnnotation,
 } from '../lib/annotation-storage';
+import { CAPTURE_TOGGLE_MESSAGE } from '../lib/capture';
 
 export default defineBackground(() => {
+  browser.commands.onCommand.addListener(async (command) => {
+    if (command !== CAPTURE_TOGGLE_MESSAGE) return;
+
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id === undefined) return;
+    await browser.tabs.sendMessage(tab.id, { type: CAPTURE_TOGGLE_MESSAGE });
+  });
+
   browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!isAnnotationWriteMessage(message)) return;
 
