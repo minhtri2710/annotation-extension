@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
+import { createAnnotationList } from '../lib/annotation-list/annotation-list';
 import { createNotePanel } from '../lib/notes/note-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import type { ElementContext } from '../lib/capture/context';
@@ -22,6 +23,7 @@ export default defineContentScript({
     let unsubscribeCaptureState: (() => void) | undefined;
     let storageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] | undefined;
     let runtimeMessageListener: ((message: unknown) => void) | undefined;
+    let annotationListToggle: HTMLButtonElement | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
@@ -34,19 +36,43 @@ export default defineContentScript({
               ? window.matchMedia('(prefers-color-scheme: dark)').matches
               : undefined,
         });
+        const url = document.location.href;
         const notePanel = createNotePanel(shell.panel);
-        unsubscribeSelection = bus.on('element:selected', (context) => {
+        const annotationList = createAnnotationList(shell.panel, url);
+        let listOpen = false;
+        const listToggle = document.createElement('button');
+        annotationListToggle = listToggle;
+        listToggle.type = 'button';
+        listToggle.dataset.annotationListToggle = '';
+        listToggle.setAttribute('aria-expanded', 'false');
+        listToggle.textContent = 'View all';
+        listToggle.addEventListener('click', () => {
+          listOpen = !listOpen;
+          listToggle.setAttribute('aria-expanded', String(listOpen));
+          if (listOpen) void annotationList.render();
+          else annotationList.clear();
+        });
+        shell.toolbar.append(listToggle);
+
+        const showNotePanel = (context: ElementContext) => {
+          if (listOpen) {
+            listOpen = false;
+            listToggle.setAttribute('aria-expanded', 'false');
+            annotationList.clear();
+          }
           void notePanel.render(context);
+        };
+        unsubscribeSelection = bus.on('element:selected', (context) => {
+          showNotePanel(context);
         });
         pins = createPinsController({
           document,
           container: shell.root,
           toolbar: shell.toolbar,
           onActivate: (annotation) => {
-            void notePanel.render(annotation.elementContext as unknown as ElementContext);
+            showNotePanel(annotation.elementContext as unknown as ElementContext);
           },
         });
-        const url = document.location.href;
         const refreshPins = async () => {
           const annotations = await listAnnotations(url);
           pins?.setAnnotations(annotations);
@@ -76,6 +102,8 @@ export default defineContentScript({
           browser.runtime.onMessage.removeListener(runtimeMessageListener);
           runtimeMessageListener = undefined;
         }
+        annotationListToggle?.remove();
+        annotationListToggle = undefined;
         pins?.destroy();
         pins = undefined;
         controller?.destroy();
