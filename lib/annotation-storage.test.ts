@@ -109,6 +109,7 @@ describe('annotation storage', () => {
     expect(updated).toMatchObject({ ...created, note: 'Updated note', updatedAt: expect.any(String) });
     expect(updated?.screenshot).toBeUndefined();
     expect(Date.parse(updated!.updatedAt)).toBeGreaterThan(Date.parse(created.updatedAt));
+    await expect(listAnnotations(firstPage)).resolves.toEqual([updated]);
   });
 
   it('preserves screenshot metadata through ordinary updates', async () => {
@@ -211,5 +212,6 @@ describe('annotation storage', () => {
     const stored = await listAnnotations(firstPage);
     expect(stored).toHaveLength(created.length);
     expect(new Set(stored.map((annotation) => annotation.id)).size).toBe(created.length);
+    expect(stored).toEqual(expect.arrayContaining(created));
   });
 });

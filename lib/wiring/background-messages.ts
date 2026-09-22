@@ -74,20 +74,28 @@ async function captureScreenshot(
     ? await browser.tabs.captureVisibleTab()
     : await browser.tabs.captureVisibleTab(windowId);
   const processed = await screenshotProcessor(capture, message.rect, message.devicePixelRatio);
+  const previousBlob = await screenshotStore.get(message.annotationId);
   await screenshotStore.put(message.annotationId, processed.blob);
+
+  let annotation;
   try {
-    const annotation = await updateAnnotationScreenshot(message.pageUrl, message.annotationId, {
+    annotation = await updateAnnotationScreenshot(message.pageUrl, message.annotationId, {
       mimeType: processed.blob.type,
       width: processed.width,
       height: processed.height,
       byteLength: processed.blob.size,
     });
-    if (!annotation) throw new Error('Annotation was not found for screenshot capture');
-    return annotation.screenshot;
   } catch (error) {
-    await screenshotStore.delete([message.annotationId]);
+    if (previousBlob) await screenshotStore.put(message.annotationId, previousBlob);
+    else await screenshotStore.delete([message.annotationId]);
     throw error;
   }
+
+  if (!annotation) {
+    await screenshotStore.delete([message.annotationId]);
+    throw new Error('Annotation was not found for screenshot capture');
+  }
+  return annotation.screenshot;
 }
 
 async function readScreenshot(

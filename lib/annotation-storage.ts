@@ -90,8 +90,10 @@ export async function updateAnnotationScreenshot(
       screenshot,
       updatedAt: nextTimestamp(existing.updatedAt),
     };
-    annotations[index] = updated;
-    await browser.storage.local.set({ [key]: annotations });
+    const updatedAnnotations = annotations.map((annotation, annotationIndex) =>
+      annotationIndex === index ? updated : annotation,
+    );
+    await browser.storage.local.set({ [key]: updatedAnnotations });
     return updated;
   });
 }

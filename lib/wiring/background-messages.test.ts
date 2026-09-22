@@ -169,6 +169,81 @@ describe('background message routing', () => {
     expect(JSON.stringify(stored)).not.toContain('processed');
   });
 
+  it('removes a first-capture Blob when metadata persistence fails', async () => {
+    const store = new MemoryScreenshotStore();
+    const processor = start(store);
+    vi.spyOn(browser.tabs, 'captureVisibleTab').mockResolvedValue('data:image/png;base64,capture' as never);
+    const createdResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'annotation.add', pageUrl, input: { note: 'created', selector: '#target', elementContext } },
+      {},
+      createdResponse,
+    );
+    await vi.waitFor(() => expect(createdResponse).toHaveBeenCalledTimes(1));
+    const created = createdResponse.mock.calls[0]?.[0] as { id: string };
+    vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('metadata unavailable'));
+
+    const sendResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'screenshot.capture', pageUrl, annotationId: created.id, rect: elementContext.boundingBox, devicePixelRatio: 1 },
+      sender,
+      sendResponse,
+    );
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'metadata unavailable' }));
+    expect(await store.get(created.id)).toBeUndefined();
+    const [stored] = await listAnnotations(pageUrl);
+    expect(stored?.id).toBe(created.id);
+    expect(stored).not.toHaveProperty('screenshot');
+    expect(processor).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the previous Blob when re-capture metadata persistence fails', async () => {
+    const store = new MemoryScreenshotStore();
+    const processor = start(store);
+    processor
+      .mockResolvedValueOnce({ blob: new Blob(['old'], { type: 'image/webp' }), width: 800, height: 400 })
+      .mockResolvedValueOnce({ blob: new Blob(['new'], { type: 'image/webp' }), width: 640, height: 320 });
+    vi.spyOn(browser.tabs, 'captureVisibleTab').mockResolvedValue('data:image/png;base64,capture' as never);
+    const createdResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'annotation.add', pageUrl, input: { note: 'created', selector: '#target', elementContext } },
+      {},
+      createdResponse,
+    );
+    await vi.waitFor(() => expect(createdResponse).toHaveBeenCalledTimes(1));
+    const created = createdResponse.mock.calls[0]?.[0] as { id: string };
+
+    const firstResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'screenshot.capture', pageUrl, annotationId: created.id, rect: elementContext.boundingBox, devicePixelRatio: 1 },
+      sender,
+      firstResponse,
+    );
+    await vi.waitFor(() => expect(firstResponse).toHaveBeenCalledWith({ mimeType: 'image/webp', width: 800, height: 400, byteLength: 3 }));
+    const oldBlob = await store.get(created.id);
+    expect(oldBlob).toBeDefined();
+
+    vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('metadata unavailable'));
+    const secondResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'screenshot.capture', pageUrl, annotationId: created.id, rect: elementContext.boundingBox, devicePixelRatio: 1 },
+      sender,
+      secondResponse,
+    );
+
+    await vi.waitFor(() => expect(secondResponse).toHaveBeenCalledWith({ ok: false, error: 'metadata unavailable' }));
+    const restoredBlob = await store.get(created.id);
+    expect(restoredBlob).toBe(oldBlob);
+    expect(await restoredBlob?.text()).toBe('old');
+    await expect(listAnnotations(pageUrl)).resolves.toEqual([
+      expect.objectContaining({
+        id: created.id,
+        screenshot: { mimeType: 'image/webp', width: 800, height: 400, byteLength: 3 },
+      }),
+    ]);
+  });
+
   it('answers read requests with transport-safe bytes', async () => {
     const store = new MemoryScreenshotStore();
     start(store);

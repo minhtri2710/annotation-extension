@@ -132,6 +132,7 @@ describe('JSON annotation I/O', () => {
     const base = { pageUrl: firstPage, note: 'x', selector: '#x', elementContext: firstElementContext };
     expect(() => parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/svg+xml', base64: 'x' } }]))).toThrow('Unsupported screenshot mime type');
     expect(() => parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/png', base64: 'not base64 ???' } }]))).toThrow(JsonImportError);
+    expect(() => parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/png', base64: '' } }]))).toThrow('must not be empty');
     const oversized = btoa('x'.repeat(2 * 1024 * 1024 + 1));
     expect(() => parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/png', base64: oversized } }]))).toThrow('2 MB');
   });

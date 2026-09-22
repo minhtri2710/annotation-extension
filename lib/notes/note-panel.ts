@@ -30,15 +30,23 @@ export function createNotePanel(
     const heading = document.createElement('h2');
     heading.textContent = 'Notes';
     panel.append(heading);
-    if (statusMessage) {
-      const status = document.createElement('p');
-      status.dataset.annotationStatus = '';
+    let status: HTMLParagraphElement | undefined;
+    const showStatus = () => {
+      if (!statusMessage) return;
+      if (!status) {
+        status = document.createElement('p');
+        status.dataset.annotationStatus = '';
+      }
       status.textContent = statusMessage;
-      panel.append(status);
-    }
+      if (!status.isConnected) panel.insertBefore(status, panel.children[1] ?? null);
+    };
+    showStatus();
 
     for (const annotation of annotations) {
-      const item = await createAnnotationItem(document, annotation, context);
+      const item = await createAnnotationItem(document, annotation, context, (error) => {
+        statusMessage = errorMessage(error);
+        showStatus();
+      });
       if (selectedContext !== context) return;
       panel.append(item);
     }
@@ -84,6 +92,7 @@ export function createNotePanel(
     document: Document,
     annotation: Annotation,
     context: ElementContext,
+    reportReadError: (error: unknown) => void,
   ): Promise<HTMLElement> {
     const item = document.createElement('article');
     item.dataset.annotationId = annotation.id;
@@ -249,14 +258,18 @@ export function createNotePanel(
       item.append(readout);
     }
     if (annotation.screenshot) {
-      const blob = await persistence.readScreenshot(annotation.id);
-      const preview = document.createElement('img');
-      preview.dataset.annotationScreenshot = '';
-      const url = URL.createObjectURL(blob);
-      previewUrls.add(url);
-      preview.src = url;
-      preview.alt = 'Annotation screenshot';
-      item.append(preview);
+      try {
+        const blob = await persistence.readScreenshot(annotation.id);
+        const preview = document.createElement('img');
+        preview.dataset.annotationScreenshot = '';
+        const url = URL.createObjectURL(blob);
+        previewUrls.add(url);
+        preview.src = url;
+        preview.alt = 'Annotation screenshot';
+        item.append(preview);
+      } catch (error) {
+        reportReadError(error);
+      }
     }
     return item;
   }

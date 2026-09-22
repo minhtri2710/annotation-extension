@@ -453,6 +453,25 @@ describe('note panel', () => {
     vi.unstubAllGlobals();
   });
 
+  it('reports screenshot read errors and continues rendering without a preview', async () => {
+    const panel = document.createElement('div');
+    const existing = {
+      ...annotation('Unreadable preview'),
+      screenshot: { mimeType: 'image/png', width: 10, height: 10, byteLength: 7 },
+    };
+    await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot: vi.fn(),
+      readScreenshot: vi.fn().mockRejectedValue(new Error('screenshot read failed')),
+    });
+
+    expect(panel.querySelector(`[data-annotation-id="${existing.id}"]`)).not.toBeNull();
+    expect(panel.querySelector('[data-annotation-screenshot]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('screenshot read failed');
+    expect(panel.querySelector('[data-annotation-new-note]')).not.toBeNull();
+  });
+
   it('does not add an empty or whitespace-only note', async () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);

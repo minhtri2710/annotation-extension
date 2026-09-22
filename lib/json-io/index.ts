@@ -152,6 +152,9 @@ function parseScreenshot(value: unknown): { mimeType: string; blob: Blob } | und
   }
 
   const blob = base64ToBlob(value.base64, value.mimeType);
+  if (blob.size === 0) {
+    throw new JsonImportError('Screenshot must not be empty.');
+  }
   if (blob.size > MAX_IMPORT_BYTES) {
     throw new JsonImportError('Screenshot exceeds the 2 MB import limit.');
   }
