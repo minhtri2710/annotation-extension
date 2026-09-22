@@ -524,7 +524,7 @@ export const typographyStructureRules: Rule[] = [
     'design-system-font-size',
     'quality',
     'Font size outside DESIGN.md',
-    'A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update DESIGN.md if the new step is intentional.',
+    'A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.',
     (el, ctx) => designSystemFontSize(el, ctx),
     'Typography',
     'advisory',

@@ -29,6 +29,20 @@ describe('resolveSourcePath', () => {
     });
   });
 
+  it('ignores unrelated data attributes and accepts source attributes', () => {
+    const unrelated = document.createElement('div');
+    unrelated.setAttribute('data-profile', '/not-a-source.tsx:10');
+    unrelated.setAttribute('data-block', '/not-a-source.tsx:11');
+    expect(resolveSourcePath(unrelated)).toBeNull();
+
+    const source = document.createElement('div');
+    source.setAttribute('data-source-file', '/src/components/Card.tsx:18');
+    expect(resolveSourcePath(source)).toEqual({
+      fileName: '/src/components/Card.tsx',
+      lineNumber: 18,
+    });
+  });
+
   it('returns null without throwing when no source is present', () => {
     const element = document.createElement('div');
 

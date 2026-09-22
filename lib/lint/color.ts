@@ -61,6 +61,104 @@ function hslToRgb(hue: number, saturation: number, lightness: number): Rgba {
   };
 }
 
+function encodeSrgbChannel(value: number): number {
+  const clamped = clamp(Number.isFinite(value) ? value : 0, 0, 1);
+  const encoded = clamped <= 0.0031308
+    ? 12.92 * clamped
+    : 1.055 * clamped ** (1 / 2.4) - 0.055;
+  return Math.round(encoded * 255);
+}
+
+function fromLinearSrgb(red: number, green: number, blue: number): Rgba {
+  return {
+    r: encodeSrgbChannel(red),
+    g: encodeSrgbChannel(green),
+    b: encodeSrgbChannel(blue),
+    a: 1,
+  };
+}
+
+// Ported from impeccable's `crates/foundation/src/color.rs` oklab/lab
+// conversion routines; the output channels are clamped to sRGB gamut.
+function oklabToRgb(lightness: number, a: number, b: number): Rgba {
+  const l = lightness + 0.3963377774 * a + 0.2158037573 * b;
+  const m = lightness - 0.1055613458 * a - 0.0638541728 * b;
+  const s = lightness - 0.0894841775 * a - 1.291485548 * b;
+  const l3 = l * l * l;
+  const m3 = m * m * m;
+  const s3 = s * s * s;
+  return fromLinearSrgb(
+    4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
+    -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
+    -0.0041960863 * l3 - 0.7034186147 * m3 + 1.707614701 * s3,
+  );
+}
+
+function oklchToRgb(lightness: number, chroma: number, hue: number): Rgba {
+  const radians = (hue * Math.PI) / 180;
+  return oklabToRgb(lightness, chroma * Math.cos(radians), chroma * Math.sin(radians));
+}
+
+function labToRgb(lightness: number, a: number, b: number): Rgba {
+  const kappa = 24389 / 27;
+  const epsilon = 216 / 24389;
+  const fy = (lightness + 16) / 116;
+  const fx = fy + a / 500;
+  const fz = fy - b / 200;
+  const invert = (value: number): number => (
+    value ** 3 > epsilon ? value ** 3 : (116 * value - 16) / kappa
+  );
+  const y = lightness > kappa * epsilon
+    ? ((lightness + 16) / 116) ** 3
+    : lightness / kappa;
+  const xn = 0.3457 / 0.3585;
+  const zn = (1 - 0.3457 - 0.3585) / 0.3585;
+  const x = invert(fx) * xn;
+  const z = invert(fz) * zn;
+  return fromLinearSrgb(
+    3.1341359569958707 * x - 1.6173863321612538 * y - 0.4906619460083532 * z,
+    -0.978795502912089 * x + 1.916254567259524 * y + 0.0334427311613195 * z,
+    0.0719553798841168 * x - 0.2289768264158322 * y + 1.405386058324125 * z,
+  );
+}
+
+function lchToRgb(lightness: number, chroma: number, hue: number): Rgba {
+  const radians = (hue * Math.PI) / 180;
+  return labToRgb(lightness, chroma * Math.cos(radians), chroma * Math.sin(radians));
+}
+
+function parseModernNumber(token: string | undefined, percentageScale: number): number | undefined {
+  if (token === undefined) return undefined;
+  const trimmed = token.trim().toLowerCase();
+  if (trimmed === 'none') return 0;
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?%?$/i.test(trimmed)) return undefined;
+  const number = Number.parseFloat(trimmed);
+  if (!Number.isFinite(number)) return undefined;
+  return trimmed.endsWith('%') ? (number / 100) * percentageScale : number;
+}
+
+function parseModernHue(token: string | undefined): number | undefined {
+  if (token === undefined) return undefined;
+  const trimmed = token.trim().toLowerCase();
+  if (trimmed === 'none') return 0;
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(deg|grad|rad|turn)?$/i.exec(trimmed);
+  if (!match) return undefined;
+  const value = Number.parseFloat(match[1]!);
+  if (!Number.isFinite(value)) return undefined;
+  switch (match[2]) {
+    case 'grad': return value * 0.9;
+    case 'rad': return value * (180 / Math.PI);
+    case 'turn': return value * 360;
+    default: return value;
+  }
+}
+
+function parseModernAlpha(token: string | undefined): number | undefined {
+  if (token === undefined || token.trim().toLowerCase() === 'none') return 1;
+  const value = parseModernNumber(token, 1);
+  return value === undefined ? undefined : clamp(value, 0, 1);
+}
+
 export function parseColor(css: string): Rgba | undefined {
   const value = css.trim();
   const lower = value.toLowerCase();
@@ -77,6 +175,69 @@ export function parseColor(css: string): Rgba | undefined {
       b: Number.parseInt(expanded.slice(4, 6), 16),
       a: expanded.length === 8 ? Number.parseInt(expanded.slice(6, 8), 16) / 255 : 1,
     };
+  }
+
+  const modernFunctionMatch = /^(oklch|oklab|lch|lab|color)\((.*)\)$/i.exec(value);
+  if (modernFunctionMatch) {
+    const name = modernFunctionMatch[1]?.toLowerCase();
+    const body = modernFunctionMatch[2];
+    if (name === undefined || body === undefined) return undefined;
+    const parts = splitComponents(body);
+    const slash = parts.indexOf('/');
+    const values = slash === -1 ? parts : parts.slice(0, slash);
+    const alphaParts = slash === -1 ? [] : parts.slice(slash + 1);
+    const alpha = alphaParts[0];
+    if (slash !== -1 && alphaParts.length !== 1) return undefined;
+    if (alpha !== undefined && values.length === 0) return undefined;
+
+    let rgb: Rgba | undefined;
+    if (name === 'oklch' && values.length === 3) {
+      const lightness = parseModernNumber(values[0], 1);
+      const chroma = parseModernNumber(values[1], 0.4);
+      const hue = parseModernHue(values[2]);
+      if (lightness !== undefined && chroma !== undefined && hue !== undefined) {
+        rgb = oklchToRgb(lightness, chroma, hue);
+      }
+    } else if (name === 'oklab' && values.length === 3) {
+      const lightness = parseModernNumber(values[0], 1);
+      const a = parseModernNumber(values[1], 0.4);
+      const b = parseModernNumber(values[2], 0.4);
+      if (lightness !== undefined && a !== undefined && b !== undefined) {
+        rgb = oklabToRgb(lightness, a, b);
+      }
+    } else if (name === 'lch' && values.length === 3) {
+      const lightness = parseModernNumber(values[0], 100);
+      const chroma = parseModernNumber(values[1], 150);
+      const hue = parseModernHue(values[2]);
+      if (lightness !== undefined && chroma !== undefined && hue !== undefined) {
+        rgb = lchToRgb(lightness, chroma, hue);
+      }
+    } else if (name === 'lab' && values.length === 3) {
+      const lightness = parseModernNumber(values[0], 100);
+      const a = parseModernNumber(values[1], 125);
+      const b = parseModernNumber(values[2], 125);
+      if (lightness !== undefined && a !== undefined && b !== undefined) {
+        rgb = labToRgb(lightness, a, b);
+      }
+    } else if (name === 'color' && values.length === 4) {
+      const space = values[0]?.toLowerCase();
+      const red = parseModernNumber(values[1], 1);
+      const green = parseModernNumber(values[2], 1);
+      const blue = parseModernNumber(values[3], 1);
+      if (space === 'srgb' && red !== undefined && green !== undefined && blue !== undefined) {
+        rgb = {
+          r: Math.round(clamp(red, 0, 1) * 255),
+          g: Math.round(clamp(green, 0, 1) * 255),
+          b: Math.round(clamp(blue, 0, 1) * 255),
+          a: 1,
+        };
+      }
+    }
+    if (!rgb) return undefined;
+    const parsedAlpha = parseModernAlpha(alpha);
+    if (parsedAlpha === undefined) return undefined;
+    rgb.a = parsedAlpha;
+    return rgb;
   }
 
   const functionMatch = /^(rgba?|hsla?)\((.*)\)$/i.exec(value);

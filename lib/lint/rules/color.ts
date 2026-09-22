@@ -66,7 +66,7 @@ const SAFE_COLOR_TAGS = new Set([
   'use',
 ]);
 
-const COLOR_TOKEN_RE = /rgba?\([^)]*\)|hsla?\([^)]*\)|#[\da-f]{3,8}\b|transparent/gi;
+const COLOR_TOKEN_RE = /rgba?\([^)]*\)|hsla?\([^)]*\)|(?:oklch|oklab|lch|lab|color)\([^)]*\)|#[\da-f]{3,8}\b|transparent/gi;
 const NUMBER_RE = /-?(?:\d+\.?\d*|\.\d+)(?:px|rem|em|%|vh|vw)?/gi;
 
 function colorHex(color: Rgba): string {
@@ -212,8 +212,19 @@ function resolvedBackground(ctx: ScanContext, start: Element): ResolvedBackgroun
   const overlays: Rgba[] = [];
   let current: Element | null = start;
   while (current) {
-    const background = parseColor(styleValue(ctx, current, 'backgroundColor'));
+    const backgroundValue = styleValue(ctx, current, 'backgroundColor');
+    const background = parseColor(backgroundValue);
     const backgroundImage = styleValue(ctx, current, 'backgroundImage');
+    const normalizedBackground = backgroundValue.trim().toLowerCase();
+
+    if (
+      background === undefined
+      && normalizedBackground !== ''
+      && normalizedBackground !== 'transparent'
+      && normalizedBackground !== 'none'
+    ) {
+      return { unresolved: true };
+    }
 
     if (background && background.a > 0.1) {
       if (background.a >= 0.99) {

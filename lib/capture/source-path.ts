@@ -1,4 +1,4 @@
-import { isObject } from '../guards';
+import { isRecord } from '../guards';
 
 export interface SourcePath {
   fileName: string;
@@ -19,7 +19,7 @@ export function resolveSourcePath(element: Element): SourcePath | null {
   }
 
   for (const attribute of Array.from(element.attributes)) {
-    if (!attribute.name.startsWith('data-') || !/source|file|component|loc/.test(attribute.name)) {
+    if (!/^data-(?:source|source-file|file|component|loc|location)$/.test(attribute.name)) {
       continue;
     }
 
@@ -35,7 +35,7 @@ function readOwnProperty(element: Element, key: string): unknown {
 }
 
 function readDebugSource(fiber: unknown): SourcePath | null {
-  if (!isObject(fiber)) return null;
+  if (!isRecord(fiber)) return null;
   return normalizeSource(fiber._debugSource);
 }
 
@@ -65,7 +65,7 @@ function parseSourceHint(value: string): SourcePath | null {
 }
 
 function normalizeSource(value: unknown): SourcePath | null {
-  if (!isObject(value) || typeof value.fileName !== 'string' || !value.fileName) return null;
+  if (!isRecord(value) || typeof value.fileName !== 'string' || !value.fileName) return null;
 
   const source: SourcePath = { fileName: value.fileName };
   if (typeof value.lineNumber === 'number' && Number.isFinite(value.lineNumber)) {

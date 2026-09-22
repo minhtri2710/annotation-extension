@@ -71,9 +71,9 @@ describe('motion lint rules through the real engine', () => {
       category: 'quality',
       name: 'Layout property animation',
       description: 'Animating width, height, padding, or margin causes layout thrash and janky performance. Use transform and opacity instead, or grid-template-rows for height animations.',
+      skillSection: 'Motion',
       scope: 'element',
     });
-    expect(motionRules.find((rule) => rule.id === 'layout-transition')).not.toHaveProperty('skillSection');
     expect(motionRules.find((rule) => rule.id === 'image-hover-transform')).toMatchObject({
       category: 'slop',
       severity: 'advisory',

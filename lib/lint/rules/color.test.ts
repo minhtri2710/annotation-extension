@@ -27,6 +27,46 @@ function first<T>(values: T[]): T {
 beforeEach(resetDocument);
 
 describe('color lint rules through the real engine', () => {
+  it('does not report white text on an oklch blue background', () => {
+    document.body.innerHTML = '<div id="blue" style="color: white; background-color: oklch(55% 0.2 250); font-size: 16px">Blue</div>';
+    const ctx = createScanContext(window);
+    const baseStyle = ctx.style;
+    ctx.style = (el, pseudo) => {
+      const style = baseStyle(el, pseudo);
+      if (el.id !== 'blue') return style;
+      return {
+        getPropertyValue: (property: string) => {
+          if (property === 'color') return 'rgb(255, 255, 255)';
+          if (property === 'background-color' || property === 'backgroundColor') return 'oklch(55% 0.2 250)';
+          return style.getPropertyValue(property);
+        },
+      } as CSSStyleDeclaration;
+    };
+
+    const result = collectFindings(colorRules, ctx);
+    expect(result.some((finding) => finding.ruleId === 'low-contrast' && finding.el === document.querySelector('#blue'))).toBe(false);
+  });
+
+  it('treats an unparseable present background as unresolved', () => {
+    document.body.innerHTML = '<div id="unresolved" style="color: white; background-color: oklch(broken); font-size: 16px">Unresolved</div>';
+    const ctx = createScanContext(window);
+    const baseStyle = ctx.style;
+    ctx.style = (el, pseudo) => {
+      const style = baseStyle(el, pseudo);
+      if (el.id !== 'unresolved') return style;
+      return {
+        getPropertyValue: (property: string) => {
+          if (property === 'color') return 'rgb(255, 255, 255)';
+          if (property === 'background-color' || property === 'backgroundColor') return 'oklch(broken)';
+          return style.getPropertyValue(property);
+        },
+      } as CSSStyleDeclaration;
+    };
+
+    const result = collectFindings(colorRules, ctx);
+    expect(result.some((finding) => finding.ruleId === 'low-contrast' && finding.el === document.querySelector('#unresolved'))).toBe(false);
+  });
+
   it('flags low contrast and skips an unresolved gradient background', () => {
     document.body.innerHTML = `
       <p id="low" style="color: rgb(119, 119, 119); background-color: rgb(255, 255, 255); font-size: 16px">Low</p>

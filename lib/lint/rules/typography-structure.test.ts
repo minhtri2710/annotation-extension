@@ -94,6 +94,7 @@ describe('typography-structure lint rules through the real engine', () => {
       category: 'quality',
       severity: 'advisory',
       name: 'Font size outside DESIGN.md',
+      description: 'A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.',
       skillSection: 'Typography',
     });
   });

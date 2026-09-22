@@ -31,6 +31,22 @@ describe('lint color math', () => {
     expect(parseColor('red')).toBeUndefined();
   });
 
+  it('parses modern color functions with reference conversions and CSS component forms', () => {
+    expect(parseColor('oklch(1 0 0)')).toEqual({ r: 255, g: 255, b: 255, a: 1 });
+    expect(parseColor('oklch(0 0 0)')).toEqual({ r: 0, g: 0, b: 0, a: 1 });
+
+    // CSS Color 4's published OKLCH red reference: oklch(62.7955% 0.257683 29.2339).
+    expect(parseColor('oklch(62.7955% 0.257683 29.2339)')).toEqual({ r: 255, g: 0, b: 0, a: 1 });
+    expect(parseColor('oklab(40% 0.1 0.1)')).toEqual({ r: 129, g: 34, b: 0, a: 1 });
+    expect(parseColor('lab(50% 20% -30%)')).toEqual({ r: 135, g: 105, b: 183, a: 1 });
+    expect(parseColor('lch(50% 20% 30)')).toEqual({ r: 165, g: 101, b: 95, a: 1 });
+    expect(parseColor('oklab(0% none none / 50%)')).toEqual({ r: 0, g: 0, b: 0, a: 0.5 });
+    expect(parseColor('lab(50% none none)')).toEqual({ r: 119, g: 119, b: 119, a: 1 });
+    expect(parseColor('lch(50% none none / 25%)')).toEqual({ r: 119, g: 119, b: 119, a: 0.25 });
+    expect(parseColor('color(srgb 100% none 0 / 25%)')).toEqual({ r: 255, g: 0, b: 0, a: 0.25 });
+    expect(parseColor('oklch(0.5 nope 20)')).toBeUndefined();
+  });
+
   it('uses impeccable chroma, neutral, and accent thresholds', () => {
     const gray = parseColor('#777')!;
     const saturated = parseColor('#ff0066')!;

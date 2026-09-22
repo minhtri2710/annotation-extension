@@ -454,6 +454,7 @@ const layoutTransitionRule: ElementRule = {
   category: 'quality',
   name: 'Layout property animation',
   description: 'Animating width, height, padding, or margin causes layout thrash and janky performance. Use transform and opacity instead, or grid-template-rows for height animations.',
+  skillSection: 'Motion',
   scope: 'element',
   test: (el, ctx) => {
     const transition = styleValue(ctx, el, 'transition-property');
