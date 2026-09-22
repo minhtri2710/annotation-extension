@@ -16,6 +16,22 @@ export interface OverlayShellOptions {
   prefersDark?: PrefersDarkSignal;
 }
 
+export function positionPopover(
+  box: { x: number; y: number; width: number; height: number },
+  panel: { width: number; height: number },
+  viewport: { width: number; height: number },
+  gap = 8,
+): { top: number; left: number } {
+  const fitsBelow = box.y + box.height + gap + panel.height <= viewport.height;
+  const top = fitsBelow ? box.y + box.height + gap : box.y - gap - panel.height;
+  const maxLeft = viewport.width - panel.width - 10;
+
+  return {
+    top: Math.max(10, top),
+    left: Math.max(10, Math.min(box.x, maxLeft)),
+  };
+}
+
 export function buildOverlayShell(
   container: HTMLElement,
   options: OverlayShellOptions = {},

@@ -4,7 +4,7 @@ import { createAnnotationList } from '../lib/annotation-list/annotation-list';
 import { createNotePanel } from '../lib/notes/note-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import type { ElementContext } from '../lib/capture/context';
-import { buildOverlayShell } from '../lib/ui/shell';
+import { buildOverlayShell, positionPopover } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
 import { pageKey } from '../utils/page-key';
 import { isEnabledForUrl } from '../lib/options/policy';
@@ -30,6 +30,8 @@ export default defineContentScript({
     let storageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] | undefined;
     let runtimeMessageListener: ((message: unknown) => void) | undefined;
     let annotationListToggle: HTMLButtonElement | undefined;
+    let annotationToggle: HTMLButtonElement | undefined;
+    let resetPanelPosition: (() => void) | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
@@ -48,6 +50,14 @@ export default defineContentScript({
         notePanel = createNotePanel(shell.panel);
         const annotationList = createAnnotationList(shell.panel, url);
         let listOpen = false;
+        let renderSequence = 0;
+        resetPanelPosition = () => {
+          shell.panel.style.removeProperty('position');
+          shell.panel.style.removeProperty('top');
+          shell.panel.style.removeProperty('left');
+          shell.panel.style.removeProperty('right');
+          shell.panel.style.removeProperty('bottom');
+        };
         const listToggle = document.createElement('button');
         annotationListToggle = listToggle;
         listToggle.type = 'button';
@@ -57,18 +67,47 @@ export default defineContentScript({
         listToggle.addEventListener('click', () => {
           listOpen = !listOpen;
           listToggle.setAttribute('aria-expanded', String(listOpen));
-          if (listOpen) void annotationList.render();
-          else annotationList.clear();
+          if (listOpen) {
+            ++renderSequence;
+            resetPanelPosition?.();
+            void annotationList.render();
+          } else {
+            annotationList.clear();
+          }
         });
         shell.toolbar.append(listToggle);
+
+        const annotateToggle = document.createElement('button');
+        annotationToggle = annotateToggle;
+        annotateToggle.type = 'button';
+        annotateToggle.dataset.annotationToggle = '';
+        annotateToggle.setAttribute('aria-pressed', 'false');
+        annotateToggle.textContent = 'Annotate';
+        annotateToggle.addEventListener('click', () => controller?.toggle());
+        shell.toolbar.append(annotateToggle);
 
         const showNotePanel = (context: ElementContext) => {
           if (listOpen) {
             listOpen = false;
             listToggle.setAttribute('aria-expanded', 'false');
             annotationList.clear();
+            resetPanelPosition?.();
           }
-          void notePanel.render(context);
+          const sequence = ++renderSequence;
+          void notePanel.render(context).then(() => {
+            if (sequence !== renderSequence) return;
+            const { width, height } = shell.panel.getBoundingClientRect();
+            const { top, left } = positionPopover(
+              context.boundingBox,
+              { width, height },
+              { width: window.innerWidth, height: window.innerHeight },
+            );
+            shell.panel.style.position = 'fixed';
+            shell.panel.style.top = `${top}px`;
+            shell.panel.style.left = `${left}px`;
+            shell.panel.style.right = 'auto';
+            shell.panel.style.bottom = 'auto';
+          });
         };
         unsubscribeSelection = bus.on('element:selected', (context) => {
           showNotePanel(context);
@@ -112,6 +151,10 @@ export default defineContentScript({
         }
         annotationListToggle?.remove();
         annotationListToggle = undefined;
+        annotationToggle?.remove();
+        annotationToggle = undefined;
+        resetPanelPosition?.();
+        resetPanelPosition = undefined;
         notePanel?.teardown();
         notePanel = undefined;
         pins?.destroy();
@@ -128,6 +171,9 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener(runtimeMessageListener);
     unsubscribeCaptureState = bus.on('capture:active', (active) => {
       ui.shadowHost.toggleAttribute('data-annotation-active', active);
+      annotationToggle?.setAttribute('aria-pressed', String(active));
+      annotationToggle?.toggleAttribute('data-active', active);
+      if (annotationToggle) annotationToggle.textContent = active ? 'Stop annotating' : 'Annotate';
     });
   },
 });
