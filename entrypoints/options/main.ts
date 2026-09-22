@@ -1,5 +1,10 @@
 import { defaultPolicy, type SitePolicy } from '../../lib/options/policy';
 import { readPolicy, writePolicy } from '../../lib/options/storage';
+import { PAGE_STYLES } from '../../lib/ui/page-styles';
+
+const pageStyle = document.createElement('style');
+pageStyle.textContent = PAGE_STYLES;
+document.head.append(pageStyle);
 
 const enabledInput = document.querySelector<HTMLInputElement>('#enabled');
 const allowlistForm = document.querySelector<HTMLFormElement>('#allowlist-form');

@@ -2,6 +2,11 @@ import { browser } from 'wxt/browser';
 import { CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
 import { collectAllAnnotations, importAll, parseImport, serialize } from '../../lib/json-io';
 import { sendAnnotationWrite } from '../../lib/annotation-messages';
+import { PAGE_STYLES } from '../../lib/ui/page-styles';
+
+const pageStyle = document.createElement('style');
+pageStyle.textContent = PAGE_STYLES;
+document.head.append(pageStyle);
 
 const toggleButton = document.querySelector<HTMLButtonElement>('#toggle');
 const exportButton = document.querySelector<HTMLButtonElement>('#export');
