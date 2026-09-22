@@ -10,14 +10,15 @@ export function buildSelector(element: Element): string {
   let current: Element | null = element;
 
   while (current) {
-    let segment = current.localName;
-    const parent = current.parentElement;
+    const currentElement: Element = current;
+    let segment = currentElement.localName;
+    const parent: Element | null = currentElement.parentElement;
 
     if (parent) {
       const sameTagSiblings = Array.from(parent.children).filter(
-        (sibling) => sibling.localName === current!.localName,
+        (sibling: Element) => sibling.localName === currentElement.localName,
       );
-      const position = sameTagSiblings.indexOf(current) + 1;
+      const position = sameTagSiblings.indexOf(currentElement) + 1;
       if (position > 0 && sameTagSiblings.length > 1) {
         segment += `:nth-of-type(${position})`;
       }
@@ -40,7 +41,7 @@ function escapeCssIdentifier(value: string): string {
   let escaped = '';
   for (let index = 0; index < value.length; index += 1) {
     const codePoint = value.charCodeAt(index);
-    const character = value[index];
+    const character = value.charAt(index);
 
     if (codePoint === 0) {
       escaped += '\\ufffd';

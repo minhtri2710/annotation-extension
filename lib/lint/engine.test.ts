@@ -89,8 +89,10 @@ describe('lint engine', () => {
     }));
 
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({ ruleId: 'fake-target', detail: 'keep' });
-    expect(findings[0].el).toBe(target);
+    const finding = findings[0];
+    expect(finding).toBeDefined();
+    expect(finding).toMatchObject({ ruleId: 'fake-target', detail: 'keep' });
+    expect(finding?.el).toBe(target);
   });
 
   it('honors skipScan and caches computed styles', () => {

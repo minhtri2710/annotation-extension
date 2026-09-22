@@ -6,12 +6,35 @@ import { importAll, JsonImportError, parseImport, serialize } from './index';
 const firstPage = 'https://example.com/docs?mode=full#intro';
 const secondPage = 'https://example.com/settings';
 
+const firstElementContext = {
+  selector: 'form button[type="submit"]',
+  tagName: 'BUTTON',
+  id: 'submit',
+  classList: ['primary'],
+  text: 'Submit',
+  boundingBox: { x: 0, y: 0, width: 100, height: 40 },
+  url: firstPage,
+  viewport: { width: 1280, height: 720 },
+  sourcePath: { fileName: 'src/Form.tsx', lineNumber: 12 },
+};
+const secondElementContext = {
+  selector: '#account-setting',
+  tagName: 'SECTION',
+  id: 'account-setting',
+  classList: [],
+  text: 'Account',
+  boundingBox: { x: 0, y: 0, width: 200, height: 100 },
+  url: secondPage,
+  viewport: { width: 1280, height: 720 },
+  sourcePath: null,
+};
+
 const firstAnnotation: Annotation = {
   id: 'annotation-first',
   pageUrl: firstPage,
   note: 'Check the submit button',
   selector: 'form button[type="submit"]',
-  elementContext: { tagName: 'BUTTON', text: 'Submit', sourcePath: { lineNumber: 42 } },
+  elementContext: { ...firstElementContext, sourcePath: { fileName: 'src/Form.tsx', lineNumber: 42 } },
   createdAt: '2024-02-01T10:00:00.000Z',
   updatedAt: '2024-02-01T10:05:00.000Z',
   screenshot: 'data:image/png;base64,shot',
@@ -28,7 +51,7 @@ const secondAnnotation: Annotation = {
   pageUrl: secondPage,
   note: 'Review account setting',
   selector: '#account-setting',
-  elementContext: { tagName: 'SECTION', text: 'Account' },
+  elementContext: secondElementContext,
   createdAt: '2024-02-02T11:00:00.000Z',
   updatedAt: '2024-02-02T11:00:00.000Z',
 };
@@ -75,6 +98,12 @@ describe('JSON annotation I/O', () => {
       pageUrl: firstPage,
       note: 'Missing selector and element context',
     };
+    const invalidContextEntry = {
+      pageUrl: firstPage,
+      note: 'Invalid element context',
+      selector: '#target',
+      elementContext: { ...secondAnnotation.elementContext, classList: 'not-an-array' },
+    };
     const validEntry = {
       pageUrl: secondPage,
       note: secondAnnotation.note,
@@ -82,7 +111,7 @@ describe('JSON annotation I/O', () => {
       elementContext: secondAnnotation.elementContext,
     };
 
-    expect(parseImport(JSON.stringify([invalidEntry, validEntry]))).toEqual([
+    expect(parseImport(JSON.stringify([invalidEntry, invalidContextEntry, validEntry]))).toEqual([
       {
         pageUrl: secondPage,
         input: {

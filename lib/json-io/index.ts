@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { isRecord } from '../guards';
 import {
   isAnnotationWriteMessage,
   sendAnnotationWrite,
@@ -79,8 +80,4 @@ function annotationInput(value: AnnotationInput): AnnotationInput {
     ...(value.repro === undefined ? {} : { repro: value.repro }),
     ...(value.cssEdits === undefined ? {} : { cssEdits: value.cssEdits }),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

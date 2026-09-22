@@ -7,8 +7,20 @@ import { format } from '../export/format';
 import { createAnnotationList } from './annotation-list';
 import type { AnnotationListPersistence } from './annotation-list';
 import type { AnnotationExportDelivery } from '../export/delivery';
+import type { ElementContext } from '../capture/context';
 
 const pageUrl = 'https://example.com/article';
+const elementContext: ElementContext = {
+  selector: '#target',
+  tagName: 'BUTTON',
+  id: 'target',
+  classList: [],
+  text: 'Target',
+  boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+  url: pageUrl,
+  viewport: { width: 1280, height: 720 },
+  sourcePath: null,
+};
 
 function annotation(id: string, note: string, screenshot?: string): Annotation {
   return {
@@ -16,7 +28,7 @@ function annotation(id: string, note: string, screenshot?: string): Annotation {
     pageUrl,
     note,
     selector: `#target-${id}`,
-    elementContext: { tagName: 'BUTTON' },
+    elementContext,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
     ...(screenshot ? { screenshot } : {}),

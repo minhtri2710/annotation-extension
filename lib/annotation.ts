@@ -1,3 +1,5 @@
+import type { ElementContext } from './capture/context';
+
 export interface Repro {
   steps: string[];
   expected: string;
@@ -14,7 +16,7 @@ export interface Annotation {
   pageUrl: string;
   note: string;
   selector: string;
-  elementContext: Record<string, unknown>;
+  elementContext: ElementContext;
   createdAt: string;
   updatedAt: string;
   screenshot?: string;

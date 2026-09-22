@@ -5,7 +5,9 @@ export function parsePx(value: string): number | undefined {
   if (!trimmed || /^(?:normal|auto|inherit|initial|unset)$/i.test(trimmed)) return undefined;
   const match = /^(-?(?:\d+\.?\d*|\.\d+))px$/i.exec(trimmed);
   if (!match) return undefined;
-  const number = Number.parseFloat(match[1]);
+  const capturedNumber = match[1];
+  if (capturedNumber === undefined) return undefined;
+  const number = Number.parseFloat(capturedNumber);
   return Number.isFinite(number) ? number : undefined;
 }
 

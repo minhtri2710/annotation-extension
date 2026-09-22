@@ -69,6 +69,7 @@ export function parseColor(css: string): Rgba | undefined {
   const hex = /^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.exec(value);
   if (hex) {
     const raw = hex[1];
+    if (raw === undefined) return undefined;
     const expanded = raw.length <= 4 ? [...raw].map((part) => part + part).join('') : raw;
     return {
       r: Number.parseInt(expanded.slice(0, 2), 16),
@@ -80,25 +81,41 @@ export function parseColor(css: string): Rgba | undefined {
 
   const functionMatch = /^(rgba?|hsla?)\((.*)\)$/i.exec(value);
   if (!functionMatch) return undefined;
-  const [, name, body] = functionMatch;
+  const name = functionMatch[1];
+  const body = functionMatch[2];
+  if (name === undefined || body === undefined) return undefined;
   const parts = splitComponents(body);
   const slash = parts.indexOf('/');
   const values = slash === -1 ? parts : parts.slice(0, slash);
   const alpha = slash === -1 ? parts[3] : parts[slash + 1];
 
   if (name.toLowerCase().startsWith('rgb')) {
-    if (values.length < 3) return undefined;
-    const [r, g, b] = values.map(parseRgbChannel);
-    if ([r, g, b].some((channel) => channel === undefined)) return undefined;
-    return { r: r!, g: g!, b: b!, a: parseAlpha(alpha) };
+    const red = values[0];
+    const green = values[1];
+    const blue = values[2];
+    if (red === undefined || green === undefined || blue === undefined) return undefined;
+    const r = parseRgbChannel(red);
+    const g = parseRgbChannel(green);
+    const b = parseRgbChannel(blue);
+    if (r === undefined || g === undefined || b === undefined) return undefined;
+    return { r, g, b, a: parseAlpha(alpha) };
   }
 
-  if (values.length < 3 || !values[1].endsWith('%') || !values[2].endsWith('%')) {
+  const hueValue = values[0];
+  const saturationValue = values[1];
+  const lightnessValue = values[2];
+  if (
+    hueValue === undefined ||
+    saturationValue === undefined ||
+    lightnessValue === undefined ||
+    !saturationValue.endsWith('%') ||
+    !lightnessValue.endsWith('%')
+  ) {
     return undefined;
   }
-  const hue = parseNumber(values[0].replace(/deg$/i, ''));
-  const saturation = parseNumber(values[1].slice(0, -1));
-  const lightness = parseNumber(values[2].slice(0, -1));
+  const hue = parseNumber(hueValue.replace(/deg$/i, ''));
+  const saturation = parseNumber(saturationValue.slice(0, -1));
+  const lightness = parseNumber(lightnessValue.slice(0, -1));
   if (hue === undefined || saturation === undefined || lightness === undefined) return undefined;
   const rgb = hslToRgb(hue, clamp(saturation / 100, 0, 1), clamp(lightness / 100, 0, 1));
   rgb.a = parseAlpha(alpha);
@@ -139,9 +156,11 @@ export function isNeutralColor(color: Rgba | string | undefined): boolean {
   if (typeof color === 'string') {
     const value = color.trim().toLowerCase();
     const hsl = /^hsla?\([^,]+,\s*([\d.]+)%/i.exec(value);
-    if (hsl) return Number.parseFloat(hsl[1]) < 10;
+    const hslSaturation = hsl?.[1];
+    if (hslSaturation !== undefined) return Number.parseFloat(hslSaturation) < 10;
     const oklch = /^oklch\([^\s]+\s+([\d.]+)/i.exec(value);
-    if (oklch) return Number.parseFloat(oklch[1]) < 0.02;
+    const oklchChroma = oklch?.[1];
+    if (oklchChroma !== undefined) return Number.parseFloat(oklchChroma) < 0.02;
   }
   const parsed = asColor(color);
   if (!parsed) return false;
@@ -152,9 +171,11 @@ export function isAccentColor(color: Rgba | string | undefined): boolean {
   if (typeof color === 'string') {
     const value = color.trim();
     const hsl = /^hsla?\([^,]+,\s*([\d.]+)%/i.exec(value);
-    if (hsl) return Number.parseFloat(hsl[1]) >= 20;
+    const hslSaturation = hsl?.[1];
+    if (hslSaturation !== undefined) return Number.parseFloat(hslSaturation) >= 20;
     const oklch = /^oklch\([^\s]+\s+([\d.]+)/i.exec(value);
-    if (oklch) return Number.parseFloat(oklch[1]) >= 0.05;
+    const oklchChroma = oklch?.[1];
+    if (oklchChroma !== undefined) return Number.parseFloat(oklchChroma) >= 0.05;
   }
   return hasChroma(color, 40);
 }

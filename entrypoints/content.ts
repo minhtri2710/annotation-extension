@@ -94,7 +94,9 @@ export default defineContentScript({
             resetPanelPosition?.();
           }
           const sequence = ++renderSequence;
-          void notePanel.render(context).then(() => {
+          const panel = notePanel;
+          if (!panel) return;
+          void panel.render(context).then(() => {
             if (sequence !== renderSequence) return;
             const { width, height } = shell.panel.getBoundingClientRect();
             const { top, left } = positionPopover(
@@ -117,7 +119,7 @@ export default defineContentScript({
           container: shell.root,
           toolbar: shell.toolbar,
           onActivate: (annotation) => {
-            showNotePanel(annotation.elementContext as unknown as ElementContext);
+            showNotePanel(annotation.elementContext);
           },
         });
         const refreshPins = async () => {

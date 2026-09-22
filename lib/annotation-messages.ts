@@ -1,4 +1,6 @@
 import { browser } from 'wxt/browser';
+import { isRecord } from './guards';
+import type { ElementContext } from './capture/context';
 import type {
   Annotation,
   AnnotationInput,
@@ -61,7 +63,7 @@ function isAnnotationInput(value: unknown): value is AnnotationInput {
     isRecord(value) &&
     typeof value.note === 'string' &&
     typeof value.selector === 'string' &&
-    isRecord(value.elementContext) &&
+    isElementContext(value.elementContext) &&
     (value.screenshot === undefined || typeof value.screenshot === 'string') &&
     (value.repro === undefined || isRepro(value.repro)) &&
     (value.cssEdits === undefined || isCssEdits(value.cssEdits))
@@ -73,7 +75,7 @@ function isAnnotationUpdate(value: unknown): value is AnnotationUpdate {
   return (
     (value.note === undefined || typeof value.note === 'string') &&
     (value.selector === undefined || typeof value.selector === 'string') &&
-    (value.elementContext === undefined || isRecord(value.elementContext)) &&
+    (value.elementContext === undefined || isElementContext(value.elementContext)) &&
     (value.screenshot === undefined || typeof value.screenshot === 'string') &&
     (value.repro === undefined || isRepro(value.repro)) &&
     (value.cssEdits === undefined || isCssEdits(value.cssEdits))
@@ -90,6 +92,45 @@ function isRepro(value: unknown): value is Repro {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+export function isElementContext(value: unknown): value is ElementContext {
+  if (!isRecord(value)) return false;
+  const boundingBox = value.boundingBox;
+  const viewport = value.viewport;
+  if (
+    !isRecord(boundingBox) ||
+    !isRecord(viewport) ||
+    typeof value.selector !== 'string' ||
+    typeof value.tagName !== 'string' ||
+    typeof value.id !== 'string' ||
+    !isStringArray(value.classList) ||
+    typeof value.text !== 'string' ||
+    !isFiniteNumber(boundingBox.x) ||
+    !isFiniteNumber(boundingBox.y) ||
+    !isFiniteNumber(boundingBox.width) ||
+    !isFiniteNumber(boundingBox.height) ||
+    typeof value.url !== 'string' ||
+    !isFiniteNumber(viewport.width) ||
+    !isFiniteNumber(viewport.height)
+  ) {
+    return false;
+  }
+
+  return value.sourcePath === null || isSourcePath(value.sourcePath);
+}
+
+function isSourcePath(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.fileName === 'string' &&
+    value.fileName.length > 0 &&
+    (value.lineNumber === undefined || isFiniteNumber(value.lineNumber))
+  );
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }

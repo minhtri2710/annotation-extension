@@ -1,3 +1,5 @@
+import { isObject } from '../guards';
+
 export interface SourcePath {
   fileName: string;
   lineNumber?: number;
@@ -12,7 +14,7 @@ export function resolveSourcePath(element: Element): SourcePath | null {
   for (const key of Object.getOwnPropertyNames(element)) {
     if (!key.startsWith('__reactFiber$') && !key.startsWith('__reactInternalInstance$')) continue;
 
-    const source = readDebugSource((element as unknown as Record<string, unknown>)[key]);
+    const source = readDebugSource(readOwnProperty(element, key));
     if (source) return source;
   }
 
@@ -28,8 +30,12 @@ export function resolveSourcePath(element: Element): SourcePath | null {
   return null;
 }
 
+function readOwnProperty(element: Element, key: string): unknown {
+  return Reflect.get(element, key);
+}
+
 function readDebugSource(fiber: unknown): SourcePath | null {
-  if (!isRecord(fiber)) return null;
+  if (!isObject(fiber)) return null;
   return normalizeSource(fiber._debugSource);
 }
 
@@ -46,10 +52,12 @@ function parseSourceHint(value: string): SourcePath | null {
   }
 
   const match = /^(.*?)(?::(\d+))(?::\d+)?$/.exec(trimmed);
-  if (match) {
+  const fileName = match?.[1];
+  const lineNumber = match?.[2];
+  if (fileName !== undefined && lineNumber !== undefined) {
     return {
-      fileName: match[1],
-      lineNumber: Number(match[2]),
+      fileName,
+      lineNumber: Number(lineNumber),
     };
   }
 
@@ -57,15 +65,11 @@ function parseSourceHint(value: string): SourcePath | null {
 }
 
 function normalizeSource(value: unknown): SourcePath | null {
-  if (!isRecord(value) || typeof value.fileName !== 'string' || !value.fileName) return null;
+  if (!isObject(value) || typeof value.fileName !== 'string' || !value.fileName) return null;
 
   const source: SourcePath = { fileName: value.fileName };
   if (typeof value.lineNumber === 'number' && Number.isFinite(value.lineNumber)) {
     source.lineNumber = value.lineNumber;
   }
   return source;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }

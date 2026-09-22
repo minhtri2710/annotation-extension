@@ -1,13 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from '../annotation';
 import { buildAnnotationRows, buildInspectExpression } from './devtools';
+import type { ElementContext } from '../capture/context';
+
+const elementContext: ElementContext = {
+  selector: '#target',
+  tagName: 'BUTTON',
+  id: 'target',
+  classList: [],
+  text: 'Target',
+  boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+  url: 'https://example.com/page',
+  viewport: { width: 1280, height: 720 },
+  sourcePath: null,
+};
 
 const annotation = (note: string, selector: string): Annotation => ({
   id: `${note}-id`,
   pageUrl: 'https://example.com/page',
   note,
   selector,
-  elementContext: {},
+  elementContext,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 });

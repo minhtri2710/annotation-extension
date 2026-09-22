@@ -2,9 +2,21 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Annotation } from '../annotation';
+import type { ElementContext } from '../capture/context';
 import { createNotePanelPersistence } from './persistence';
 
 const pageUrl = 'https://example.com/article';
+const elementContext: ElementContext = {
+  selector: '#target',
+  tagName: 'DIV',
+  id: 'target',
+  classList: [],
+  text: '',
+  boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+  url: pageUrl,
+  viewport: { width: 1280, height: 720 },
+  sourcePath: null,
+};
 
 function annotation(id: string, selector: string): Annotation {
   return {
@@ -12,7 +24,7 @@ function annotation(id: string, selector: string): Annotation {
     pageUrl,
     note: id,
     selector,
-    elementContext: {},
+    elementContext,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
   };

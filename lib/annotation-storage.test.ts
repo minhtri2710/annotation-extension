@@ -15,7 +15,17 @@ const secondPage = 'https://example.com/other';
 const firstInput: AnnotationInput = {
   note: 'Check this heading',
   selector: 'main h1',
-  elementContext: { tagName: 'H1', text: 'Documentation' },
+  elementContext: {
+    selector: 'main h1',
+    tagName: 'H1',
+    id: '',
+    classList: [],
+    text: 'Documentation',
+    boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+    url: firstPage,
+    viewport: { width: 1280, height: 720 },
+    sourcePath: null,
+  },
 };
 
 beforeEach(() => {

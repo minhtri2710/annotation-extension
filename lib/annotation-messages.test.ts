@@ -10,6 +10,17 @@ import {
 } from './annotation-messages';
 
 const pageUrl = 'https://example.com/message-test';
+const elementContext = {
+  selector: '#target',
+  tagName: 'BUTTON',
+  id: 'target',
+  classList: ['primary'],
+  text: 'Target',
+  boundingBox: { x: 1, y: 2, width: 100, height: 40 },
+  url: pageUrl,
+  viewport: { width: 1280, height: 720 },
+  sourcePath: null,
+};
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -39,7 +50,7 @@ describe('annotation write messages', () => {
         type: 'annotation.update',
         pageUrl,
         id: 'annotation-1',
-        changes: { note: 'still valid', selector: '#target', elementContext: { tagName: 'BUTTON' } },
+        changes: { note: 'still valid', selector: '#target', elementContext },
       }),
     ).toBe(true);
     expect(
@@ -49,7 +60,7 @@ describe('annotation write messages', () => {
         input: {
           note: 'with screenshot',
           selector: '#target',
-          elementContext: { tagName: 'BUTTON' },
+          elementContext,
           screenshot: 'data:image/png;base64,shot',
         },
       }),
@@ -61,11 +72,37 @@ describe('annotation write messages', () => {
         input: {
           note: 'bad screenshot',
           selector: '#target',
-          elementContext: { tagName: 'BUTTON' },
+          elementContext,
           screenshot: 5,
         },
       }),
     ).toBe(false);
+  });
+
+  it('accepts complete contexts and rejects incomplete write contexts', () => {
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.add',
+        pageUrl,
+        input: { note: 'valid context', selector: '#target', elementContext },
+      }),
+    ).toBe(true);
+
+    const { boundingBox: _boundingBox, ...missingField } = elementContext;
+    const invalidContexts = [
+      missingField,
+      { ...elementContext, classList: 'primary' },
+      { ...elementContext, sourcePath: { lineNumber: 42 } },
+    ];
+    for (const invalidContext of invalidContexts) {
+      expect(
+        isAnnotationWriteMessage({
+          type: 'annotation.add',
+          pageUrl,
+          input: { note: 'invalid context', selector: '#target', elementContext: invalidContext },
+        }),
+      ).toBe(false);
+    }
   });
 
   it('validates css edit shapes without weakening existing updates', () => {
@@ -143,7 +180,7 @@ describe('annotation write messages', () => {
       input: {
         note: 'Created through the worker',
         selector: '#target',
-        elementContext: { tagName: 'BUTTON' },
+        elementContext,
       },
     });
 
