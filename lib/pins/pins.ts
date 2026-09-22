@@ -17,10 +17,17 @@ interface TrackedPin {
   annotation: Annotation;
   element: Element;
   marker: HTMLButtonElement;
+  hovered: boolean;
+  focused: boolean;
+  pulseTimeout?: number;
 }
 
 const BADGE_ATTRIBUTE = 'data-annotation-badge';
 const MARKER_ATTRIBUTE = 'data-annotation-id';
+const TOOLTIP_ATTRIBUTE = 'data-annotation-tooltip';
+const PIN_CLASS = 'annotation-pin';
+const PULSE_CLASS = 'locate-pulse';
+const NOTE_PREVIEW_LENGTH = 120;
 const MARKER_STYLE = [
   'position: fixed',
   'z-index: 2147483647',
@@ -33,7 +40,6 @@ const MARKER_STYLE = [
   'box-shadow: 0 1px 4px rgba(23, 32, 51, 0.35)',
   'color: #ffffff',
   'cursor: pointer',
-  'font: inherit',
   'line-height: 14px',
   'pointer-events: auto',
   'transform: translate(-50%, -50%)',
@@ -48,6 +54,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
 
   let trackedPins: TrackedPin[] = [];
   let frame: number | undefined;
+  let tooltip: HTMLDivElement | undefined;
   let destroyed = false;
 
   const reanchor = () => {
@@ -80,24 +87,60 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   view?.addEventListener('resize', scheduleReanchor, true);
 
   const setAnnotations = (annotations: Annotation[]) => {
-    for (const pin of trackedPins) pin.marker.remove();
+    for (const pin of trackedPins) {
+      clearPulse(pin);
+      pin.marker.remove();
+    }
     trackedPins = [];
+    hideTooltip();
     badge.textContent = String(annotations.length);
 
-    for (const annotation of annotations) {
+    annotations.forEach((annotation, index) => {
       const element = resolveElement(options.document, annotation.selector);
-      if (!element) continue;
+      if (!element) return;
 
       const marker = options.document.createElement('button');
+      const pin: TrackedPin = {
+        annotation,
+        element,
+        marker,
+        hovered: false,
+        focused: false,
+      };
       marker.type = 'button';
+      marker.className = PIN_CLASS;
       marker.setAttribute(MARKER_ATTRIBUTE, annotation.id);
-      marker.setAttribute('aria-label', `Open annotation ${annotation.id}`);
-      marker.textContent = '•';
+      marker.setAttribute('aria-label', `Annotation ${index + 1}`);
+      marker.textContent = String(index + 1);
       marker.style.cssText = MARKER_STYLE;
-      marker.addEventListener('click', () => options.onActivate?.(annotation));
+      marker.addEventListener('mouseenter', () => {
+        pin.hovered = true;
+        showTooltip(pin);
+      });
+      marker.addEventListener('mouseleave', () => {
+        pin.hovered = false;
+        updateTooltip(pin);
+      });
+      marker.addEventListener('focus', () => {
+        pin.focused = true;
+        showTooltip(pin);
+      });
+      marker.addEventListener('blur', () => {
+        pin.focused = false;
+        updateTooltip(pin);
+      });
+      marker.addEventListener('click', () => {
+        marker.classList.add(PULSE_CLASS);
+        if (pin.pulseTimeout !== undefined) view?.clearTimeout(pin.pulseTimeout);
+        pin.pulseTimeout = view?.setTimeout(() => {
+          pin.pulseTimeout = undefined;
+          marker.classList.remove(PULSE_CLASS);
+        }, 500);
+        options.onActivate?.(annotation);
+      });
       options.container.append(marker);
-      trackedPins.push({ annotation, element, marker });
-    }
+      trackedPins.push(pin);
+    });
 
     reanchor();
   };
@@ -112,12 +155,59 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       view?.cancelAnimationFrame(frame);
       frame = undefined;
     }
-    for (const pin of trackedPins) pin.marker.remove();
+    for (const pin of trackedPins) {
+      clearPulse(pin);
+      pin.marker.remove();
+    }
     trackedPins = [];
+    hideTooltip();
     badge.remove();
   };
 
   return { setAnnotations, reanchor, destroy };
+
+  function showTooltip(pin: TrackedPin): void {
+    if (destroyed) return;
+    if (!tooltip) {
+      tooltip = options.document.createElement('div');
+      tooltip.setAttribute(TOOLTIP_ATTRIBUTE, '');
+      tooltip.className = 'annotation-pin-tooltip';
+      tooltip.setAttribute('role', 'tooltip');
+      options.container.append(tooltip);
+    }
+    tooltip.textContent = truncateNote(pin.annotation.note);
+    const rect = pin.marker.getBoundingClientRect();
+    tooltip.style.left = `${rect.right + 8}px`;
+    tooltip.style.top = `${rect.top}px`;
+    tooltip.hidden = false;
+  }
+
+  function updateTooltip(pin: TrackedPin): void {
+    if (pin.hovered || pin.focused) {
+      showTooltip(pin);
+    } else {
+      hideTooltip();
+    }
+  }
+
+  function hideTooltip(): void {
+    tooltip?.remove();
+    tooltip = undefined;
+  }
+
+  function clearPulse(pin: TrackedPin): void {
+    if (pin.pulseTimeout !== undefined) {
+      view?.clearTimeout(pin.pulseTimeout);
+      pin.pulseTimeout = undefined;
+    }
+    pin.marker.classList.remove(PULSE_CLASS);
+  }
+}
+
+function truncateNote(note: string): string {
+  return note.length > NOTE_PREVIEW_LENGTH
+    ? `${note.slice(0, NOTE_PREVIEW_LENGTH)}…`
+    : note;
 }
 
 function resolveElement(document: Document, selector: string): Element | null {

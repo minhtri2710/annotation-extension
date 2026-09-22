@@ -62,6 +62,55 @@ describe('pins controller', () => {
     controller.destroy();
   });
 
+  it('labels markers with their 1-based annotation ordinal', () => {
+    const { toolbar, overlay } = setup();
+    const secondTarget = document.createElement('button');
+    secondTarget.id = 'second-target';
+    document.body.append(secondTarget);
+    const controller = createPinsController({ document, container: overlay, toolbar });
+
+    controller.setAnnotations([
+      annotation('annotation-1'),
+      annotation('annotation-2', '#missing'),
+      annotation('annotation-3', '#second-target'),
+    ]);
+
+    const markers = Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-annotation-id]'));
+    expect(markers.map((marker) => marker.textContent)).toEqual(['1', '3']);
+    expect(markers.map((marker) => marker.getAttribute('aria-label'))).toEqual([
+      'Annotation 1',
+      'Annotation 3',
+    ]);
+    controller.destroy();
+  });
+
+  it('shows and tears down a truncated note tooltip on hover and focus', () => {
+    const { toolbar, overlay } = setup();
+    const matching = annotation('annotation-1');
+    matching.note = 'P'.repeat(121);
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([matching]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+
+    marker.dispatchEvent(new Event('mouseenter'));
+    const hoverTooltip = overlay.querySelector('[data-annotation-tooltip]');
+    expect(hoverTooltip?.textContent).toBe(`${'P'.repeat(120)}…`);
+    expect(hoverTooltip?.parentElement).toBe(overlay);
+
+    marker.dispatchEvent(new Event('mouseleave'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+
+    marker.dispatchEvent(new Event('focus'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+    marker.dispatchEvent(new Event('blur'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+
+    marker.dispatchEvent(new Event('mouseenter'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+    controller.destroy();
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+  });
+
   it('re-anchors tracked markers against their current element rect', () => {
     const { toolbar, overlay, target } = setup();
     const getBoundingClientRect = vi
@@ -99,8 +148,10 @@ describe('pins controller', () => {
     const controller = createPinsController({ document, container: overlay, toolbar, onActivate });
     controller.setAnnotations([matching]);
 
-    (overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement).click();
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    marker.click();
 
+    expect(marker.classList.contains('locate-pulse')).toBe(true);
     expect(onActivate).toHaveBeenCalledTimes(1);
     expect(onActivate).toHaveBeenCalledWith(matching);
     controller.destroy();

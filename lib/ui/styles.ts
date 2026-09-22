@@ -58,8 +58,58 @@ ${ANNOTATION_DARK_TOKENS}
   pointer-events: auto;
 }
 
-[data-annotation-shell] [data-annotation-mount] > * + * {
+[data-annotation-shell] [data-annotation-mount="panel"]:empty {
+  display: none;
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] > * + * {
   margin-top: var(--annotation-space-3);
+}
+
+[data-annotation-shell] .annotation-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+[data-annotation-shell] .annotation-pin-tooltip {
+  position: fixed;
+  z-index: 2147483647;
+  max-width: 16rem;
+  padding: var(--annotation-space-1) var(--annotation-space-2);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-sm);
+  background: var(--annotation-color-surface);
+  color: var(--annotation-color-text);
+  box-shadow: 0 0.25rem 1rem rgba(23, 32, 51, 0.2);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  pointer-events: none;
+  animation: annotation-tooltip-fade-in 120ms ease-out;
+}
+
+@keyframes annotation-tooltip-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes locate-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.18); }
+}
+
+[data-annotation-shell] .locate-pulse {
+  animation: locate-pulse 500ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-annotation-shell] .annotation-pin-tooltip,
+  [data-annotation-shell] .locate-pulse {
+    animation: none;
+  }
 }
 
 [data-annotation-shell] [data-annotation-mount] button,
