@@ -35,9 +35,10 @@ function annotation(note: string): Annotation {
 async function render(panel: HTMLDivElement, annotations: Annotation[] = [], persistence?: NotePanelPersistence) {
   const listAnnotations = persistence?.listAnnotations ?? vi.fn().mockResolvedValue(annotations);
   const sendAnnotationWrite = persistence?.sendAnnotationWrite ?? vi.fn().mockResolvedValue(undefined);
-  const notePanel = createNotePanel(panel, { listAnnotations, sendAnnotationWrite });
+  const captureScreenshot = persistence?.captureScreenshot ?? vi.fn();
+  const notePanel = createNotePanel(panel, { listAnnotations, sendAnnotationWrite, captureScreenshot });
   await notePanel.render(context);
-  return { listAnnotations, sendAnnotationWrite };
+  return { listAnnotations, sendAnnotationWrite, captureScreenshot };
 }
 
 describe('note panel', () => {
@@ -50,6 +51,7 @@ describe('note panel', () => {
     await render(panel, [], {
       listAnnotations,
       sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot: vi.fn(),
     });
 
     const item = panel.querySelector('[data-annotation-id="annotation-1"]');
@@ -66,7 +68,11 @@ describe('note panel', () => {
     const panel = document.createElement('div');
     const listAnnotations = vi.fn().mockResolvedValue([]);
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    await render(panel, [], { listAnnotations, sendAnnotationWrite });
+    await render(panel, [], {
+      listAnnotations,
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+    });
 
     const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
     note.value = 'New note';
@@ -81,12 +87,53 @@ describe('note panel', () => {
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
   });
 
+  it('captures a screenshot through the persistence seam and updates the annotation', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('With screenshot control');
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const captureScreenshot = vi.fn().mockResolvedValue('data:image/png;base64,captured');
+    const { captureScreenshot: capture } = await render(panel, [], {
+      listAnnotations,
+      sendAnnotationWrite,
+      captureScreenshot,
+    });
+
+    (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
+
+    expect(capture).toHaveBeenCalledWith(existing);
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.update',
+      pageUrl,
+      id: existing.id,
+      changes: { screenshot: 'data:image/png;base64,captured' },
+    } satisfies AnnotationWriteMessage);
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+  });
+
+  it('renders an existing screenshot preview', async () => {
+    const panel = document.createElement('div');
+    const existing = { ...annotation('Preview me'), screenshot: 'data:image/png;base64,existing' };
+    await render(panel, [existing], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot: vi.fn(),
+    });
+
+    const preview = panel.querySelector('[data-annotation-screenshot]') as HTMLImageElement;
+    expect(preview).not.toBeNull();
+    expect(preview.src).toBe(existing.screenshot);
+  });
+
   it('does not add an empty or whitespace-only note', async () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
     await render(panel, [], {
       listAnnotations: vi.fn().mockResolvedValue([]),
       sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
     });
 
     const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
@@ -101,7 +148,11 @@ describe('note panel', () => {
     const panel = document.createElement('div');
     const listAnnotations = vi.fn().mockResolvedValue([annotation('Before')]);
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    await render(panel, [], { listAnnotations, sendAnnotationWrite });
+    await render(panel, [], {
+      listAnnotations,
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+    });
 
     const note = panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
     note.value = 'After';
@@ -123,6 +174,7 @@ describe('note panel', () => {
     await render(panel, [], {
       listAnnotations: vi.fn().mockResolvedValue([annotation('Before')]),
       sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
     });
 
     const note = panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
@@ -137,7 +189,11 @@ describe('note panel', () => {
     const panel = document.createElement('div');
     const listAnnotations = vi.fn().mockResolvedValue([annotation('To delete')]);
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    await render(panel, [], { listAnnotations, sendAnnotationWrite });
+    await render(panel, [], {
+      listAnnotations,
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+    });
 
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));

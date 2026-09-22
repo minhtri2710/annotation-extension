@@ -47,7 +47,8 @@ function isAnnotationInput(value: unknown): value is AnnotationInput {
     isRecord(value) &&
     typeof value.note === 'string' &&
     typeof value.selector === 'string' &&
-    isRecord(value.elementContext)
+    isRecord(value.elementContext) &&
+    (value.screenshot === undefined || typeof value.screenshot === 'string')
   );
 }
 
@@ -56,7 +57,8 @@ function isAnnotationUpdate(value: unknown): value is AnnotationUpdate {
   return (
     (value.note === undefined || typeof value.note === 'string') &&
     (value.selector === undefined || typeof value.selector === 'string') &&
-    (value.elementContext === undefined || isRecord(value.elementContext))
+    (value.elementContext === undefined || isRecord(value.elementContext)) &&
+    (value.screenshot === undefined || typeof value.screenshot === 'string')
   );
 }
 

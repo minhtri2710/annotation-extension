@@ -75,6 +75,17 @@ describe('annotation storage', () => {
     await expect(listAnnotations(firstPage)).resolves.toEqual([updated]);
   });
 
+  it('persists an optional screenshot on update', async () => {
+    const created = await addAnnotation(firstPage, firstInput);
+
+    await expect(
+      updateAnnotation(firstPage, created.id, { screenshot: 'data:image/png;base64,shot' }),
+    ).resolves.toMatchObject({ screenshot: 'data:image/png;base64,shot' });
+    await expect(listAnnotations(firstPage)).resolves.toMatchObject([
+      { id: created.id, screenshot: 'data:image/png;base64,shot' },
+    ]);
+  });
+
   it('treats an update for a missing id as a null no-op', async () => {
     await expect(
       updateAnnotation(firstPage, 'missing-id', { note: 'Should not be stored' }),

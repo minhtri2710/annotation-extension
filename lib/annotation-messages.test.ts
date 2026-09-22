@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import background from '../entrypoints/background';
 import { listAnnotations } from './annotation-storage';
-import { sendAnnotationWrite } from './annotation-messages';
+import { isAnnotationWriteMessage, sendAnnotationWrite } from './annotation-messages';
 
 const pageUrl = 'https://example.com/message-test';
 
@@ -12,6 +12,57 @@ beforeEach(() => {
 });
 
 describe('annotation write messages', () => {
+  it('validates optional screenshot changes without weakening existing updates', () => {
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { screenshot: 'data:image/png;base64,shot' },
+      }),
+    ).toBe(true);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { screenshot: 5 },
+      }),
+    ).toBe(false);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { note: 'still valid', selector: '#target', elementContext: { tagName: 'BUTTON' } },
+      }),
+    ).toBe(true);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.add',
+        pageUrl,
+        input: {
+          note: 'with screenshot',
+          selector: '#target',
+          elementContext: { tagName: 'BUTTON' },
+          screenshot: 'data:image/png;base64,shot',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.add',
+        pageUrl,
+        input: {
+          note: 'bad screenshot',
+          selector: '#target',
+          elementContext: { tagName: 'BUTTON' },
+          screenshot: 5,
+        },
+      }),
+    ).toBe(false);
+  });
+
   it('routes mutations through the background write owner', async () => {
     const created = await sendAnnotationWrite({
       type: 'annotation.add',

@@ -4,6 +4,7 @@ import {
   isAnnotationWriteMessage,
   type AnnotationWriteMessage,
 } from '../lib/annotation-messages';
+import { isScreenshotCaptureMessage } from '../lib/screenshot/messages';
 import {
   addAnnotation,
   clearAnnotations,
@@ -38,6 +39,13 @@ export default defineBackground(() => {
     })();
 
     mutation.then(sendResponse);
+    return true;
+  });
+
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!isScreenshotCaptureMessage(message)) return;
+
+    browser.tabs.captureVisibleTab().then(sendResponse);
     return true;
   });
 });

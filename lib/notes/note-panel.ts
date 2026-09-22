@@ -89,6 +89,29 @@ export function createNotePanel(
         context,
       );
     });
+    const capture = document.createElement('button');
+    capture.type = 'button';
+    capture.dataset.annotationCaptureScreenshot = '';
+    capture.textContent = 'Capture screenshot';
+    capture.addEventListener('click', () => {
+      void (async () => {
+        try {
+          const screenshot = await persistence.captureScreenshot(annotation);
+          if (!screenshot) return;
+          await mutate(
+            {
+              type: 'annotation.update',
+              pageUrl: context.url,
+              id: annotation.id,
+              changes: { screenshot },
+            },
+            context,
+          );
+        } catch {
+          // Capture failures are intentionally fail-closed.
+        }
+      })();
+    });
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.dataset.annotationDelete = '';
@@ -99,7 +122,14 @@ export function createNotePanel(
         context,
       );
     });
-    item.append(note, edit, remove);
+    item.append(note, edit, capture, remove);
+    if (annotation.screenshot) {
+      const preview = document.createElement('img');
+      preview.dataset.annotationScreenshot = '';
+      preview.src = annotation.screenshot;
+      preview.alt = 'Annotation screenshot';
+      item.append(preview);
+    }
     return item;
   }
 
