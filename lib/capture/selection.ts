@@ -17,7 +17,6 @@ export interface CaptureController {
 export interface CaptureControllerOptions {
   document: Document;
   shadowHost: HTMLElement;
-  panel: HTMLElement;
   bus?: EventBus<CaptureEvents>;
 }
 
@@ -38,10 +37,6 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   highlight.style.cssText = HIGHLIGHT_STYLE;
   highlight.hidden = true;
   options.shadowHost.shadowRoot?.append(highlight);
-  const unsubscribeContext = bus.on('element:selected', (context) => {
-    renderContext(options.panel, context);
-  });
-
   let active = false;
   let hoveredElement: Element | null = null;
 
@@ -94,7 +89,6 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
 
   const destroy = () => {
     deactivate();
-    unsubscribeContext();
     highlight.remove();
   };
 
@@ -134,12 +128,4 @@ function isExtensionEvent(event: Event, shadowHost: HTMLElement): boolean {
 
 function isExtensionElement(element: Element, shadowHost: HTMLElement): boolean {
   return element === shadowHost || shadowHost.shadowRoot?.contains(element) === true;
-}
-
-function renderContext(panel: HTMLElement, context: ElementContext): void {
-  panel.replaceChildren();
-  const readout = panel.ownerDocument.createElement('pre');
-  readout.dataset.annotationContext = '';
-  readout.textContent = JSON.stringify(context, null, 2);
-  panel.append(readout);
 }

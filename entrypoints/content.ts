@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { buildOverlayShell } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
+import { createNotePanel } from '../lib/notes/note-panel';
 import {
   createCaptureController,
   isCaptureToggleMessage,
@@ -12,6 +13,7 @@ export default defineContentScript({
   async main(ctx) {
     const bus = createEventBus<CaptureEvents>();
     let controller: ReturnType<typeof createCaptureController> | undefined;
+    let unsubscribeSelection: (() => void) | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
@@ -24,15 +26,20 @@ export default defineContentScript({
               ? window.matchMedia('(prefers-color-scheme: dark)').matches
               : undefined,
         });
+        const notePanel = createNotePanel(shell.panel);
+        unsubscribeSelection = bus.on('element:selected', (context) => {
+          void notePanel.render(context);
+        });
         controller = createCaptureController({
           document,
           shadowHost,
-          panel: shell.panel,
           bus,
         });
         return shell;
       },
       onRemove: () => {
+        unsubscribeSelection?.();
+        unsubscribeSelection = undefined;
         controller?.destroy();
         controller = undefined;
       },
