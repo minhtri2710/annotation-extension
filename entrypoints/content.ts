@@ -33,7 +33,9 @@ export default defineContentScript({
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
-      position: 'inline',
+      position: 'overlay',
+      alignment: 'bottom-right',
+      zIndex: 2147483646,
       onMount: (container, _shadow, shadowHost) => {
         const shell = buildOverlayShell(container, {
           theme: 'system',
