@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
-import { createPinsController } from './pins';
+import { createPinsController, resolveElement } from './pins';
 
 const pageUrl = 'https://example.com/article';
 const context: ElementContext = {
@@ -36,6 +36,27 @@ function setup() {
   const overlay = document.querySelector('#overlay') as HTMLDivElement;
   return { toolbar, overlay, target: document.querySelector('#target') as HTMLElement };
 }
+
+describe('resolveElement', () => {
+  it('resolves a valid selector', () => {
+    setup();
+
+    expect(resolveElement(document, '#target')).toBe(document.querySelector('#target'));
+  });
+
+  it('returns null for a missing element', () => {
+    setup();
+
+    expect(resolveElement(document, '#missing')).toBeNull();
+  });
+
+  it('returns null for an invalid selector without throwing', () => {
+    setup();
+
+    expect(() => resolveElement(document, '[')).not.toThrow();
+    expect(resolveElement(document, '[')).toBeNull();
+  });
+});
 
 describe('pins controller', () => {
   it('renders one marker for each annotation with a resolvable selector', () => {

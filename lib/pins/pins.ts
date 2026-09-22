@@ -210,7 +210,7 @@ function truncateNote(note: string): string {
     : note;
 }
 
-function resolveElement(document: Document, selector: string): Element | null {
+export function resolveElement(document: Document, selector: string): Element | null {
   try {
     return document.querySelector(selector);
   } catch {

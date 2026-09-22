@@ -1,16 +1,12 @@
 import type { Annotation } from '../annotation';
+import { resolveElement } from '../pins/pins';
 import type { ElementContext } from '../capture/context';
 
 export function resolveLiveElementContext(
   document: Document,
   annotation: Annotation,
 ): ElementContext | undefined {
-  let element: Element | null;
-  try {
-    element = document.querySelector(annotation.selector);
-  } catch {
-    return undefined;
-  }
+  const element = resolveElement(document, annotation.selector);
   if (!element) return undefined;
 
   const rect = element.getBoundingClientRect();
