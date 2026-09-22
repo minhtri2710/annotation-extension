@@ -15,6 +15,8 @@ export type AnnotationWriteMessage =
   | { type: 'annotation.delete'; pageUrl: string; id: string }
   | { type: 'annotation.clear'; pageUrl: string };
 
+export type AnnotationErrorResponse = { ok: false; error: string };
+
 export type AnnotationWriteResponse<T extends AnnotationWriteMessage> = T extends {
   type: 'annotation.add';
 }
@@ -24,6 +26,14 @@ export type AnnotationWriteResponse<T extends AnnotationWriteMessage> = T extend
     : T extends { type: 'annotation.delete' }
       ? boolean
       : void;
+
+export function isAnnotationErrorResponse(value: unknown): value is AnnotationErrorResponse {
+  return isRecord(value) && value.ok === false && typeof value.error === 'string';
+}
+
+export function createAnnotationErrorResponse(error: unknown): AnnotationErrorResponse {
+  return { ok: false, error: error instanceof Error ? error.message : String(error) };
+}
 
 export function isAnnotationWriteMessage(value: unknown): value is AnnotationWriteMessage {
   if (!isRecord(value) || typeof value.pageUrl !== 'string' || typeof value.type !== 'string') {
@@ -47,7 +57,12 @@ export function isAnnotationWriteMessage(value: unknown): value is AnnotationWri
 export function sendAnnotationWrite<T extends AnnotationWriteMessage>(
   message: T,
 ): Promise<AnnotationWriteResponse<T>> {
-  return browser.runtime.sendMessage<AnnotationWriteMessage, AnnotationWriteResponse<T>>(message);
+  return browser.runtime
+    .sendMessage<AnnotationWriteMessage, AnnotationWriteResponse<T> | AnnotationErrorResponse>(message)
+    .then((response) => {
+      if (isAnnotationErrorResponse(response)) throw new Error(response.error);
+      return response;
+    });
 }
 
 export function isCssEdit(value: unknown): value is CssEdit {

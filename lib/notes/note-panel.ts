@@ -13,8 +13,10 @@ export function createNotePanel(
   persistence: NotePanelPersistence = createNotePanelPersistence(),
 ): NotePanel {
   let selectedContext: ElementContext | undefined;
+  let statusMessage: string | undefined;
 
   async function render(context: ElementContext): Promise<void> {
+    if (selectedContext && selectedContext.selector !== context.selector) statusMessage = undefined;
     selectedContext = context;
     const annotations = (await persistence.listAnnotations(context.url)).filter(
       (annotation) => annotation.selector === context.selector,
@@ -26,6 +28,12 @@ export function createNotePanel(
     const heading = document.createElement('h2');
     heading.textContent = 'Notes';
     panel.append(heading);
+    if (statusMessage) {
+      const status = document.createElement('p');
+      status.dataset.annotationStatus = '';
+      status.textContent = statusMessage;
+      panel.append(status);
+    }
 
     for (const annotation of annotations) {
       panel.append(createAnnotationItem(document, annotation, context));
@@ -46,7 +54,7 @@ export function createNotePanel(
         type: 'annotation.add',
         pageUrl: context.url,
         input: { note: value, selector: context.selector, elementContext: context },
-      }, context);
+      }, context).catch(() => undefined);
     };
     save.addEventListener('click', add);
     form.append(note, save);
@@ -58,8 +66,14 @@ export function createNotePanel(
   }
 
   async function mutate(message: AnnotationWriteMessage, context: ElementContext): Promise<void> {
-    await persistence.sendAnnotationWrite(message);
-    await render(context);
+    try {
+      await persistence.sendAnnotationWrite(message);
+      statusMessage = undefined;
+      await render(context);
+    } catch (error) {
+      statusMessage = errorMessage(error);
+      await render(context);
+    }
   }
 
   function createAnnotationItem(
@@ -111,8 +125,9 @@ export function createNotePanel(
             },
             context,
           );
-        } catch {
-          // Capture failures are intentionally fail-closed.
+        } catch (error) {
+          statusMessage = errorMessage(error);
+          await render(context);
         }
       })();
     });
@@ -252,6 +267,10 @@ export function createNotePanel(
   }
 
   return { render, teardown };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function parseCssEdits(value: string): CssEdit[] {

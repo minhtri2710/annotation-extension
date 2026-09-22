@@ -109,6 +109,78 @@ describe('note panel', () => {
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
   });
 
+  it('shows a write error and keeps the note form after a rejected save', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockRejectedValue(new Error('write failed'));
+    await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([]),
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+    });
+
+    const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+    note.value = 'Keep this form';
+    (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(panel.textContent).toContain('write failed'));
+    expect(panel.querySelector('[data-annotation-new-note]')).not.toBeNull();
+  });
+
+  it('scopes failure status to the selected element', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockRejectedValue(new Error('write failed'));
+    const { notePanel } = await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([]),
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+    });
+
+    const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+    note.value = 'Fail on A';
+    (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(panel.textContent).toContain('write failed'));
+
+    await notePanel.render(context);
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('write failed');
+
+    const contextB = { ...context, selector: '#other', id: 'other' };
+    await notePanel.render(contextB);
+    expect(panel.querySelector('[data-annotation-status]')).toBeNull();
+  });
+
+  it('shows a capture error and keeps the annotation item after capture rejects', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Capture failure');
+    const captureScreenshot = vi.fn().mockRejectedValue(new Error('capture failed'));
+    await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot,
+    });
+
+    (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(panel.textContent).toContain('capture failed'));
+    expect(panel.querySelector(`[data-annotation-id="${existing.id}"]`)).not.toBeNull();
+    expect(panel.querySelector('[data-annotation-screenshot]')).toBeNull();
+  });
+
+  it('shows a capture write error and keeps the annotation item', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Capture write failure');
+    const sendAnnotationWrite = vi.fn().mockRejectedValue(new Error('capture write failed'));
+    await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn().mockResolvedValue('data:image/png;base64,captured'),
+    });
+
+    (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(panel.textContent).toContain('capture write failed'));
+    expect(panel.querySelector(`[data-annotation-id="${existing.id}"]`)).not.toBeNull();
+  });
+
   it('captures a screenshot through the persistence seam and updates the annotation', async () => {
     const panel = document.createElement('div');
     const existing = annotation('With screenshot control');

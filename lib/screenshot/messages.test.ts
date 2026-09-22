@@ -31,6 +31,15 @@ describe('screenshot capture messages', () => {
     expect(sendMessage).toHaveBeenCalledWith({ type: 'screenshot.capture' });
   });
 
+  it('rejects when the background returns a capture error response', async () => {
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({
+      ok: false,
+      error: 'capture denied',
+    } as never);
+
+    await expect(sendScreenshotCapture()).rejects.toThrow('capture denied');
+  });
+
   it('routes capture requests to the background visible-tab API', async () => {
     const dataUrl = 'data:image/png;base64,background-capture';
     const captureVisibleTab = vi
@@ -39,6 +48,37 @@ describe('screenshot capture messages', () => {
 
     await expect(sendScreenshotCapture()).resolves.toBe(dataUrl);
     expect(captureVisibleTab).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a rejected visible-tab capture with an error response', async () => {
+    vi.spyOn(browser.tabs, 'captureVisibleTab').mockRejectedValue(new Error('capture denied'));
+    const sendResponse = vi.fn();
+
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'screenshot.capture' },
+      {
+        tab: {
+          index: 0,
+          pinned: false,
+          highlighted: false,
+          windowId: 42,
+          active: true,
+          frozen: false,
+          incognito: false,
+          selected: true,
+          discarded: false,
+          autoDiscardable: true,
+          groupId: -1,
+          lastAccessed: 0,
+        },
+      },
+      sendResponse,
+    );
+
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'capture denied' }),
+    );
+    expect(browser.tabs.captureVisibleTab).toHaveBeenCalledWith(42);
   });
 
   it('keeps screenshot and annotation message guards disjoint', () => {

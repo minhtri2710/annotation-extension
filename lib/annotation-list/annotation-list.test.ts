@@ -104,6 +104,19 @@ describe('annotation list', () => {
     expect(delivery.downloadAsset).toHaveBeenNthCalledWith(2, secondScreenshot, 'annotations-annotation-2.png');
   });
 
+  it('shows a write error and keeps the list after delete rejects', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Keep after failure')]);
+    vi.mocked(store.sendAnnotationWrite).mockRejectedValue(new Error('delete failed'));
+    const list = createAnnotationList(panel, pageUrl, store);
+
+    await list.render();
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(panel.textContent).toContain('delete failed'));
+    expect(panel.querySelector('[data-annotation-row]')).not.toBeNull();
+  });
+
   it('deletes a row through the write owner and re-reads the list', async () => {
     const panel = document.createElement('div');
     const store = persistence([annotation('annotation-1', 'Delete me')]);

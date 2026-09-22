@@ -26,6 +26,7 @@ export function createAnnotationList(
   delivery: AnnotationExportDelivery = productionExportDelivery,
 ): AnnotationList {
   let renderVersion = 0;
+  let statusMessage: string | undefined;
 
   async function render(): Promise<void> {
     const version = ++renderVersion;
@@ -38,6 +39,12 @@ export function createAnnotationList(
     const heading = document.createElement('h2');
     heading.textContent = 'All annotations';
     panel.append(heading);
+    if (statusMessage) {
+      const status = document.createElement('p');
+      status.dataset.annotationStatus = '';
+      status.textContent = statusMessage;
+      panel.append(status);
+    }
 
     const clear = document.createElement('button');
     clear.type = 'button';
@@ -123,8 +130,14 @@ export function createAnnotationList(
   }
 
   async function mutate(message: AnnotationWriteMessage): Promise<void> {
-    await persistence.sendAnnotationWrite(message);
-    await render();
+    try {
+      await persistence.sendAnnotationWrite(message);
+      statusMessage = undefined;
+      await render();
+    } catch (error) {
+      statusMessage = errorMessage(error);
+      await render();
+    }
   }
 
   function clear(): void {
@@ -133,4 +146,8 @@ export function createAnnotationList(
   }
 
   return { render, clear };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

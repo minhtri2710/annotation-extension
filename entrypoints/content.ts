@@ -4,6 +4,7 @@ import { createAnnotationList } from '../lib/annotation-list/annotation-list';
 import { createNotePanel } from '../lib/notes/note-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import type { ElementContext } from '../lib/capture/context';
+import { resolveLiveElementContext } from '../lib/wiring/live-element';
 import { buildOverlayShell, positionPopover } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
 import { pageKey } from '../utils/page-key';
@@ -119,7 +120,8 @@ export default defineContentScript({
           container: shell.root,
           toolbar: shell.toolbar,
           onActivate: (annotation) => {
-            showNotePanel(annotation.elementContext);
+            const context = resolveLiveElementContext(document, annotation);
+            if (context) showNotePanel(context);
           },
         });
         const refreshPins = async () => {

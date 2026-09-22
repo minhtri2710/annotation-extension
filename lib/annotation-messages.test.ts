@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { browser } from 'wxt/browser';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import background from '../entrypoints/background';
 import { listAnnotations } from './annotation-storage';
@@ -23,6 +24,7 @@ const elementContext = {
 };
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   fakeBrowser.reset();
   background.main();
 });
@@ -171,6 +173,39 @@ describe('annotation write messages', () => {
         changes: { repro: { steps: ['a'], expected: 5, actual: 'y' } },
       }),
     ).toBe(false);
+  });
+
+  it('answers a rejected storage mutation with an error response', async () => {
+    vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('storage unavailable'));
+    const sendResponse = vi.fn();
+
+    await fakeBrowser.runtime.onMessage.trigger(
+      {
+        type: 'annotation.add',
+        pageUrl,
+        input: { note: 'failed write', selector: '#target', elementContext },
+      },
+      {},
+      sendResponse,
+    );
+
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'storage unavailable' }),
+    );
+  });
+
+  it('rejects when the background returns a write error response', async () => {
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({
+      ok: false,
+      error: 'storage unavailable',
+    } as never);
+
+    await expect(
+      sendAnnotationWrite({
+        type: 'annotation.clear',
+        pageUrl,
+      }),
+    ).rejects.toThrow('storage unavailable');
   });
 
   it('routes mutations through the background write owner', async () => {
