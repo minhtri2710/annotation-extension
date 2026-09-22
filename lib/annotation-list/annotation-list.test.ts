@@ -3,8 +3,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { AnnotationWriteMessage } from '../annotation-messages';
+import { format } from '../export/format';
 import { createAnnotationList } from './annotation-list';
 import type { AnnotationListPersistence } from './annotation-list';
+import type { AnnotationExportDelivery } from '../export/delivery';
 
 const pageUrl = 'https://example.com/article';
 
@@ -43,7 +45,7 @@ describe('annotation list', () => {
     expect(panel.querySelectorAll('[data-annotation-delete]')).toHaveLength(2);
   });
 
-  it('renders an empty state and no rows when there are no annotations', async () => {
+  it('renders an empty state and no export controls when there are no annotations', async () => {
     const panel = document.createElement('div');
     const store = persistence([]);
     const list = createAnnotationList(panel, pageUrl, store);
@@ -52,6 +54,30 @@ describe('annotation list', () => {
 
     expect(panel.querySelector('[data-annotation-empty-state]')).not.toBeNull();
     expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(0);
+    expect(panel.querySelector('[data-annotation-export]')).toBeNull();
+  });
+
+  it('copies and downloads the selected template output', async () => {
+    const panel = document.createElement('div');
+    const annotations = [annotation('annotation-1', 'Export me'), annotation('annotation-2', 'And me')];
+    const store = persistence(annotations);
+    const delivery: AnnotationExportDelivery = {
+      copy: vi.fn().mockResolvedValue(undefined),
+      download: vi.fn(),
+    };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+
+    await list.render();
+    const select = panel.querySelector('[data-annotation-export-template]') as HTMLSelectElement;
+    select.value = 'claude-code';
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(delivery.copy).toHaveBeenCalledTimes(1));
+
+    const markdown = format(annotations, 'claude-code', pageUrl);
+    expect(delivery.copy).toHaveBeenCalledWith(markdown);
+
+    (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
+    expect(delivery.download).toHaveBeenCalledWith(markdown, expect.stringMatching(/\.md$/));
   });
 
   it('deletes a row through the write owner and re-reads the list', async () => {

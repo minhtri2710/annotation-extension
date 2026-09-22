@@ -1,4 +1,9 @@
 import type { Annotation } from '../annotation';
+import { format, exportTemplates, type ExportTemplate } from '../export/format';
+import {
+  productionExportDelivery,
+  type AnnotationExportDelivery,
+} from '../export/delivery';
 import { listAnnotations } from '../annotation-storage';
 import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 
@@ -18,6 +23,7 @@ export function createAnnotationList(
   panel: HTMLElement,
   pageUrl: string,
   persistence: AnnotationListPersistence = productionPersistence,
+  delivery: AnnotationExportDelivery = productionExportDelivery,
 ): AnnotationList {
   let renderVersion = 0;
 
@@ -50,10 +56,51 @@ export function createAnnotationList(
       return;
     }
 
+    panel.append(createExportSection(document, annotations));
+
     const rows = document.createElement('div');
     rows.dataset.annotationRows = '';
     for (const annotation of annotations) rows.append(createRow(document, annotation));
     panel.append(rows);
+  }
+
+  function createExportSection(document: Document, annotations: Annotation[]): HTMLElement {
+    const section = document.createElement('section');
+    section.dataset.annotationExport = '';
+
+    const heading = document.createElement('h3');
+    heading.textContent = 'Export';
+
+    const select = document.createElement('select');
+    select.dataset.annotationExportTemplate = '';
+    select.setAttribute('aria-label', 'Export template');
+    for (const template of exportTemplates) {
+      const option = document.createElement('option');
+      option.value = template.id;
+      option.textContent = template.label;
+      select.append(option);
+    }
+
+    const markdown = () => format(annotations, select.value as ExportTemplate, pageUrl);
+
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.dataset.annotationExportCopy = '';
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', () => {
+      void delivery.copy(markdown()).catch(() => undefined);
+    });
+
+    const download = document.createElement('button');
+    download.type = 'button';
+    download.dataset.annotationExportDownload = '';
+    download.textContent = 'Download';
+    download.addEventListener('click', () => {
+      delivery.download(markdown(), 'annotations.md');
+    });
+
+    section.append(heading, select, copy, download);
+    return section;
   }
 
   function createRow(document: Document, annotation: Annotation): HTMLElement {
