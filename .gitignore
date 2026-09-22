@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# WXT build output
+.output/
+.wxt/
+dist/
+web-ext-artifacts/
+*.zip
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
