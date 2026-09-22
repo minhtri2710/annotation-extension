@@ -57,6 +57,30 @@ describe('Markdown annotation formatter', () => {
     expect(markdown).toContain('Actual: An error appears');
   });
 
+  it('renders css tweaks when an annotation has non-empty css edits', () => {
+    const markdown = format(
+      [
+        annotation({
+          cssEdits: [
+            { property: 'color', value: 'red' },
+            { property: 'margin', value: '1rem' },
+          ],
+        }),
+      ],
+      'generic',
+      pageUrl,
+    );
+
+    expect(markdown).toContain('### CSS tweaks');
+    expect(markdown).toContain('color: red');
+    expect(markdown).toContain('margin: 1rem');
+  });
+
+  it('omits the css block when css edits are absent or empty', () => {
+    expect(format([annotation()], 'generic', pageUrl)).not.toContain('### CSS tweaks');
+    expect(format([annotation({ cssEdits: [] })], 'generic', pageUrl)).not.toContain('### CSS tweaks');
+  });
+
   it('omits the repro block when an annotation has no repro', () => {
     const markdown = format([annotation()], 'generic', pageUrl);
 

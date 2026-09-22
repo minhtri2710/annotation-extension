@@ -45,6 +45,7 @@ export async function updateAnnotation(
       elementContext: changes.elementContext ?? existing.elementContext,
       screenshot: changes.screenshot ?? existing.screenshot,
       repro: changes.repro ?? existing.repro,
+      cssEdits: changes.cssEdits ?? existing.cssEdits,
       createdAt: existing.createdAt,
       updatedAt: nextTimestamp(existing.updatedAt),
     };

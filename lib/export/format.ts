@@ -48,6 +48,9 @@ export function format(annotations: Annotation[], template: ExportTemplate, page
             `Actual: ${annotation.repro.actual}`,
           ].join('\n')
         : undefined,
+      annotation.cssEdits && annotation.cssEdits.length > 0
+        ? ['### CSS tweaks', ...annotation.cssEdits.map(({ property, value }) => `${property}: ${value}`)].join('\n')
+        : undefined,
     ];
     return lines.filter((line): line is string => line !== undefined).join('\n');
   });

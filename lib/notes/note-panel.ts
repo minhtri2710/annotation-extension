@@ -1,4 +1,4 @@
-import type { Annotation } from '../annotation';
+import type { Annotation, CssEdit } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import type { AnnotationWriteMessage } from '../annotation-messages';
 import { createNotePanelPersistence, type NotePanelPersistence } from './persistence';
@@ -134,6 +134,28 @@ export function createNotePanel(
     reproActual.dataset.annotationReproActual = '';
     reproActual.value = annotation.repro?.actual ?? '';
     reproActual.setAttribute('aria-label', `Actual result ${annotation.id}`);
+    const cssDecls = document.createElement('textarea');
+    cssDecls.dataset.annotationCssDecls = '';
+    cssDecls.value = annotation.cssEdits?.map(({ property, value }) => `${property}: ${value}`).join('\n') ?? '';
+    cssDecls.setAttribute('aria-label', `CSS declarations ${annotation.id}`);
+    const saveCss = document.createElement('button');
+    saveCss.type = 'button';
+    saveCss.dataset.annotationCssSave = '';
+    saveCss.textContent = 'Save CSS';
+    saveCss.addEventListener('click', () => {
+      const edits = parseCssEdits(cssDecls.value);
+      if (edits.length === 0) return;
+      persistence.applyCssEdits(annotation, edits);
+      void mutate(
+        {
+          type: 'annotation.update',
+          pageUrl: context.url,
+          id: annotation.id,
+          changes: { cssEdits: edits },
+        },
+        context,
+      );
+    });
     const saveRepro = document.createElement('button');
     saveRepro.type = 'button';
     saveRepro.dataset.annotationReproSave = '';
@@ -156,7 +178,17 @@ export function createNotePanel(
         context,
       );
     });
-    item.append(note, edit, capture, remove, reproSteps, reproExpected, reproActual, saveRepro);
+    item.append(note, edit, capture, remove, cssDecls, saveCss, reproSteps, reproExpected, reproActual, saveRepro);
+    if (annotation.cssEdits && annotation.cssEdits.length > 0) {
+      const readout = document.createElement('ul');
+      readout.dataset.annotationCss = '';
+      for (const { property, value } of annotation.cssEdits) {
+        const entry = document.createElement('li');
+        entry.textContent = `${property}: ${value}`;
+        readout.append(entry);
+      }
+      item.append(readout);
+    }
     if (annotation.repro) {
       const readout = document.createElement('div');
       readout.dataset.annotationRepro = '';
@@ -184,4 +216,15 @@ export function createNotePanel(
   }
 
   return { render };
+}
+
+function parseCssEdits(value: string): CssEdit[] {
+  return value.split(/\r?\n/).flatMap((line) => {
+    const separator = line.indexOf(':');
+    if (separator === -1) return [];
+
+    const property = line.slice(0, separator).trim();
+    const editValue = line.slice(separator + 1).trim();
+    return property && editValue ? [{ property, value: editValue }] : [];
+  });
 }

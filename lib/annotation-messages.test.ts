@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import background from '../entrypoints/background';
 import { listAnnotations } from './annotation-storage';
-import { isAnnotationWriteMessage, sendAnnotationWrite } from './annotation-messages';
+import {
+  isAnnotationWriteMessage,
+  isCssEdit,
+  isCssEdits,
+  sendAnnotationWrite,
+} from './annotation-messages';
 
 const pageUrl = 'https://example.com/message-test';
 
@@ -59,6 +64,47 @@ describe('annotation write messages', () => {
           elementContext: { tagName: 'BUTTON' },
           screenshot: 5,
         },
+      }),
+    ).toBe(false);
+  });
+
+  it('validates css edit shapes without weakening existing updates', () => {
+    expect(isCssEdit({ property: 'color', value: 'red' })).toBe(true);
+    expect(isCssEdit({ property: 'color' })).toBe(false);
+    expect(isCssEdits([{ property: 'color', value: 'red' }])).toBe(true);
+    expect(isCssEdits('nope')).toBe(false);
+    expect(isCssEdits([{ property: 'color' }])).toBe(false);
+    expect(isCssEdits([{ property: 1, value: 'red' }])).toBe(false);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { cssEdits: [{ property: 'color', value: 'red' }] },
+      }),
+    ).toBe(true);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { cssEdits: 'nope' },
+      }),
+    ).toBe(false);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { cssEdits: [{ property: 'color' }] },
+      }),
+    ).toBe(false);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { cssEdits: [{ property: 1, value: 'red' }] },
       }),
     ).toBe(false);
   });

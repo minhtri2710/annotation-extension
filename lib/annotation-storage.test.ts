@@ -86,6 +86,25 @@ describe('annotation storage', () => {
     ]);
   });
 
+  it('persists css edits on update while leaving other fields intact', async () => {
+    const created = await addAnnotation(firstPage, firstInput);
+    const cssEdits = [{ property: 'color', value: 'red' }, { property: 'margin', value: '1rem' }];
+
+    const updated = await updateAnnotation(firstPage, created.id, { cssEdits });
+
+    expect(updated).toStrictEqual({
+      ...created,
+      screenshot: undefined,
+      repro: undefined,
+      cssEdits,
+      updatedAt: expect.any(String),
+    });
+    expect(updated?.note).toBe(created.note);
+    expect(updated?.selector).toBe(created.selector);
+    expect(updated?.elementContext).toEqual(created.elementContext);
+    await expect(listAnnotations(firstPage)).resolves.toEqual([updated]);
+  });
+
   it('persists a repro on update while leaving other fields intact', async () => {
     const created = await addAnnotation(firstPage, firstInput);
     const repro = { steps: ['Open the page', 'Click the button'], expected: 'Dialog opens', actual: 'Nothing happens' };

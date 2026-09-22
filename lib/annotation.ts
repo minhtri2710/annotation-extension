@@ -4,6 +4,11 @@ export interface Repro {
   actual: string;
 }
 
+export interface CssEdit {
+  property: string;
+  value: string;
+}
+
 export interface Annotation {
   id: string;
   pageUrl: string;
@@ -14,11 +19,12 @@ export interface Annotation {
   updatedAt: string;
   screenshot?: string;
   repro?: Repro;
+  cssEdits?: CssEdit[];
 }
 
 export type AnnotationInput = Pick<
   Annotation,
-  'note' | 'selector' | 'elementContext' | 'screenshot' | 'repro'
+  'note' | 'selector' | 'elementContext' | 'screenshot' | 'repro' | 'cssEdits'
 >;
 
 export type AnnotationUpdate = Partial<AnnotationInput>;

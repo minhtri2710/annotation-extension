@@ -32,13 +32,23 @@ function annotation(note: string): Annotation {
   };
 }
 
-async function render(panel: HTMLDivElement, annotations: Annotation[] = [], persistence?: NotePanelPersistence) {
+async function render(
+  panel: HTMLDivElement,
+  annotations: Annotation[] = [],
+  persistence?: Partial<NotePanelPersistence>,
+) {
   const listAnnotations = persistence?.listAnnotations ?? vi.fn().mockResolvedValue(annotations);
   const sendAnnotationWrite = persistence?.sendAnnotationWrite ?? vi.fn().mockResolvedValue(undefined);
   const captureScreenshot = persistence?.captureScreenshot ?? vi.fn();
-  const notePanel = createNotePanel(panel, { listAnnotations, sendAnnotationWrite, captureScreenshot });
+  const applyCssEdits = persistence?.applyCssEdits ?? vi.fn();
+  const notePanel = createNotePanel(panel, {
+    listAnnotations,
+    sendAnnotationWrite,
+    captureScreenshot,
+    applyCssEdits,
+  });
   await notePanel.render(context);
-  return { listAnnotations, sendAnnotationWrite, captureScreenshot };
+  return { listAnnotations, sendAnnotationWrite, captureScreenshot, applyCssEdits };
 }
 
 describe('note panel', () => {
@@ -111,6 +121,78 @@ describe('note panel', () => {
       changes: { screenshot: 'data:image/png;base64,captured' },
     } satisfies AnnotationWriteMessage);
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+  });
+
+  it('applies and saves parsed css edits once, then re-reads storage', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('CSS target');
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn();
+    const { applyCssEdits: apply } = await render(panel, [], {
+      listAnnotations,
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+      applyCssEdits,
+    });
+
+    (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value =
+      '  color: red  \n\ninvalid line\n margin : 1rem: extra \n : missing-property \n padding:   ';
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+
+    const cssEdits = [
+      { property: 'color', value: 'red' },
+      { property: 'margin', value: '1rem: extra' },
+    ];
+    await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+    expect(apply).toHaveBeenCalledWith(existing, cssEdits);
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.update',
+      pageUrl,
+      id: existing.id,
+      changes: { cssEdits },
+    } satisfies AnnotationWriteMessage);
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+  });
+
+  it('renders saved css edit read-out', async () => {
+    const panel = document.createElement('div');
+    const existing = {
+      ...annotation('Saved CSS'),
+      cssEdits: [{ property: 'color', value: 'red' }, { property: 'display', value: 'block' }],
+    };
+    await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot: vi.fn(),
+      applyCssEdits: vi.fn(),
+    });
+
+    const readout = panel.querySelector('[data-annotation-css]');
+    expect(readout).not.toBeNull();
+    expect(readout?.textContent).toContain('color: red');
+    expect(readout?.textContent).toContain('display: block');
+  });
+
+  it('does not apply or save css edits when every line is invalid or blank', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn();
+    const { applyCssEdits: apply } = await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([annotation('Empty CSS')]),
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+      applyCssEdits,
+    });
+
+    (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value =
+      '\nblank only\n: missing property\nproperty:   ';
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    await Promise.resolve();
+
+    expect(apply).not.toHaveBeenCalled();
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
   });
 
   it('saves a trimmed repro once and re-reads storage', async () => {

@@ -1,5 +1,11 @@
 import { browser } from 'wxt/browser';
-import type { Annotation, AnnotationInput, AnnotationUpdate, Repro } from './annotation';
+import type {
+  Annotation,
+  AnnotationInput,
+  AnnotationUpdate,
+  CssEdit,
+  Repro,
+} from './annotation';
 
 export type AnnotationWriteMessage =
   | { type: 'annotation.add'; pageUrl: string; input: AnnotationInput }
@@ -42,6 +48,14 @@ export function sendAnnotationWrite<T extends AnnotationWriteMessage>(
   return browser.runtime.sendMessage<AnnotationWriteMessage, AnnotationWriteResponse<T>>(message);
 }
 
+export function isCssEdit(value: unknown): value is CssEdit {
+  return isRecord(value) && typeof value.property === 'string' && typeof value.value === 'string';
+}
+
+export function isCssEdits(value: unknown): value is CssEdit[] {
+  return Array.isArray(value) && value.every(isCssEdit);
+}
+
 function isAnnotationInput(value: unknown): value is AnnotationInput {
   return (
     isRecord(value) &&
@@ -49,7 +63,8 @@ function isAnnotationInput(value: unknown): value is AnnotationInput {
     typeof value.selector === 'string' &&
     isRecord(value.elementContext) &&
     (value.screenshot === undefined || typeof value.screenshot === 'string') &&
-    (value.repro === undefined || isRepro(value.repro))
+    (value.repro === undefined || isRepro(value.repro)) &&
+    (value.cssEdits === undefined || isCssEdits(value.cssEdits))
   );
 }
 
@@ -60,7 +75,8 @@ function isAnnotationUpdate(value: unknown): value is AnnotationUpdate {
     (value.selector === undefined || typeof value.selector === 'string') &&
     (value.elementContext === undefined || isRecord(value.elementContext)) &&
     (value.screenshot === undefined || typeof value.screenshot === 'string') &&
-    (value.repro === undefined || isRepro(value.repro))
+    (value.repro === undefined || isRepro(value.repro)) &&
+    (value.cssEdits === undefined || isCssEdits(value.cssEdits))
   );
 }
 
