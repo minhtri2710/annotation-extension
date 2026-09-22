@@ -1,45 +1,25 @@
 import type { Annotation } from '../annotation';
 
-export const exportTemplates = [
-  { id: 'generic', label: 'Generic' },
-  { id: 'claude-code', label: 'Claude Code' },
-  { id: 'cursor', label: 'Cursor' },
-] as const;
+export function screenshotAssetFilename(annotationId: string): string {
+  return `annotations-${annotationId}.png`;
+}
 
-export type ExportTemplate = (typeof exportTemplates)[number]['id'];
-
-type TemplateDefinition = {
-  heading: string;
-  guidance: string;
-};
-
-const templateDefinitions: Record<ExportTemplate, TemplateDefinition> = {
-  generic: {
-    heading: '# Page annotations',
-    guidance: 'Review the following annotations for this page.',
-  },
-  'claude-code': {
-    heading: '# Claude Code task context',
-    guidance: 'Use these page annotations to guide the implementation.',
-  },
-  cursor: {
-    heading: '# Cursor page context',
-    guidance: 'Use these page annotations while editing the codebase.',
-  },
-};
-
-export function format(annotations: Annotation[], template: ExportTemplate, pageUrl: string): string {
+export function format(annotations: Annotation[], pageUrl: string): string {
   if (annotations.length === 0) return 'No annotations found on this page.';
 
-  const definition = templateDefinitions[template];
-  const blocks = annotations.map((annotation, index) => {
+  const orderedAnnotations = [...annotations].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const blocks = orderedAnnotations.map((annotation, index) => {
     const sourcePath = readSourcePath(annotation.elementContext);
+    const element = formatElementContext(annotation.elementContext);
     const lines = [
       `## Annotation ${index + 1}`,
       `- Note: ${annotation.note}`,
       `- Selector: ${annotation.selector}`,
+      element ? `- Element: ${element}` : undefined,
       sourcePath ? `- Source: ${sourcePath}` : undefined,
-      annotation.screenshot ? `![Annotation screenshot](${annotation.screenshot})` : undefined,
+      annotation.screenshot
+        ? `![Annotation screenshot](./${screenshotAssetFilename(annotation.id)})`
+        : undefined,
       annotation.repro
         ? [
             '### Reproduction',
@@ -55,7 +35,29 @@ export function format(annotations: Annotation[], template: ExportTemplate, page
     return lines.filter((line): line is string => line !== undefined).join('\n');
   });
 
-  return [definition.heading, definition.guidance, `Page: ${pageUrl}`, ...blocks].join('\n\n');
+  const host = new URL(pageUrl).host;
+  return [
+    '# Page annotations',
+    'Review the following annotations for this page.',
+    `Page URL: ${pageUrl}`,
+    `Host: ${host}`,
+    `Annotation count: ${orderedAnnotations.length}`,
+    ...blocks,
+  ].join('\n\n');
+}
+
+function formatElementContext(elementContext: unknown): string | undefined {
+  if (!isRecord(elementContext)) return undefined;
+
+  const tagName = typeof elementContext.tagName === 'string' ? elementContext.tagName : '';
+  const id = typeof elementContext.id === 'string' ? elementContext.id : '';
+  const classList = Array.isArray(elementContext.classList)
+    ? elementContext.classList.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : [];
+  const text = typeof elementContext.text === 'string' ? elementContext.text.replace(/\s+/g, ' ').trim() : '';
+  const identity = `${tagName}${id ? `#${id}` : ''}${classList.map((className) => `.${className}`).join('')}`;
+  if (!identity && !text) return undefined;
+  return `${identity || 'element'}${text ? ` "${text}"` : ''}`;
 }
 
 function readSourcePath(elementContext: unknown): string | undefined {

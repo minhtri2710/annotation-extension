@@ -1,5 +1,5 @@
 import type { Annotation } from '../annotation';
-import { format, exportTemplates, type ExportTemplate } from '../export/format';
+import { format, screenshotAssetFilename } from '../export/format';
 import {
   productionExportDelivery,
   type AnnotationExportDelivery,
@@ -71,17 +71,7 @@ export function createAnnotationList(
     const heading = document.createElement('h3');
     heading.textContent = 'Export';
 
-    const select = document.createElement('select');
-    select.dataset.annotationExportTemplate = '';
-    select.setAttribute('aria-label', 'Export template');
-    for (const template of exportTemplates) {
-      const option = document.createElement('option');
-      option.value = template.id;
-      option.textContent = template.label;
-      select.append(option);
-    }
-
-    const markdown = () => format(annotations, select.value as ExportTemplate, pageUrl);
+    const markdown = () => format(annotations, pageUrl);
 
     const copy = document.createElement('button');
     copy.type = 'button';
@@ -97,9 +87,12 @@ export function createAnnotationList(
     download.textContent = 'Download';
     download.addEventListener('click', () => {
       delivery.download(markdown(), 'annotations.md');
+      for (const annotation of annotations) {
+        if (annotation.screenshot) delivery.downloadAsset(annotation.screenshot, screenshotAssetFilename(annotation.id));
+      }
     });
 
-    section.append(heading, select, copy, download);
+    section.append(heading, copy, download);
     return section;
   }
 

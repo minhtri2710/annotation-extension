@@ -10,7 +10,7 @@ import type { AnnotationExportDelivery } from '../export/delivery';
 
 const pageUrl = 'https://example.com/article';
 
-function annotation(id: string, note: string): Annotation {
+function annotation(id: string, note: string, screenshot?: string): Annotation {
   return {
     id,
     pageUrl,
@@ -19,6 +19,7 @@ function annotation(id: string, note: string): Annotation {
     elementContext: { tagName: 'BUTTON' },
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
+    ...(screenshot ? { screenshot } : {}),
   };
 }
 
@@ -57,27 +58,38 @@ describe('annotation list', () => {
     expect(panel.querySelector('[data-annotation-export]')).toBeNull();
   });
 
-  it('copies and downloads the selected template output', async () => {
+  it('copies one format and downloads its Markdown plus screenshot assets', async () => {
     const panel = document.createElement('div');
-    const annotations = [annotation('annotation-1', 'Export me'), annotation('annotation-2', 'And me')];
+    const screenshot = 'data:image/png;base64,abc123';
+    const secondScreenshot = 'data:image/png;base64,def456';
+    const annotations = [
+      annotation('annotation-1', 'Export me', screenshot),
+      annotation('annotation-2', 'And me', secondScreenshot),
+    ];
     const store = persistence(annotations);
     const delivery: AnnotationExportDelivery = {
       copy: vi.fn().mockResolvedValue(undefined),
       download: vi.fn(),
+      downloadAsset: vi.fn(),
     };
     const list = createAnnotationList(panel, pageUrl, store, delivery);
 
     await list.render();
-    const select = panel.querySelector('[data-annotation-export-template]') as HTMLSelectElement;
-    select.value = 'claude-code';
+    expect(panel.querySelector('[data-annotation-export-template]')).toBeNull();
+
     (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(delivery.copy).toHaveBeenCalledTimes(1));
 
-    const markdown = format(annotations, 'claude-code', pageUrl);
+    const markdown = format(annotations, pageUrl);
     expect(delivery.copy).toHaveBeenCalledWith(markdown);
+    expect(markdown).not.toContain(screenshot);
+    expect(markdown).not.toContain(secondScreenshot);
 
     (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
     expect(delivery.download).toHaveBeenCalledWith(markdown, expect.stringMatching(/\.md$/));
+    expect(delivery.downloadAsset).toHaveBeenCalledTimes(2);
+    expect(delivery.downloadAsset).toHaveBeenNthCalledWith(1, screenshot, 'annotations-annotation-1.png');
+    expect(delivery.downloadAsset).toHaveBeenNthCalledWith(2, secondScreenshot, 'annotations-annotation-2.png');
   });
 
   it('deletes a row through the write owner and re-reads the list', async () => {

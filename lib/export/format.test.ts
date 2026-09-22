@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from '../annotation';
-import { format, exportTemplates } from './format';
+import { format } from './format';
 
 const pageUrl = 'https://example.com/article';
 const screenshot = 'data:image/png;base64,abc123';
@@ -13,6 +13,9 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
     selector: '#submit-button',
     elementContext: {
       tagName: 'BUTTON',
+      id: 'submit-button',
+      classList: ['primary', 'wide'],
+      text: 'Inspect this button',
       sourcePath: { fileName: 'src/App.tsx', lineNumber: 42 },
     },
     createdAt: '2024-01-01T00:00:00.000Z',
@@ -22,18 +25,31 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
 }
 
 describe('Markdown annotation formatter', () => {
-  it.each(exportTemplates.map((template) => template.id))(
-    'includes annotation details for the %s template',
-    (template) => {
-      const markdown = format([annotation({ screenshot })], template, pageUrl);
+  it('includes the header, element context, source, and relative screenshot asset link', () => {
+    const markdown = format([annotation({ screenshot })], pageUrl);
 
-      expect(markdown).toContain('Inspect this button');
-      expect(markdown).toContain('#submit-button');
-      expect(markdown).toContain('src/App.tsx:42');
-      expect(markdown).toContain(pageUrl);
-      expect(markdown).toContain('![Annotation screenshot](data:image/png;base64,abc123)');
-    },
-  );
+    expect(markdown).toContain('# Page annotations');
+    expect(markdown).toContain(`Page URL: ${pageUrl}`);
+    expect(markdown).toContain('Host: example.com');
+    expect(markdown).toContain('Annotation count: 1');
+    expect(markdown).toContain('Inspect this button');
+    expect(markdown).toContain('#submit-button');
+    expect(markdown).toContain('- Element: BUTTON#submit-button.primary.wide "Inspect this button"');
+    expect(markdown).toContain('src/App.tsx:42');
+    expect(markdown).toContain('![Annotation screenshot](./annotations-annotation-1.png)');
+    expect(markdown).not.toContain(screenshot);
+  });
+
+  it('orders annotations by createdAt regardless of input order', () => {
+    const older = annotation({ id: 'older', note: 'Older note', createdAt: '2024-01-01T00:00:00.000Z' });
+    const newer = annotation({ id: 'newer', note: 'Newer note', createdAt: '2024-01-02T00:00:00.000Z' });
+
+    const markdown = format([newer, older], pageUrl);
+
+    expect(markdown.indexOf('Older note')).toBeLessThan(markdown.indexOf('Newer note'));
+    expect(markdown).toContain('## Annotation 1');
+    expect(markdown).toContain('## Annotation 2');
+  });
 
   it('renders repro steps and expected versus actual details', () => {
     const markdown = format(
@@ -46,7 +62,6 @@ describe('Markdown annotation formatter', () => {
           },
         }),
       ],
-      'generic',
       pageUrl,
     );
 
@@ -67,7 +82,6 @@ describe('Markdown annotation formatter', () => {
           ],
         }),
       ],
-      'generic',
       pageUrl,
     );
 
@@ -76,33 +90,15 @@ describe('Markdown annotation formatter', () => {
     expect(markdown).toContain('margin: 1rem');
   });
 
-  it('omits the css block when css edits are absent or empty', () => {
-    expect(format([annotation()], 'generic', pageUrl)).not.toContain('### CSS tweaks');
-    expect(format([annotation({ cssEdits: [] })], 'generic', pageUrl)).not.toContain('### CSS tweaks');
-  });
+  it('omits optional blocks when their data is absent', () => {
+    const markdown = format([annotation()], pageUrl);
 
-  it('omits the repro block when an annotation has no repro', () => {
-    const markdown = format([annotation()], 'generic', pageUrl);
-
+    expect(markdown).not.toContain('### CSS tweaks');
     expect(markdown).not.toContain('### Reproduction');
-    expect(markdown).not.toContain('Expected:');
-    expect(markdown).not.toContain('Actual:');
-  });
-
-  it('omits the screenshot line when an annotation has no screenshot', () => {
-    const markdown = format([annotation()], 'generic', pageUrl);
-
     expect(markdown).not.toContain('![Annotation screenshot]');
   });
 
-  it('renders fixed templates differently for the same annotations', () => {
-    const generic = format([annotation()], 'generic', pageUrl);
-    const claudeCode = format([annotation()], 'claude-code', pageUrl);
-
-    expect(generic).not.toBe(claudeCode);
-  });
-
   it('renders a no-annotations message for an empty list', () => {
-    expect(format([], 'generic', pageUrl)).toBe('No annotations found on this page.');
+    expect(format([], pageUrl)).toBe('No annotations found on this page.');
   });
 });
