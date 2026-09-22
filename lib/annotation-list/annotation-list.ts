@@ -6,10 +6,12 @@ import {
 } from '../export/delivery';
 import { listAnnotations } from '../annotation-storage';
 import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
+import { sendScreenshotRead } from '../screenshot/messages';
 
 export interface AnnotationListPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
   sendAnnotationWrite(message: AnnotationWriteMessage): Promise<unknown>;
+  readScreenshot(annotationId: string): Promise<Blob>;
 }
 
 export interface AnnotationList {
@@ -17,7 +19,7 @@ export interface AnnotationList {
   clear(): void;
 }
 
-const productionPersistence: AnnotationListPersistence = { listAnnotations, sendAnnotationWrite };
+const productionPersistence: AnnotationListPersistence = { listAnnotations, sendAnnotationWrite, readScreenshot: sendScreenshotRead };
 
 export function createAnnotationList(
   panel: HTMLElement,
@@ -93,10 +95,22 @@ export function createAnnotationList(
     download.dataset.annotationExportDownload = '';
     download.textContent = 'Download';
     download.addEventListener('click', () => {
-      delivery.download(markdown(), 'annotations.md');
-      for (const annotation of annotations) {
-        if (annotation.screenshot) delivery.downloadAsset(annotation.screenshot, screenshotAssetFilename(annotation.id));
-      }
+      void (async () => {
+        try {
+          delivery.download(markdown(), 'annotations.md');
+          for (const annotation of annotations) {
+            if (!annotation.screenshot) continue;
+            const blob = await persistence.readScreenshot(annotation.id);
+            delivery.downloadAsset(
+              blob,
+              screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType),
+            );
+          }
+        } catch (error) {
+          statusMessage = errorMessage(error);
+          await render();
+        }
+      })();
     });
 
     section.append(heading, copy, download);

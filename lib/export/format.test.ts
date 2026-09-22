@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from '../annotation';
-import { format } from './format';
+import { format, screenshotAssetFilename } from './format';
 
 const pageUrl = 'https://example.com/article';
-const screenshot = 'data:image/png;base64,abc123';
 
 function annotation(overrides: Partial<Annotation> = {}): Annotation {
   return {
@@ -30,7 +29,10 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
 
 describe('Markdown annotation formatter', () => {
   it('includes the header, element context, source, and relative screenshot asset link', () => {
-    const markdown = format([annotation({ screenshot })], pageUrl);
+    const markdown = format(
+      [annotation({ screenshot: { mimeType: 'image/webp', width: 800, height: 400, byteLength: 12 } })],
+      pageUrl,
+    );
 
     expect(markdown).toContain('# Page annotations');
     expect(markdown).toContain(`Page URL: ${pageUrl}`);
@@ -40,19 +42,24 @@ describe('Markdown annotation formatter', () => {
     expect(markdown).toContain('#submit-button');
     expect(markdown).toContain('- Element: BUTTON#submit-button.primary.wide "Inspect this button"');
     expect(markdown).toContain('src/App.tsx:42');
-    expect(markdown).toContain('![Annotation screenshot](./annotations-annotation-1.png)');
-    expect(markdown).not.toContain(screenshot);
+    expect(markdown).toContain('![Annotation screenshot](./annotations-annotation-1.webp)');
+  });
+
+  it('derives asset extensions from MIME type', () => {
+    expect(screenshotAssetFilename('one', 'image/webp')).toBe('annotations-one.webp');
+    expect(screenshotAssetFilename('two', 'image/jpeg')).toBe('annotations-two.jpeg');
+    expect(screenshotAssetFilename('three', 'image/png')).toBe('annotations-three.png');
   });
 
   it('orders annotations by createdAt regardless of input order', () => {
     const older = annotation({ id: 'older', note: 'Older note', createdAt: '2024-01-01T00:00:00.000Z' });
     const newer = annotation({ id: 'newer', note: 'Newer note', createdAt: '2024-01-02T00:00:00.000Z' });
-
     const markdown = format([newer, older], pageUrl);
 
     expect(markdown.indexOf('Older note')).toBeLessThan(markdown.indexOf('Newer note'));
     expect(markdown).toContain('## Annotation 1');
     expect(markdown).toContain('## Annotation 2');
+    expect(markdown.indexOf('## Annotation 1')).toBeLessThan(markdown.indexOf('## Annotation 2'));
   });
 
   it('renders repro steps and expected versus actual details', () => {

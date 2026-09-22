@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import { CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
 import { collectAllAnnotations, importAll, parseImport, serialize } from '../../lib/json-io';
-import { sendAnnotationWrite } from '../../lib/annotation-messages';
+import { createScreenshotStore } from '../../lib/screenshot/store';
 import { PAGE_STYLES } from '../../lib/ui/page-styles';
 
 const pageStyle = document.createElement('style');
@@ -14,6 +14,8 @@ const importButton = document.querySelector<HTMLButtonElement>('#import');
 const importFile = document.querySelector<HTMLInputElement>('#import-file');
 const status = document.querySelector<HTMLParagraphElement>('#status');
 
+const screenshotStore = createScreenshotStore();
+
 toggleButton?.addEventListener('click', async () => {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   if (tab?.id === undefined) return;
@@ -23,7 +25,7 @@ toggleButton?.addEventListener('click', async () => {
 });
 
 exportButton?.addEventListener('click', async () => {
-  const json = serialize(await collectAllAnnotations());
+  const json = await serialize(await collectAllAnnotations(), screenshotStore);
   await navigator.clipboard.writeText(json);
   downloadJson(json);
   setStatus('Annotations exported.');
@@ -37,7 +39,7 @@ importFile?.addEventListener('change', async () => {
 
   try {
     const plan = parseImport(await file.text());
-    await importAll(plan, sendAnnotationWrite);
+    await importAll(plan, screenshotStore);
     setStatus(`Imported ${plan.length} annotation${plan.length === 1 ? '' : 's'}.`);
   } catch (error) {
     setStatus(error instanceof Error ? error.message : 'Import failed.');

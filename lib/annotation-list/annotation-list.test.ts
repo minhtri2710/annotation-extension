@@ -11,27 +11,16 @@ import type { ElementContext } from '../capture/context';
 
 const pageUrl = 'https://example.com/article';
 const elementContext: ElementContext = {
-  selector: '#target',
-  tagName: 'BUTTON',
-  id: 'target',
-  classList: [],
-  text: 'Target',
-  boundingBox: { x: 0, y: 0, width: 10, height: 10 },
-  url: pageUrl,
-  viewport: { width: 1280, height: 720 },
-  sourcePath: null,
+  selector: '#target', tagName: 'BUTTON', id: 'target', classList: [], text: 'Target',
+  boundingBox: { x: 0, y: 0, width: 10, height: 10 }, url: pageUrl,
+  viewport: { width: 1280, height: 720 }, sourcePath: null,
 };
 
-function annotation(id: string, note: string, screenshot?: string): Annotation {
+function annotation(id: string, note: string, mimeType?: string): Annotation {
   return {
-    id,
-    pageUrl,
-    note,
-    selector: `#target-${id}`,
-    elementContext,
-    createdAt: '2024-01-01T00:00:00.000Z',
-    updatedAt: '2024-01-01T00:00:00.000Z',
-    ...(screenshot ? { screenshot } : {}),
+    id, pageUrl, note, selector: `#target-${id}`, elementContext,
+    createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+    ...(mimeType ? { screenshot: { mimeType, width: 10, height: 10, byteLength: 3 } } : {}),
   };
 }
 
@@ -39,19 +28,16 @@ function persistence(annotations: Annotation[]): AnnotationListPersistence {
   return {
     listAnnotations: vi.fn().mockResolvedValue(annotations),
     sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+    readScreenshot: vi.fn().mockResolvedValue(new Blob(['abc'], { type: 'image/webp' })),
   };
 }
 
 describe('annotation list', () => {
   it('renders one row per annotation with note text and delete controls', async () => {
     const panel = document.createElement('div');
-    const first = annotation('annotation-1', 'First note');
-    const second = annotation('annotation-2', 'Second note');
-    const store = persistence([first, second]);
+    const store = persistence([annotation('annotation-1', 'First note'), annotation('annotation-2', 'Second note')]);
     const list = createAnnotationList(panel, pageUrl, store);
-
     await list.render();
-
     expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(2);
     expect(panel.textContent).toContain('First note');
     expect(panel.textContent).toContain('Second note');
@@ -60,48 +46,33 @@ describe('annotation list', () => {
 
   it('renders an empty state and no export controls when there are no annotations', async () => {
     const panel = document.createElement('div');
-    const store = persistence([]);
-    const list = createAnnotationList(panel, pageUrl, store);
-
+    const list = createAnnotationList(panel, pageUrl, persistence([]));
     await list.render();
-
     expect(panel.querySelector('[data-annotation-empty-state]')).not.toBeNull();
     expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(0);
     expect(panel.querySelector('[data-annotation-export]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-export-template]')).toBeNull();
   });
 
   it('copies one format and downloads its Markdown plus screenshot assets', async () => {
     const panel = document.createElement('div');
-    const screenshot = 'data:image/png;base64,abc123';
-    const secondScreenshot = 'data:image/png;base64,def456';
-    const annotations = [
-      annotation('annotation-1', 'Export me', screenshot),
-      annotation('annotation-2', 'And me', secondScreenshot),
-    ];
+    const annotations = [annotation('annotation-1', 'Export me', 'image/webp'), annotation('annotation-2', 'And me', 'image/jpeg')];
     const store = persistence(annotations);
-    const delivery: AnnotationExportDelivery = {
-      copy: vi.fn().mockResolvedValue(undefined),
-      download: vi.fn(),
-      downloadAsset: vi.fn(),
-    };
+    const delivery: AnnotationExportDelivery = { copy: vi.fn().mockResolvedValue(undefined), download: vi.fn(), downloadAsset: vi.fn() };
     const list = createAnnotationList(panel, pageUrl, store, delivery);
-
     await list.render();
-    expect(panel.querySelector('[data-annotation-export-template]')).toBeNull();
 
     (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(delivery.copy).toHaveBeenCalledTimes(1));
-
     const markdown = format(annotations, pageUrl);
     expect(delivery.copy).toHaveBeenCalledWith(markdown);
-    expect(markdown).not.toContain(screenshot);
-    expect(markdown).not.toContain(secondScreenshot);
-
+    expect(markdown).not.toContain('abc');
     (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
     expect(delivery.download).toHaveBeenCalledWith(markdown, expect.stringMatching(/\.md$/));
-    expect(delivery.downloadAsset).toHaveBeenCalledTimes(2);
-    expect(delivery.downloadAsset).toHaveBeenNthCalledWith(1, screenshot, 'annotations-annotation-1.png');
-    expect(delivery.downloadAsset).toHaveBeenNthCalledWith(2, secondScreenshot, 'annotations-annotation-2.png');
+    await vi.waitFor(() => expect(delivery.downloadAsset).toHaveBeenCalledTimes(2));
+    expect(delivery.downloadAsset).toHaveBeenNthCalledWith(1, expect.any(Blob), 'annotations-annotation-1.webp');
+    expect(delivery.downloadAsset).toHaveBeenNthCalledWith(2, expect.any(Blob), 'annotations-annotation-2.jpeg');
+    expect(store.readScreenshot).toHaveBeenCalledWith('annotation-1');
   });
 
   it('shows a write error and keeps the list after delete rejects', async () => {
@@ -109,10 +80,8 @@ describe('annotation list', () => {
     const store = persistence([annotation('annotation-1', 'Keep after failure')]);
     vi.mocked(store.sendAnnotationWrite).mockRejectedValue(new Error('delete failed'));
     const list = createAnnotationList(panel, pageUrl, store);
-
     await list.render();
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
-
     await vi.waitFor(() => expect(panel.textContent).toContain('delete failed'));
     expect(panel.querySelector('[data-annotation-row]')).not.toBeNull();
   });
@@ -121,15 +90,12 @@ describe('annotation list', () => {
     const panel = document.createElement('div');
     const store = persistence([annotation('annotation-1', 'Delete me')]);
     const list = createAnnotationList(panel, pageUrl, store);
-
     await list.render();
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1));
     expect(store.sendAnnotationWrite).toHaveBeenCalledWith({
-      type: 'annotation.delete',
-      pageUrl,
-      id: 'annotation-1',
+      type: 'annotation.delete', pageUrl, id: 'annotation-1',
     } satisfies AnnotationWriteMessage);
     await vi.waitFor(() => expect(store.listAnnotations).toHaveBeenCalledTimes(2));
   });
@@ -138,14 +104,12 @@ describe('annotation list', () => {
     const panel = document.createElement('div');
     const store = persistence([annotation('annotation-1', 'Clear me')]);
     const list = createAnnotationList(panel, pageUrl, store);
-
     await list.render();
     (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1));
     expect(store.sendAnnotationWrite).toHaveBeenCalledWith({
-      type: 'annotation.clear',
-      pageUrl,
+      type: 'annotation.clear', pageUrl,
     } satisfies AnnotationWriteMessage);
     await vi.waitFor(() => expect(store.listAnnotations).toHaveBeenCalledTimes(2));
   });

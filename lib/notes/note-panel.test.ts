@@ -40,6 +40,7 @@ async function render(
   const listAnnotations = persistence?.listAnnotations ?? vi.fn().mockResolvedValue(annotations);
   const sendAnnotationWrite = persistence?.sendAnnotationWrite ?? vi.fn().mockResolvedValue(undefined);
   const captureScreenshot = persistence?.captureScreenshot ?? vi.fn();
+  const readScreenshot = persistence?.readScreenshot ?? vi.fn().mockResolvedValue(new Blob(['preview'], { type: 'image/png' }));
   const applyCssEdits = persistence?.applyCssEdits ?? vi.fn();
   const revertCssEdits = persistence?.revertCssEdits ?? vi.fn();
   const revertAllCssEdits = persistence?.revertAllCssEdits ?? vi.fn();
@@ -47,6 +48,7 @@ async function render(
     listAnnotations,
     sendAnnotationWrite,
     captureScreenshot,
+    readScreenshot,
     applyCssEdits,
     revertCssEdits,
     revertAllCssEdits,
@@ -56,6 +58,7 @@ async function render(
     listAnnotations,
     sendAnnotationWrite,
     captureScreenshot,
+    readScreenshot,
     applyCssEdits,
     revertCssEdits,
     revertAllCssEdits,
@@ -168,11 +171,11 @@ describe('note panel', () => {
   it('shows a capture write error and keeps the annotation item', async () => {
     const panel = document.createElement('div');
     const existing = annotation('Capture write failure');
-    const sendAnnotationWrite = vi.fn().mockRejectedValue(new Error('capture write failed'));
+    const captureScreenshot = vi.fn().mockRejectedValue(new Error('capture write failed'));
     await render(panel, [], {
       listAnnotations: vi.fn().mockResolvedValue([existing]),
-      sendAnnotationWrite,
-      captureScreenshot: vi.fn().mockResolvedValue('data:image/png;base64,captured'),
+      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot,
     });
 
     (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
@@ -181,12 +184,14 @@ describe('note panel', () => {
     expect(panel.querySelector(`[data-annotation-id="${existing.id}"]`)).not.toBeNull();
   });
 
-  it('captures a screenshot through the persistence seam and updates the annotation', async () => {
+  it('captures through the persistence seam and relies on background metadata update', async () => {
     const panel = document.createElement('div');
     const existing = annotation('With screenshot control');
     const listAnnotations = vi.fn().mockResolvedValue([existing]);
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    const captureScreenshot = vi.fn().mockResolvedValue('data:image/png;base64,captured');
+    const captureScreenshot = vi.fn().mockResolvedValue({
+      mimeType: 'image/webp', width: 800, height: 400, byteLength: 12,
+    });
     const { captureScreenshot: capture } = await render(panel, [], {
       listAnnotations,
       sendAnnotationWrite,
@@ -196,14 +201,8 @@ describe('note panel', () => {
     (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
 
-    expect(capture).toHaveBeenCalledWith(existing);
-    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
-    expect(sendAnnotationWrite).toHaveBeenCalledWith({
-      type: 'annotation.update',
-      pageUrl,
-      id: existing.id,
-      changes: { screenshot: 'data:image/png;base64,captured' },
-    } satisfies AnnotationWriteMessage);
+    expect(capture).toHaveBeenCalledWith(existing, context);
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
   });
 
@@ -429,18 +428,29 @@ describe('note panel', () => {
     expect(sendAnnotationWrite).not.toHaveBeenCalled();
   });
 
-  it('renders an existing screenshot preview', async () => {
+  it('reads an existing screenshot Blob and renders a revoked-on-rerender object URL', async () => {
     const panel = document.createElement('div');
-    const existing = { ...annotation('Preview me'), screenshot: 'data:image/png;base64,existing' };
-    await render(panel, [existing], {
+    const existing = {
+      ...annotation('Preview me'),
+      screenshot: { mimeType: 'image/png', width: 10, height: 10, byteLength: 7 },
+    };
+    const createObjectURL = vi.fn().mockReturnValue('blob:preview');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    const { notePanel, readScreenshot } = await render(panel, [existing], {
       listAnnotations: vi.fn().mockResolvedValue([existing]),
       sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
       captureScreenshot: vi.fn(),
+      readScreenshot: vi.fn().mockResolvedValue(new Blob(['existing'], { type: 'image/png' })),
     });
 
     const preview = panel.querySelector('[data-annotation-screenshot]') as HTMLImageElement;
     expect(preview).not.toBeNull();
-    expect(preview.src).toBe(existing.screenshot);
+    expect(preview.src).toContain('blob:preview');
+    expect(readScreenshot).toHaveBeenCalledWith(existing.id);
+    await notePanel.render(context);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+    vi.unstubAllGlobals();
   });
 
   it('does not add an empty or whitespace-only note', async () => {

@@ -1,84 +1,54 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import background from '../../entrypoints/background';
-import { isAnnotationWriteMessage } from '../annotation-messages';
-import { isScreenshotCaptureMessage, sendScreenshotCapture } from './messages';
+import { isAnnotationErrorResponse, isAnnotationWriteMessage } from '../annotation-messages';
+import { isScreenshotCaptureMessage, isScreenshotReadMessage, sendScreenshotCapture, sendScreenshotRead } from './messages';
 
-describe('screenshot capture messages', () => {
-  beforeEach(() => {
-    fakeBrowser.reset();
-    background.main();
-    vi.restoreAllMocks();
-  });
+const captureMessage = {
+  pageUrl: 'https://example.com/page',
+  annotationId: 'annotation-1',
+  rect: { x: 1, y: 2, width: 100, height: 40 },
+  devicePixelRatio: 2,
+};
 
-  it('guards the exact capture message and rejects other values', () => {
-    expect(isScreenshotCaptureMessage({ type: 'screenshot.capture' })).toBe(true);
-    expect(isScreenshotCaptureMessage({ type: 'annotation.clear', pageUrl: 'https://example.com' })).toBe(
-      false,
-    );
+beforeEach(() => {
+  fakeBrowser.reset();
+  vi.restoreAllMocks();
+});
+
+describe('screenshot messages', () => {
+  it('guards capture and read messages', () => {
+    expect(isScreenshotCaptureMessage({ type: 'screenshot.capture', ...captureMessage })).toBe(true);
+    expect(isScreenshotCaptureMessage({ type: 'screenshot.capture' })).toBe(false);
+    expect(isScreenshotReadMessage({ type: 'screenshot.read', annotationId: 'annotation-1' })).toBe(true);
+    expect(isScreenshotReadMessage({ type: 'screenshot.read', annotationId: 5 })).toBe(false);
     expect(isScreenshotCaptureMessage(null)).toBe(false);
     expect(isScreenshotCaptureMessage('screenshot.capture')).toBe(false);
   });
 
-  it('sends the exact capture message and returns its data URL', async () => {
-    const dataUrl = 'data:image/png;base64,visible-tab';
-    const sendMessage = vi
-      .spyOn(browser.runtime, 'sendMessage')
-      .mockImplementation(() => Promise.resolve(dataUrl) as never);
+  it('sends capture metadata requests and returns validated metadata', async () => {
+    const metadata = { mimeType: 'image/webp', width: 800, height: 400, byteLength: 123 };
+    const sendMessage = vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue(metadata as never);
 
-    await expect(sendScreenshotCapture()).resolves.toBe(dataUrl);
-    expect(sendMessage).toHaveBeenCalledWith({ type: 'screenshot.capture' });
+    await expect(sendScreenshotCapture(captureMessage)).resolves.toEqual(metadata);
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'screenshot.capture', ...captureMessage });
   });
 
-  it('rejects when the background returns a capture error response', async () => {
-    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({
-      ok: false,
-      error: 'capture denied',
-    } as never);
+  it('rejects capture errors and invalid responses', async () => {
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'capture denied' } as never);
+    await expect(sendScreenshotCapture(captureMessage)).rejects.toThrow('capture denied');
 
-    await expect(sendScreenshotCapture()).rejects.toThrow('capture denied');
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ mimeType: 'image/png' } as never);
+    await expect(sendScreenshotCapture(captureMessage)).rejects.toThrow('Invalid screenshot metadata response');
   });
 
-  it('routes capture requests to the background visible-tab API', async () => {
-    const dataUrl = 'data:image/png;base64,background-capture';
-    const captureVisibleTab = vi
-      .spyOn(browser.tabs, 'captureVisibleTab')
-      .mockImplementation(() => Promise.resolve(dataUrl) as never);
+  it('round-trips screenshot.read bytes as a Blob', async () => {
+    const bytes = btoa('screenshot-bytes');
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ mimeType: 'image/png', base64: bytes } as never);
 
-    await expect(sendScreenshotCapture()).resolves.toBe(dataUrl);
-    expect(captureVisibleTab).toHaveBeenCalledTimes(1);
-  });
-
-  it('answers a rejected visible-tab capture with an error response', async () => {
-    vi.spyOn(browser.tabs, 'captureVisibleTab').mockRejectedValue(new Error('capture denied'));
-    const sendResponse = vi.fn();
-
-    await fakeBrowser.runtime.onMessage.trigger(
-      { type: 'screenshot.capture' },
-      {
-        tab: {
-          index: 0,
-          pinned: false,
-          highlighted: false,
-          windowId: 42,
-          active: true,
-          frozen: false,
-          incognito: false,
-          selected: true,
-          discarded: false,
-          autoDiscardable: true,
-          groupId: -1,
-          lastAccessed: 0,
-        },
-      },
-      sendResponse,
-    );
-
-    await vi.waitFor(() =>
-      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'capture denied' }),
-    );
-    expect(browser.tabs.captureVisibleTab).toHaveBeenCalledWith(42);
+    const blob = await sendScreenshotRead('annotation-1');
+    expect(blob.type).toBe('image/png');
+    expect(await blob.text()).toBe('screenshot-bytes');
   });
 
   it('keeps screenshot and annotation message guards disjoint', () => {
@@ -89,7 +59,7 @@ describe('screenshot capture messages', () => {
         id: 'annotation-1',
         changes: { screenshot: 'data:image/png;base64,shot' },
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isAnnotationWriteMessage({
         type: 'annotation.update',
@@ -99,5 +69,11 @@ describe('screenshot capture messages', () => {
       }),
     ).toBe(false);
     expect(isScreenshotCaptureMessage({ type: 'annotation.update' })).toBe(false);
+  });
+
+  it('rejects a malformed read response', async () => {
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'missing' } as never);
+    await expect(sendScreenshotRead('annotation-1')).rejects.toThrow('missing');
+    expect(isAnnotationErrorResponse({ ok: false, error: 'missing' })).toBe(true);
   });
 });

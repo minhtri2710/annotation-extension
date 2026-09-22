@@ -7,6 +7,7 @@ import type {
   AnnotationUpdate,
   CssEdit,
   Repro,
+  ScreenshotMetadata,
 } from './annotation';
 
 export type AnnotationWriteMessage =
@@ -79,7 +80,7 @@ function isAnnotationInput(value: unknown): value is AnnotationInput {
     typeof value.note === 'string' &&
     typeof value.selector === 'string' &&
     isElementContext(value.elementContext) &&
-    (value.screenshot === undefined || typeof value.screenshot === 'string') &&
+    !('screenshot' in value) &&
     (value.repro === undefined || isRepro(value.repro)) &&
     (value.cssEdits === undefined || isCssEdits(value.cssEdits))
   );
@@ -91,7 +92,7 @@ function isAnnotationUpdate(value: unknown): value is AnnotationUpdate {
     (value.note === undefined || typeof value.note === 'string') &&
     (value.selector === undefined || typeof value.selector === 'string') &&
     (value.elementContext === undefined || isElementContext(value.elementContext)) &&
-    (value.screenshot === undefined || typeof value.screenshot === 'string') &&
+    !('screenshot' in value) &&
     (value.repro === undefined || isRepro(value.repro)) &&
     (value.cssEdits === undefined || isCssEdits(value.cssEdits))
   );
@@ -105,6 +106,24 @@ function isRepro(value: unknown): value is Repro {
     typeof value.expected === 'string' &&
     typeof value.actual === 'string'
   );
+}
+
+export function isScreenshotMetadata(value: unknown): value is ScreenshotMetadata {
+  return (
+    isRecord(value) &&
+    typeof value.mimeType === 'string' &&
+    isSupportedScreenshotMimeType(value.mimeType) &&
+    isFiniteNumber(value.width) &&
+    value.width > 0 &&
+    isFiniteNumber(value.height) &&
+    value.height > 0 &&
+    isFiniteNumber(value.byteLength) &&
+    value.byteLength >= 0
+  );
+}
+
+export function isSupportedScreenshotMimeType(value: string): boolean {
+  return value === 'image/webp' || value === 'image/jpeg' || value === 'image/png';
 }
 
 export function isElementContext(value: unknown): value is ElementContext {

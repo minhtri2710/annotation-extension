@@ -1,12 +1,14 @@
 import { browser } from 'wxt/browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import background from '../entrypoints/background';
 import { listAnnotations } from './annotation-storage';
+import { registerBackgroundMessageHandlers } from './wiring/background-messages';
+import type { ScreenshotStore } from './screenshot/store';
 import {
   isAnnotationWriteMessage,
   isCssEdit,
   isCssEdits,
+  isScreenshotMetadata,
   sendAnnotationWrite,
 } from './annotation-messages';
 
@@ -23,10 +25,16 @@ const elementContext = {
   sourcePath: null,
 };
 
+class MemoryScreenshotStore implements ScreenshotStore {
+  async put(): Promise<void> {}
+  async get(): Promise<Blob | undefined> { return undefined; }
+  async delete(): Promise<void> {}
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   fakeBrowser.reset();
-  background.main();
+  registerBackgroundMessageHandlers({ screenshotStore: new MemoryScreenshotStore() });
 });
 
 describe('annotation write messages', () => {
@@ -37,14 +45,6 @@ describe('annotation write messages', () => {
         pageUrl,
         id: 'annotation-1',
         changes: { screenshot: 'data:image/png;base64,shot' },
-      }),
-    ).toBe(true);
-    expect(
-      isAnnotationWriteMessage({
-        type: 'annotation.update',
-        pageUrl,
-        id: 'annotation-1',
-        changes: { screenshot: 5 },
       }),
     ).toBe(false);
     expect(
@@ -59,26 +59,23 @@ describe('annotation write messages', () => {
       isAnnotationWriteMessage({
         type: 'annotation.add',
         pageUrl,
-        input: {
-          note: 'with screenshot',
-          selector: '#target',
-          elementContext,
-          screenshot: 'data:image/png;base64,shot',
-        },
+        input: { note: 'with screenshot', selector: '#target', elementContext, screenshot: 5 },
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isAnnotationWriteMessage({
         type: 'annotation.add',
         pageUrl,
-        input: {
-          note: 'bad screenshot',
-          selector: '#target',
-          elementContext,
-          screenshot: 5,
-        },
+        input: { note: 'valid', selector: '#target', elementContext },
       }),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it('validates screenshot metadata and supported MIME types', () => {
+    expect(isScreenshotMetadata({ mimeType: 'image/webp', width: 800, height: 400, byteLength: 12 })).toBe(true);
+    expect(isScreenshotMetadata({ mimeType: 'https://remote/image.png', width: 800, height: 400, byteLength: 12 })).toBe(false);
+    expect(isScreenshotMetadata({ mimeType: 'image/png', width: 0, height: 400, byteLength: 12 })).toBe(false);
+    expect(isScreenshotMetadata({ mimeType: 'image/png', width: 800, height: 400, byteLength: -1 })).toBe(false);
   });
 
   it('accepts complete contexts and rejects incomplete write contexts', () => {
@@ -194,29 +191,11 @@ describe('annotation write messages', () => {
     );
   });
 
-  it('rejects when the background returns a write error response', async () => {
-    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({
-      ok: false,
-      error: 'storage unavailable',
-    } as never);
-
-    await expect(
-      sendAnnotationWrite({
-        type: 'annotation.clear',
-        pageUrl,
-      }),
-    ).rejects.toThrow('storage unavailable');
-  });
-
   it('routes mutations through the background write owner', async () => {
     const created = await sendAnnotationWrite({
       type: 'annotation.add',
       pageUrl,
-      input: {
-        note: 'Created through the worker',
-        selector: '#target',
-        elementContext,
-      },
+      input: { note: 'Created through the worker', selector: '#target', elementContext },
     });
 
     expect(await listAnnotations(pageUrl)).toEqual([created]);
@@ -233,5 +212,10 @@ describe('annotation write messages', () => {
       sendAnnotationWrite({ type: 'annotation.delete', pageUrl, id: created.id }),
     ).resolves.toBe(true);
     await expect(listAnnotations(pageUrl)).resolves.toEqual([]);
+  });
+
+  it('rejects when the background returns a write error response', async () => {
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'storage unavailable' } as never);
+    await expect(sendAnnotationWrite({ type: 'annotation.clear', pageUrl })).rejects.toThrow('storage unavailable');
   });
 });

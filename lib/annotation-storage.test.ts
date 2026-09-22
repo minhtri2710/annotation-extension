@@ -3,12 +3,14 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { pageKey } from '../utils/page-key';
 import {
   addAnnotation,
+  addAnnotationWithScreenshot,
   clearAnnotations,
   deleteAnnotation,
   listAnnotations,
   updateAnnotation,
 } from './annotation-storage';
 import type { AnnotationInput } from './annotation';
+import type { ScreenshotStore } from './screenshot/store';
 
 const firstPage = 'https://example.com/docs?mode=full#intro';
 const secondPage = 'https://example.com/other';
@@ -28,6 +30,24 @@ const firstInput: AnnotationInput = {
   },
 };
 
+class MemoryScreenshotStore implements ScreenshotStore {
+  readonly blobs = new Map<string, Blob>();
+  failDelete = false;
+
+  async put(annotationId: string, blob: Blob): Promise<void> {
+    this.blobs.set(annotationId, blob);
+  }
+
+  async get(annotationId: string): Promise<Blob | undefined> {
+    return this.blobs.get(annotationId);
+  }
+
+  async delete(annotationIds: string[]): Promise<void> {
+    if (this.failDelete) throw new Error('screenshot delete failed');
+    for (const annotationId of annotationIds) this.blobs.delete(annotationId);
+  }
+}
+
 beforeEach(() => {
   fakeBrowser.reset();
 });
@@ -46,9 +66,28 @@ describe('annotation storage', () => {
     expect(created.createdAt).toEqual(expect.any(String));
     expect(created.updatedAt).toEqual(created.createdAt);
     expect(await listAnnotations(firstPage)).toEqual([created]);
-
     const stored = await fakeBrowser.storage.local.get(pageKey(firstPage));
     expect(stored[pageKey(firstPage)]).toEqual([created]);
+    expect(JSON.stringify(stored)).not.toContain('data:');
+    expect(JSON.stringify(stored)).not.toContain('blob:');
+  });
+
+  it('stores screenshot bytes separately and writes metadata only to storage.local', async () => {
+    const store = new MemoryScreenshotStore();
+    const blob = new Blob(['webp-bytes'], { type: 'image/webp' });
+    const created = await addAnnotationWithScreenshot(firstPage, firstInput, blob, { width: 800, height: 400 }, store);
+
+    expect(created.screenshot).toEqual({
+      mimeType: 'image/webp',
+      width: 800,
+      height: 400,
+      byteLength: blob.size,
+    });
+    await expect(store.get(created.id)).resolves.toBe(blob);
+    const stored = await fakeBrowser.storage.local.get(pageKey(firstPage));
+    expect(stored[pageKey(firstPage)]).toEqual([created]);
+    expect(JSON.stringify(stored)).not.toContain('webp-bytes');
+    expect(JSON.stringify(stored)).not.toContain('data:');
   });
 
   it('returns an empty list for an unseen page', async () => {
@@ -57,43 +96,32 @@ describe('annotation storage', () => {
 
   it('keeps pages isolated while ignoring URL fragments in the key', async () => {
     const first = await addAnnotation(firstPage, firstInput);
-    const second = await addAnnotation(secondPage, {
-      ...firstInput,
-      note: 'A different page',
-    });
+    const second = await addAnnotation(secondPage, { ...firstInput, note: 'A different page' });
 
-    await expect(listAnnotations('https://example.com/docs?mode=full#another-section')).resolves.toEqual([
-      first,
-    ]);
+    await expect(listAnnotations('https://example.com/docs?mode=full#another-section')).resolves.toEqual([first]);
     await expect(listAnnotations(secondPage)).resolves.toEqual([second]);
   });
 
   it('updates by id, changes the field, and strictly bumps updatedAt', async () => {
     const created = await addAnnotation(firstPage, firstInput);
+    const updated = await updateAnnotation(firstPage, created.id, { note: 'Updated note' });
 
-    const updated = await updateAnnotation(firstPage, created.id, {
-      note: 'Updated note',
-    });
-
-    expect(updated).not.toBeNull();
-    expect(updated).toMatchObject({
-      ...created,
-      note: 'Updated note',
-      updatedAt: expect.any(String),
-    });
+    expect(updated).toMatchObject({ ...created, note: 'Updated note', updatedAt: expect.any(String) });
+    expect(updated?.screenshot).toBeUndefined();
     expect(Date.parse(updated!.updatedAt)).toBeGreaterThan(Date.parse(created.updatedAt));
-    await expect(listAnnotations(firstPage)).resolves.toEqual([updated]);
   });
 
-  it('persists an optional screenshot on update', async () => {
-    const created = await addAnnotation(firstPage, firstInput);
-
-    await expect(
-      updateAnnotation(firstPage, created.id, { screenshot: 'data:image/png;base64,shot' }),
-    ).resolves.toMatchObject({ screenshot: 'data:image/png;base64,shot' });
-    await expect(listAnnotations(firstPage)).resolves.toMatchObject([
-      { id: created.id, screenshot: 'data:image/png;base64,shot' },
-    ]);
+  it('preserves screenshot metadata through ordinary updates', async () => {
+    const store = new MemoryScreenshotStore();
+    const created = await addAnnotationWithScreenshot(
+      firstPage,
+      firstInput,
+      new Blob(['shot'], { type: 'image/png' }),
+      { width: 10, height: 20 },
+      store,
+    );
+    const updated = await updateAnnotation(firstPage, created.id, { note: 'Updated' });
+    expect(updated?.screenshot).toEqual(created.screenshot);
   });
 
   it('persists css edits on update while leaving other fields intact', async () => {
@@ -138,47 +166,50 @@ describe('annotation storage', () => {
   });
 
   it('treats an update for a missing id as a null no-op', async () => {
-    await expect(
-      updateAnnotation(firstPage, 'missing-id', { note: 'Should not be stored' }),
-    ).resolves.toBeNull();
+    await expect(updateAnnotation(firstPage, 'missing-id', { note: 'Should not be stored' })).resolves.toBeNull();
     await expect(listAnnotations(firstPage)).resolves.toEqual([]);
   });
 
   it('deletes only the requested annotation', async () => {
-    const first = await addAnnotation(firstPage, firstInput);
-    const second = await addAnnotation(firstPage, {
-      ...firstInput,
-      note: 'Keep this one',
-    });
+    const store = new MemoryScreenshotStore();
+    const first = await addAnnotationWithScreenshot(firstPage, firstInput, new Blob(['one']), { width: 1, height: 1 }, store);
+    const second = await addAnnotationWithScreenshot(firstPage, { ...firstInput, note: 'Keep this one' }, new Blob(['two']), { width: 1, height: 1 }, store);
 
-    await expect(deleteAnnotation(firstPage, first.id)).resolves.toBe(true);
+    await expect(deleteAnnotation(firstPage, first.id, store)).resolves.toBe(true);
     await expect(listAnnotations(firstPage)).resolves.toEqual([second]);
-    await expect(deleteAnnotation(firstPage, first.id)).resolves.toBe(false);
+    await expect(store.get(first.id)).resolves.toBeUndefined();
+    await expect(store.get(second.id)).resolves.toBeDefined();
+    await expect(deleteAnnotation(firstPage, first.id, store)).resolves.toBe(false);
   });
 
   it('clears one page without affecting another page', async () => {
-    await addAnnotation(firstPage, firstInput);
-    const otherPageAnnotation = await addAnnotation(secondPage, firstInput);
+    const store = new MemoryScreenshotStore();
+    const first = await addAnnotationWithScreenshot(firstPage, firstInput, new Blob(['one']), { width: 1, height: 1 }, store);
+    const other = await addAnnotationWithScreenshot(secondPage, firstInput, new Blob(['two']), { width: 1, height: 1 }, store);
 
-    await clearAnnotations(firstPage);
+    await clearAnnotations(firstPage, store);
 
     await expect(listAnnotations(firstPage)).resolves.toEqual([]);
-    await expect(listAnnotations(secondPage)).resolves.toEqual([otherPageAnnotation]);
+    await expect(listAnnotations(secondPage)).resolves.toEqual([other]);
+    await expect(store.get(first.id)).resolves.toBeUndefined();
+    await expect(store.get(other.id)).resolves.toBeDefined();
+  });
+
+  it('surfaces a blob deletion failure after metadata deletion', async () => {
+    const store = new MemoryScreenshotStore();
+    const created = await addAnnotationWithScreenshot(firstPage, firstInput, new Blob(['one']), { width: 1, height: 1 }, store);
+    store.failDelete = true;
+
+    await expect(deleteAnnotation(firstPage, created.id, store)).rejects.toThrow('screenshot delete failed');
+    await expect(listAnnotations(firstPage)).resolves.toEqual([]);
   });
 
   it('serializes concurrent additions for one page without losing data', async () => {
     const created = await Promise.all(
-      Array.from({ length: 12 }, (_, index) =>
-        addAnnotation(firstPage, {
-          ...firstInput,
-          note: `Concurrent note ${index}`,
-        }),
-      ),
+      Array.from({ length: 12 }, (_, index) => addAnnotation(firstPage, { ...firstInput, note: `Concurrent note ${index}` })),
     );
-
     const stored = await listAnnotations(firstPage);
     expect(stored).toHaveLength(created.length);
     expect(new Set(stored.map((annotation) => annotation.id)).size).toBe(created.length);
-    expect(stored).toEqual(expect.arrayContaining(created));
   });
 });

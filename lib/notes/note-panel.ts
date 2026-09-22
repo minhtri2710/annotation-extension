@@ -14,6 +14,7 @@ export function createNotePanel(
 ): NotePanel {
   let selectedContext: ElementContext | undefined;
   let statusMessage: string | undefined;
+  const previewUrls = new Set<string>();
 
   async function render(context: ElementContext): Promise<void> {
     if (selectedContext && selectedContext.selector !== context.selector) statusMessage = undefined;
@@ -23,6 +24,7 @@ export function createNotePanel(
     );
     if (selectedContext !== context) return;
 
+    revokePreviewUrls();
     panel.replaceChildren();
     const document = panel.ownerDocument;
     const heading = document.createElement('h2');
@@ -36,7 +38,9 @@ export function createNotePanel(
     }
 
     for (const annotation of annotations) {
-      panel.append(createAnnotationItem(document, annotation, context));
+      const item = await createAnnotationItem(document, annotation, context);
+      if (selectedContext !== context) return;
+      panel.append(item);
     }
 
     const form = document.createElement('form');
@@ -76,11 +80,11 @@ export function createNotePanel(
     }
   }
 
-  function createAnnotationItem(
+  async function createAnnotationItem(
     document: Document,
     annotation: Annotation,
     context: ElementContext,
-  ): HTMLElement {
+  ): Promise<HTMLElement> {
     const item = document.createElement('article');
     item.dataset.annotationId = annotation.id;
     if (annotation.cssEdits && annotation.cssEdits.length > 0) {
@@ -114,17 +118,9 @@ export function createNotePanel(
     capture.addEventListener('click', () => {
       void (async () => {
         try {
-          const screenshot = await persistence.captureScreenshot(annotation);
-          if (!screenshot) return;
-          await mutate(
-            {
-              type: 'annotation.update',
-              pageUrl: context.url,
-              id: annotation.id,
-              changes: { screenshot },
-            },
-            context,
-          );
+          await persistence.captureScreenshot(annotation, context);
+          statusMessage = undefined;
+          await render(context);
         } catch (error) {
           statusMessage = errorMessage(error);
           await render(context);
@@ -253,16 +249,25 @@ export function createNotePanel(
       item.append(readout);
     }
     if (annotation.screenshot) {
+      const blob = await persistence.readScreenshot(annotation.id);
       const preview = document.createElement('img');
       preview.dataset.annotationScreenshot = '';
-      preview.src = annotation.screenshot;
+      const url = URL.createObjectURL(blob);
+      previewUrls.add(url);
+      preview.src = url;
       preview.alt = 'Annotation screenshot';
       item.append(preview);
     }
     return item;
   }
 
+  function revokePreviewUrls(): void {
+    for (const url of previewUrls) URL.revokeObjectURL(url);
+    previewUrls.clear();
+  }
+
   function teardown(): void {
+    revokePreviewUrls();
     persistence.revertAllCssEdits();
   }
 

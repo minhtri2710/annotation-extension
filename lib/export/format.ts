@@ -1,8 +1,9 @@
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 
-export function screenshotAssetFilename(annotationId: string): string {
-  return `annotations-${annotationId}.png`;
+export function screenshotAssetFilename(annotationId: string, mimeType: string): string {
+  const extension = mimeType === 'image/webp' ? 'webp' : mimeType === 'image/jpeg' ? 'jpeg' : 'png';
+  return `annotations-${annotationId}.${extension}`;
 }
 
 export function format(annotations: Annotation[], pageUrl: string): string {
@@ -19,7 +20,7 @@ export function format(annotations: Annotation[], pageUrl: string): string {
       element ? `- Element: ${element}` : undefined,
       sourcePath ? `- Source: ${sourcePath}` : undefined,
       annotation.screenshot
-        ? `![Annotation screenshot](./${screenshotAssetFilename(annotation.id)})`
+        ? `![Annotation screenshot](./${screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType)})`
         : undefined,
       annotation.repro
         ? [

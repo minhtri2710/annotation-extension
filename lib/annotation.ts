@@ -11,6 +11,13 @@ export interface CssEdit {
   value: string;
 }
 
+export interface ScreenshotMetadata {
+  mimeType: string;
+  width: number;
+  height: number;
+  byteLength: number;
+}
+
 export interface Annotation {
   id: string;
   pageUrl: string;
@@ -19,14 +26,14 @@ export interface Annotation {
   elementContext: ElementContext;
   createdAt: string;
   updatedAt: string;
-  screenshot?: string;
+  screenshot?: ScreenshotMetadata;
   repro?: Repro;
   cssEdits?: CssEdit[];
 }
 
 export type AnnotationInput = Pick<
   Annotation,
-  'note' | 'selector' | 'elementContext' | 'screenshot' | 'repro' | 'cssEdits'
+  'note' | 'selector' | 'elementContext' | 'repro' | 'cssEdits'
 >;
 
 export type AnnotationUpdate = Partial<AnnotationInput>;

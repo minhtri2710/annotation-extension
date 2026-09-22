@@ -1,25 +1,33 @@
 import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 import { listAnnotations } from '../annotation-storage';
 import type { Annotation, CssEdit } from '../annotation';
-import { cropDataUrl } from '../screenshot/crop';
-import { sendScreenshotCapture } from '../screenshot/messages';
+import { sendScreenshotCapture, sendScreenshotRead } from '../screenshot/messages';
+import type { ElementContext } from '../capture/context';
 
 export interface NotePanelPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
   sendAnnotationWrite(message: AnnotationWriteMessage): Promise<unknown>;
-  captureScreenshot(annotation: Annotation): Promise<string | undefined>;
+  captureScreenshot(annotation: Annotation, context: ElementContext): Promise<Annotation['screenshot'] | undefined>;
+  readScreenshot(annotationId: string): Promise<Blob>;
   applyCssEdits(annotation: Annotation, edits: CssEdit[]): void;
   revertCssEdits(annotation: Annotation): void;
   revertAllCssEdits(): void;
 }
 
-async function captureScreenshot(annotation: Annotation): Promise<string | undefined> {
+async function captureScreenshot(
+  annotation: Annotation,
+  context: ElementContext,
+): Promise<Annotation['screenshot'] | undefined> {
   const element = document.querySelector(annotation.selector);
   if (!element) return undefined;
 
-  const boundingBox = element.getBoundingClientRect();
-  const visibleTab = await sendScreenshotCapture();
-  return cropDataUrl(visibleTab, boundingBox, window.devicePixelRatio);
+  const rect = element.getBoundingClientRect();
+  return sendScreenshotCapture({
+    pageUrl: context.url,
+    annotationId: annotation.id,
+    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    devicePixelRatio: window.devicePixelRatio,
+  });
 }
 
 type AppliedCssEdits = {
@@ -80,6 +88,7 @@ export function createNotePanelPersistence(): NotePanelPersistence {
     listAnnotations,
     sendAnnotationWrite,
     captureScreenshot,
+    readScreenshot: sendScreenshotRead,
     ...createCssEditRegistry(),
   };
 }
