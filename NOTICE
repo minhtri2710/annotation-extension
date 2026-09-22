@@ -1,0 +1,6 @@
+This product includes design/UX detector rule logic derived from impeccable
+(https://github.com/paulbakaus/impeccable), Copyright 2025 Paul Bakaus,
+licensed under the Apache License, Version 2.0.
+
+The rule logic has been modified: it was ported from Rust to TypeScript and
+adapted to run in a browser extension against the live DOM.
