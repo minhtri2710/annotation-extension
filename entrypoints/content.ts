@@ -23,6 +23,7 @@ export default defineContentScript({
 
     const bus = createEventBus<CaptureEvents>();
     let controller: ReturnType<typeof createCaptureController> | undefined;
+    let notePanel: ReturnType<typeof createNotePanel> | undefined;
     let pins: PinsController | undefined;
     let unsubscribeSelection: (() => void) | undefined;
     let unsubscribeCaptureState: (() => void) | undefined;
@@ -42,7 +43,7 @@ export default defineContentScript({
               : undefined,
         });
         const url = document.location.href;
-        const notePanel = createNotePanel(shell.panel);
+        notePanel = createNotePanel(shell.panel);
         const annotationList = createAnnotationList(shell.panel, url);
         let listOpen = false;
         const listToggle = document.createElement('button');
@@ -109,6 +110,8 @@ export default defineContentScript({
         }
         annotationListToggle?.remove();
         annotationListToggle = undefined;
+        notePanel?.teardown();
+        notePanel = undefined;
         pins?.destroy();
         pins = undefined;
         controller?.destroy();

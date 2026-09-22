@@ -5,6 +5,7 @@ import { createNotePanelPersistence, type NotePanelPersistence } from './persist
 
 export interface NotePanel {
   render(context: ElementContext): Promise<void>;
+  teardown(): void;
 }
 
 export function createNotePanel(
@@ -68,6 +69,9 @@ export function createNotePanel(
   ): HTMLElement {
     const item = document.createElement('article');
     item.dataset.annotationId = annotation.id;
+    if (annotation.cssEdits && annotation.cssEdits.length > 0) {
+      persistence.applyCssEdits(annotation, annotation.cssEdits);
+    }
     const note = document.createElement('textarea');
     note.dataset.annotationEditNote = '';
     note.value = annotation.note;
@@ -156,6 +160,22 @@ export function createNotePanel(
         context,
       );
     });
+    const clearCss = document.createElement('button');
+    clearCss.type = 'button';
+    clearCss.dataset.annotationCssClear = '';
+    clearCss.textContent = 'Clear tweaks';
+    clearCss.addEventListener('click', () => {
+      persistence.revertCssEdits(annotation);
+      void mutate(
+        {
+          type: 'annotation.update',
+          pageUrl: context.url,
+          id: annotation.id,
+          changes: { cssEdits: [] },
+        },
+        context,
+      );
+    });
     const saveRepro = document.createElement('button');
     saveRepro.type = 'button';
     saveRepro.dataset.annotationReproSave = '';
@@ -178,8 +198,20 @@ export function createNotePanel(
         context,
       );
     });
-    item.append(note, edit, capture, remove, cssDecls, saveCss, reproSteps, reproExpected, reproActual, saveRepro);
+    item.append(
+      note,
+      edit,
+      capture,
+      remove,
+      cssDecls,
+      saveCss,
+      reproSteps,
+      reproExpected,
+      reproActual,
+      saveRepro,
+    );
     if (annotation.cssEdits && annotation.cssEdits.length > 0) {
+      item.append(clearCss);
       const readout = document.createElement('ul');
       readout.dataset.annotationCss = '';
       for (const { property, value } of annotation.cssEdits) {
@@ -215,7 +247,11 @@ export function createNotePanel(
     return item;
   }
 
-  return { render };
+  function teardown(): void {
+    persistence.revertAllCssEdits();
+  }
+
+  return { render, teardown };
 }
 
 function parseCssEdits(value: string): CssEdit[] {

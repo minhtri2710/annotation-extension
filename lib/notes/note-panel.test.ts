@@ -41,14 +41,26 @@ async function render(
   const sendAnnotationWrite = persistence?.sendAnnotationWrite ?? vi.fn().mockResolvedValue(undefined);
   const captureScreenshot = persistence?.captureScreenshot ?? vi.fn();
   const applyCssEdits = persistence?.applyCssEdits ?? vi.fn();
+  const revertCssEdits = persistence?.revertCssEdits ?? vi.fn();
+  const revertAllCssEdits = persistence?.revertAllCssEdits ?? vi.fn();
   const notePanel = createNotePanel(panel, {
     listAnnotations,
     sendAnnotationWrite,
     captureScreenshot,
     applyCssEdits,
+    revertCssEdits,
+    revertAllCssEdits,
   });
   await notePanel.render(context);
-  return { listAnnotations, sendAnnotationWrite, captureScreenshot, applyCssEdits };
+  return {
+    listAnnotations,
+    sendAnnotationWrite,
+    captureScreenshot,
+    applyCssEdits,
+    revertCssEdits,
+    revertAllCssEdits,
+    notePanel,
+  };
 }
 
 describe('note panel', () => {
@@ -156,7 +168,24 @@ describe('note panel', () => {
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
   });
 
-  it('renders saved css edit read-out', async () => {
+  it('re-applies stored css edits when an annotation renders', async () => {
+    const panel = document.createElement('div');
+    const existing = {
+      ...annotation('Saved CSS'),
+      cssEdits: [{ property: 'color', value: 'red' }, { property: 'display', value: 'block' }],
+    };
+    const applyCssEdits = vi.fn();
+    const { applyCssEdits: apply } = await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot: vi.fn(),
+      applyCssEdits,
+    });
+
+    expect(apply).toHaveBeenCalledWith(existing, existing.cssEdits);
+  });
+
+  it('renders saved css edit read-out and clear control', async () => {
     const panel = document.createElement('div');
     const existing = {
       ...annotation('Saved CSS'),
@@ -166,13 +195,75 @@ describe('note panel', () => {
       listAnnotations: vi.fn().mockResolvedValue([existing]),
       sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
       captureScreenshot: vi.fn(),
-      applyCssEdits: vi.fn(),
     });
 
     const readout = panel.querySelector('[data-annotation-css]');
     expect(readout).not.toBeNull();
     expect(readout?.textContent).toContain('color: red');
     expect(readout?.textContent).toContain('display: block');
+    expect(panel.querySelector('[data-annotation-css-clear]')).not.toBeNull();
+  });
+
+  it('does not render the clear control for empty or missing css edits', async () => {
+    const panel = document.createElement('div');
+    const empty = { ...annotation('Empty CSS'), cssEdits: [] };
+    const missing = annotation('Missing CSS');
+    const listAnnotations = vi.fn().mockResolvedValue([empty]);
+    const { notePanel } = await render(panel, [], {
+      listAnnotations,
+      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
+      captureScreenshot: vi.fn(),
+    });
+    expect(panel.querySelector('[data-annotation-css-clear]')).toBeNull();
+
+    listAnnotations.mockResolvedValue([missing]);
+    await notePanel.render(context);
+    expect(panel.querySelector('[data-annotation-css-clear]')).toBeNull();
+  });
+
+  it('clears css edits, persists the empty set, and re-reads storage', async () => {
+    const panel = document.createElement('div');
+    const existing = {
+      ...annotation('Clear CSS'),
+      cssEdits: [{ property: 'color', value: 'red' }],
+    };
+    const listAnnotations = vi.fn()
+      .mockResolvedValueOnce([existing])
+      .mockResolvedValueOnce([]);
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const revertCssEdits = vi.fn();
+    const { revertCssEdits: revert } = await render(panel, [], {
+      listAnnotations,
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+      revertCssEdits,
+    });
+
+    (panel.querySelector('[data-annotation-css-clear]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+
+    expect(revert).toHaveBeenCalledWith(existing);
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.update',
+      pageUrl,
+      id: existing.id,
+      changes: { cssEdits: [] },
+    } satisfies AnnotationWriteMessage);
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(panel.querySelector('[data-annotation-css]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-css-clear]')).toBeNull();
+  });
+
+  it('tears down all applied css edits through persistence', async () => {
+    const panel = document.createElement('div');
+    const revertAllCssEdits = vi.fn();
+    const { notePanel, revertAllCssEdits: revertAll } = await render(panel, [], {
+      revertAllCssEdits,
+    });
+
+    notePanel.teardown();
+
+    expect(revertAll).toHaveBeenCalledTimes(1);
   });
 
   it('does not apply or save css edits when every line is invalid or blank', async () => {
