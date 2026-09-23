@@ -101,6 +101,26 @@ describe('annotation list', () => {
     expect(panel.querySelector('[data-annotation-row]')).not.toBeNull();
   });
 
+  it('renders a list error without rejecting and clears it when the list closes', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Loaded after failure')]);
+    vi.mocked(store.listAnnotations)
+      .mockRejectedValueOnce(new Error('list failed'))
+      .mockResolvedValueOnce([annotation('annotation-1', 'Loaded after failure')]);
+    const list = createAnnotationList(panel, pageUrl, store);
+
+    await expect(list.render()).resolves.toBeUndefined();
+    expect(panel.querySelector('h2')?.textContent).toBe('All annotations');
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('list failed');
+    expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(0);
+
+    list.clear();
+    expect(panel.childElementCount).toBe(0);
+    await list.render();
+    expect(panel.querySelector('[data-annotation-status=""]')).toBeNull();
+    expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(1);
+  });
+
   it('deletes a row through the write owner and re-reads the list', async () => {
     const panel = document.createElement('div');
     const store = persistence([annotation('annotation-1', 'Delete me')]);

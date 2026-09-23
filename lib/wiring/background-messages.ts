@@ -119,13 +119,21 @@ async function captureScreenshot(
       byteLength: processed.blob.size,
     });
   } catch (error) {
-    if (previousBlob) await blobStore.put(key, previousBlob);
-    else await blobStore.delete([key]);
+    try {
+      if (previousBlob) await blobStore.put(key, previousBlob);
+      else await blobStore.delete([key]);
+    } catch (cleanupError) {
+      throw cleanupFailure(error, cleanupError);
+    }
     throw error;
   }
 
   if (!annotation) {
-    await blobStore.delete([key]);
+    try {
+      await blobStore.delete([key]);
+    } catch (cleanupError) {
+      throw cleanupFailure(new Error('Annotation was not found for screenshot capture'), cleanupError);
+    }
     throw new Error('Annotation was not found for screenshot capture');
   }
   return annotation.screenshot;
@@ -153,6 +161,14 @@ async function readBlob(
   const blob = await blobStore.get(message.key);
   if (!blob) throw new Error('Blob was not found');
   return { mimeType: blob.type, base64: await blobToBase64(blob) };
+}
+
+function cleanupFailure(error: unknown, cleanupError: unknown): Error {
+  return new Error(`${errorMessage(error)}; cleanup failed: ${errorMessage(cleanupError)}`);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {

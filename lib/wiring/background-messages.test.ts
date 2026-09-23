@@ -198,6 +198,34 @@ describe('background message routing', () => {
     expect(processor).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves the metadata error when first-capture cleanup fails', async () => {
+    const store = new MemoryBlobStore();
+    const processor = start(store);
+    vi.spyOn(browser.tabs, 'captureVisibleTab').mockResolvedValue('data:image/png;base64,capture' as never);
+    const createdResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'annotation.add', pageUrl, input: { note: 'created', selector: '#target', elementContext } },
+      {},
+      createdResponse,
+    );
+    await vi.waitFor(() => expect(createdResponse).toHaveBeenCalledTimes(1));
+    const created = createdResponse.mock.calls[0]?.[0] as { id: string };
+    vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('metadata unavailable'));
+    vi.spyOn(store, 'delete').mockRejectedValue(new Error('cleanup unavailable'));
+    const sendResponse = vi.fn();
+
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'screenshot.capture', pageUrl, annotationId: created.id, rect: elementContext.boundingBox, devicePixelRatio: 1 },
+      sender,
+      sendResponse,
+    );
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({
+      ok: false,
+      error: 'metadata unavailable; cleanup failed: cleanup unavailable',
+    }));
+  });
+
   it('restores the previous Blob when re-capture metadata persistence fails', async () => {
     const store = new MemoryBlobStore();
     const processor = start(store);
@@ -242,6 +270,26 @@ describe('background message routing', () => {
         screenshot: { mimeType: 'image/webp', width: 800, height: 400, byteLength: 3 },
       }),
     ]);
+  });
+
+  it('preserves the not-found error when cleanup fails', async () => {
+    const store = new MemoryBlobStore();
+    const processor = start(store);
+    vi.spyOn(browser.tabs, 'captureVisibleTab').mockResolvedValue('data:image/png;base64,capture' as never);
+    vi.spyOn(store, 'delete').mockRejectedValue(new Error('cleanup unavailable'));
+    const sendResponse = vi.fn();
+
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'screenshot.capture', pageUrl, annotationId: 'missing', rect: elementContext.boundingBox, devicePixelRatio: 1 },
+      sender,
+      sendResponse,
+    );
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({
+      ok: false,
+      error: 'Annotation was not found for screenshot capture; cleanup failed: cleanup unavailable',
+    }));
+    expect(processor).toHaveBeenCalledTimes(1);
   });
 
   it('answers read requests with transport-safe bytes', async () => {

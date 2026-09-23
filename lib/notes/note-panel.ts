@@ -1,6 +1,11 @@
 import type { Annotation, CssEdit } from '../annotation';
 import type { AnnotationWriteMessage } from '../annotation-messages';
-import { isSupportedImageMimeType, validateAttachmentName, validateImageBlob, MAX_ATTACHMENTS } from '../attachments/validation';
+import {
+  isSupportedImageMimeType,
+  normalizeAttachmentName,
+  validateImageBlob,
+  MAX_ATTACHMENTS,
+} from '../attachments/validation';
 import { SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/validation';
 import { attachmentKey, screenshotKey } from '../blob-store';
 import type { ElementContext } from '../capture/context';
@@ -113,7 +118,7 @@ export function createNotePanel(
     for (const file of files) {
       if (!isSupportedImageMimeType(file.type)) throw new Error(`Unsupported image mime type: ${file.type}.`);
       validateImageBlob(file, file.type);
-      const name = validateAttachmentName(file.name);
+      const name = normalizeAttachmentName(file.name, file.type);
       const base64 = await fileToBase64(file);
       await persistence.addAttachment({
         pageUrl: context.url,

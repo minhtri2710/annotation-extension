@@ -220,6 +220,26 @@ describe('annotation storage', () => {
     expect(await store.get(attachmentKey(metadata.id))).toBeUndefined();
   });
 
+  it('rejects an attachment once MAX_ATTACHMENTS is reached', async () => {
+    const store = new MemoryBlobStore();
+    const created = await addAnnotation(firstPage, firstInput);
+    const attachments = Array.from({ length: 5 }, (_, index) => ({
+      id: `attachment-${index}`,
+      name: `photo-${index}.png`,
+      mimeType: 'image/png' as const,
+      byteLength: 4,
+    }));
+    await fakeBrowser.storage.local.set({ [pageKey(firstPage)]: [{ ...created, attachments }] });
+
+    await expect(addAttachment(
+      firstPage,
+      created.id,
+      { id: 'attachment-6', name: 'sixth.png', mimeType: 'image/png', byteLength: 4 },
+      new Blob(['data'], { type: 'image/png' }),
+      store,
+    )).rejects.toThrow('at most 5 attachments');
+  });
+
   it('deletes screenshot and attachment blobs with an annotation', async () => {
     const store = new MemoryBlobStore();
     const created = await addAnnotation(firstPage, firstInput);

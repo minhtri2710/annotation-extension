@@ -23,3 +23,25 @@ export function validateAttachmentName(value: string): string {
   if (name !== value) throw new Error('Attachment name must be trimmed.');
   return name;
 }
+
+export function normalizeAttachmentName(fileName: string, mimeType: SupportedImageMimeType): string {
+  let name = fileName.trim();
+  if (!name) name = `image.${imageExtension(mimeType)}`;
+  if (name.length > MAX_ATTACHMENT_NAME_LENGTH) {
+    const extension = /\.[^./\\]+$/.exec(name)?.[0];
+    if (extension && extension.length < MAX_ATTACHMENT_NAME_LENGTH) {
+      name = `${name.slice(0, MAX_ATTACHMENT_NAME_LENGTH - extension.length)}${extension}`;
+    } else {
+      name = name.slice(0, MAX_ATTACHMENT_NAME_LENGTH);
+    }
+  }
+  return validateAttachmentName(name);
+}
+
+function imageExtension(mimeType: SupportedImageMimeType): string {
+  switch (mimeType) {
+    case 'image/webp': return 'webp';
+    case 'image/jpeg': return 'jpeg';
+    case 'image/png': return 'png';
+  }
+}

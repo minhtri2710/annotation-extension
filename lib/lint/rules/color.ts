@@ -66,7 +66,7 @@ const SAFE_COLOR_TAGS = new Set([
   'use',
 ]);
 
-const COLOR_TOKEN_RE = /rgba?\([^)]*\)|hsla?\([^)]*\)|(?:oklch|oklab|lch|lab|color)\([^)]*\)|#[\da-f]{3,8}\b|transparent/gi;
+const COLOR_FUNCTION_RE = /^(?:rgba?|hsla?|oklch|oklab|lch|lab|color)$/i;
 const NUMBER_RE = /-?(?:\d+\.?\d*|\.\d+)(?:px|rem|em|%|vh|vw)?/gi;
 
 function colorHex(color: Rgba): string {
@@ -105,23 +105,85 @@ function splitTopLevelCommas(value: string): string[] {
 }
 
 function colorTokens(value: string): Array<{ color: Rgba | undefined; text: string; source: string }> {
-  return [...value.matchAll(COLOR_TOKEN_RE)].map((match) => {
-    const source = match[0]!;
-    return {
-      color: source.toLowerCase() === 'transparent'
-        ? { r: 0, g: 0, b: 0, a: 0 }
-        : parseColor(source),
-      text: source,
-      source: value,
-    };
-  });
+  const tokens: Array<{ color: Rgba | undefined; text: string; source: string }> = [];
+  for (let index = 0; index < value.length;) {
+    const functionMatch = /([a-z][a-z-]*)\s*\(/gi.exec(value.slice(index));
+    const hashIndex = value.indexOf('#', index);
+    const transparentMatch = /transparent\b/gi.exec(value.slice(index));
+    const functionIndex = functionMatch ? index + functionMatch.index : -1;
+    const nextIndex = [functionIndex, hashIndex, transparentMatch ? index + transparentMatch.index : -1]
+      .filter((candidate) => candidate >= 0)
+      .sort((left, right) => left - right)[0];
+    if (nextIndex === undefined) break;
+
+    if (nextIndex === functionIndex && functionMatch) {
+      const name = functionMatch[1]!;
+      const openIndex = functionIndex + functionMatch[0].lastIndexOf('(');
+      let depth = 0;
+      let closeIndex = -1;
+      for (let cursor = openIndex; cursor < value.length; cursor += 1) {
+        if (value[cursor] === '(') depth += 1;
+        else if (value[cursor] === ')') {
+          depth -= 1;
+          if (depth === 0) {
+            closeIndex = cursor;
+            break;
+          }
+        }
+      }
+      if (closeIndex < 0) break;
+      const source = value.slice(functionIndex, closeIndex + 1);
+      if (COLOR_FUNCTION_RE.test(name)) {
+        tokens.push({ color: parseColor(source), text: source, source: value });
+      }
+      index = closeIndex + 1;
+      continue;
+    }
+
+    if (nextIndex === hashIndex) {
+      const match = /#[\da-f]{3,8}\b/i.exec(value.slice(hashIndex));
+      if (match) {
+        const source = match[0];
+        tokens.push({ color: parseColor(source), text: source, source: value });
+        index = hashIndex + source.length;
+        continue;
+      }
+    }
+
+    if (transparentMatch && nextIndex === index + transparentMatch.index) {
+      const source = transparentMatch[0];
+      tokens.push({ color: { r: 0, g: 0, b: 0, a: 0 }, text: source, source: value });
+      index = nextIndex + source.length;
+      continue;
+    }
+    index = nextIndex + 1;
+  }
+  return tokens;
 }
 
 function gradientColors(value: string): Rgba[] {
-  if (!/gradient\s*\(/i.test(value)) return [];
-  return colorTokens(value)
-    .map((token) => token.color)
-    .filter((color): color is Rgba => color !== undefined);
+  return splitTopLevelCommas(value).flatMap((layer) => {
+    const match = /^(?:repeating-)?(?:linear|conic|radial)-gradient\s*\(/i.exec(layer);
+    if (!match) return [];
+    const start = match[0].lastIndexOf('(');
+    let depth = 0;
+    let end = -1;
+    for (let index = start; index < layer.length; index += 1) {
+      if (layer[index] === '(') depth += 1;
+      else if (layer[index] === ')') {
+        depth -= 1;
+        if (depth === 0) {
+          end = index;
+          break;
+        }
+      }
+    }
+    if (end < 0) return [];
+    return splitTopLevelCommas(layer.slice(start + 1, end))
+      .flatMap((stop) => colorTokens(stop))
+      .map((token) => token.color)
+      .filter((color): color is Rgba => color !== undefined);
+  });
 }
 
 interface GradientStop {
@@ -422,13 +484,11 @@ function shadowLayers(value: string): string[] {
 }
 
 function shadowColor(layer: string): { color: Rgba; before: string; after: string } | undefined {
-  const match = COLOR_TOKEN_RE.exec(layer);
-  COLOR_TOKEN_RE.lastIndex = 0;
-  if (!match) return undefined;
-  const token = match[0];
-  const color = token.toLowerCase() === 'transparent' ? { r: 0, g: 0, b: 0, a: 0 } : parseColor(token);
-  if (!color) return undefined;
-  return { color, before: layer.slice(0, match.index), after: layer.slice(match.index + token.length) };
+  const token = colorTokens(layer).find(({ color }) => color !== undefined);
+  if (!token) return undefined;
+  const index = layer.indexOf(token.text);
+  if (index < 0 || !token.color) return undefined;
+  return { color: token.color, before: layer.slice(0, index), after: layer.slice(index + token.text.length) };
 }
 
 function shadowLengths(layer: string): number[] {

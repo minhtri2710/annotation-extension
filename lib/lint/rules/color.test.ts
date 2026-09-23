@@ -134,6 +134,58 @@ describe('color lint rules through the real engine', () => {
     expect(first(hit).el).toBe(document.querySelector('#positive'));
   });
 
+  it('fails closed for nested colors in color-mix and parses plain shadow colors', () => {
+    document.body.innerHTML = '<div id="mix"></div><div id="relative"></div><div id="shadow"></div>';
+    const ctx = createScanContext(window);
+    const baseStyle = ctx.style;
+    const values: Record<string, Record<string, string>> = {
+      mix: { backgroundImage: 'linear-gradient(color-mix(in srgb, rgb(124 58 237) 50%, white), transparent)' },
+      relative: { backgroundImage: 'linear-gradient(oklch(from blue l c h), white)' },
+      shadow: { boxShadow: 'rgb(255 0 0) 0 0 20px, rgb(0 0 255) 0 0 20px' },
+    };
+    ctx.style = (el, pseudo) => {
+      const style = baseStyle(el, pseudo);
+      const overrides = values[el.id];
+      return {
+        getPropertyValue: (property: string) => overrides?.[property] ?? style.getPropertyValue(property),
+      } as CSSStyleDeclaration;
+    };
+    const result = collectFindings(colorRules, ctx);
+
+    expect(result.filter((finding) => finding.ruleId === 'ai-color-palette')).toHaveLength(0);
+    const glow = result.filter((finding) => finding.ruleId === 'dark-glow');
+    expect(glow).toHaveLength(1);
+    expect(first(glow).detail).toBe('Zero-offset box-shadow glow (#ff0000)');
+  });
+
+  it('reads colors from every top-level gradient layer', () => {
+    document.body.innerHTML = '<div id="low">Low</div><div id="purple"></div>';
+    const ctx = createScanContext(window);
+    const baseStyle = ctx.style;
+    const values: Record<string, Record<string, string>> = {
+      low: {
+        color: 'rgb(119, 119, 119)',
+        backgroundColor: 'transparent',
+        backgroundImage: 'linear-gradient(rgb(0, 0, 0), rgb(0, 0, 0)), linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255))',
+        fontSize: '16px',
+      },
+      purple: {
+        backgroundImage: 'linear-gradient(rgb(0, 0, 0), rgb(0, 0, 0)), linear-gradient(rgb(124, 58, 237), rgb(59, 130, 246))',
+      },
+    };
+    ctx.style = (el, pseudo) => {
+      const style = baseStyle(el, pseudo);
+      const overrides = values[el.id];
+      return {
+        getPropertyValue: (property: string) => overrides?.[property] ?? style.getPropertyValue(property),
+      } as CSSStyleDeclaration;
+    };
+    const result = collectFindings(colorRules, ctx);
+
+    expect(result.some((finding) => finding.ruleId === 'low-contrast' && finding.el === document.querySelector('#low'))).toBe(true);
+    expect(result.some((finding) => finding.ruleId === 'ai-color-palette' && finding.el === document.querySelector('#purple'))).toBe(true);
+  });
+
   it('flags a chromatic zero-offset glow and not a blur at the threshold', () => {
     document.body.innerHTML = `
       <div id="positive" style="box-shadow: rgb(59, 130, 246) 0px 0px 20px 0px"></div>

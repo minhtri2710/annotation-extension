@@ -491,6 +491,30 @@ describe('note panel', () => {
     expect(panel.querySelector('[data-annotation-attachment] img')?.innerHTML).toBe('');
   });
 
+  it('normalizes an attachment file name before sending it', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Attachment upload');
+    const addAttachment = vi.fn().mockResolvedValue({
+      id: 'attachment-2', name: 'image.png', mimeType: 'image/png', byteLength: 1,
+    });
+    await render(panel, [existing], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      addAttachment,
+    });
+
+    const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', {
+      value: [new File(['x'], `  ${'a'.repeat(130)}.png  `, { type: 'image/png' })],
+    });
+    input.dispatchEvent(new Event('change'));
+
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    const sentName = addAttachment.mock.calls[0]?.[0].name as string;
+    expect(sentName).toHaveLength(120);
+    expect(sentName).toMatch(/\.png$/);
+    expect(sentName).not.toContain('  ');
+  });
+
   it('reports screenshot read errors and continues rendering without a preview', async () => {
     const panel = document.createElement('div');
     const existing = {

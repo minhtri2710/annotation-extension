@@ -33,7 +33,13 @@ export function createAnnotationList(
 
   async function render(): Promise<void> {
     const version = ++renderVersion;
-    const annotations = await persistence.listAnnotations(pageUrl);
+    let annotations: Annotation[] = [];
+    try {
+      annotations = await persistence.listAnnotations(pageUrl);
+    } catch (error) {
+      if (version !== renderVersion) return;
+      statusMessage = errorMessage(error);
+    }
     if (version !== renderVersion) return;
 
     const document = panel.ownerDocument;
@@ -169,6 +175,7 @@ export function createAnnotationList(
 
   function clear(): void {
     renderVersion += 1;
+    statusMessage = undefined;
     panel.replaceChildren();
   }
 

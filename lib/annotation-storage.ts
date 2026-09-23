@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import { pageKey } from '../utils/page-key';
 import { attachmentKey, screenshotKey, type BlobStore } from './blob-store';
-import { validateAttachmentName, validateImageBlob } from './attachments/validation';
+import { MAX_ATTACHMENTS, validateAttachmentName, validateImageBlob } from './attachments/validation';
 import type {
   Annotation,
   AnnotationInput,
@@ -124,7 +124,9 @@ export async function addAttachment(
     if (index === -1) throw new Error('Annotation was not found');
     const existing = annotations[index];
     if (!existing) throw new Error('Annotation was not found');
-    if ((existing.attachments?.length ?? 0) >= 5) throw new Error('An annotation can have at most 5 attachments');
+    if ((existing.attachments?.length ?? 0) >= MAX_ATTACHMENTS) {
+      throw new Error(`An annotation can have at most ${MAX_ATTACHMENTS} attachments`);
+    }
 
     const keyForBlob = attachmentKey(metadata.id);
     await blobStore.put(keyForBlob, blob);

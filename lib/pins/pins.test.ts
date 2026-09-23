@@ -106,6 +106,24 @@ describe('pins controller', () => {
     controller.destroy();
   });
 
+  it('keeps marker badges at their source ordinals across an unresolved annotation', () => {
+    const { toolbar, overlay } = setup();
+    const thirdTarget = document.createElement('button');
+    thirdTarget.id = 'third-target';
+    document.body.append(thirdTarget);
+    const controller = createPinsController({ document, container: overlay, toolbar });
+
+    controller.setAnnotations([
+      annotation('annotation-1'),
+      annotation('annotation-2', '#missing'),
+      annotation('annotation-3', '#third-target'),
+    ]);
+
+    expect(Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-annotation-id]'))
+      .map((marker) => marker.textContent)).toEqual(['1', '3']);
+    controller.destroy();
+  });
+
   it('shows and tears down a truncated note tooltip on hover and focus', () => {
     const { toolbar, overlay } = setup();
     const matching = annotation('annotation-1');
