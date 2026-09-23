@@ -175,6 +175,37 @@ describe('clicks inside frames (real browser)', () => {
   });
 });
 
+describe('repeat clicks inside frames (real browser)', () => {
+  it('announces the frame status again after the pointer has hovered top-level content', async () => {
+    const frame = document.createElement('iframe');
+    frame.srcdoc = '<button style="width: 300px; height: 150px">inner</button>';
+    frame.style.cssText = 'width: 300px; height: 150px';
+    const outside = document.createElement('button');
+    outside.id = 'outside';
+    outside.textContent = 'outside';
+    document.body.append(frame, outside);
+    await new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
+    let frameClicks = 0;
+    frame.contentDocument!.addEventListener('click', () => frameClicks++);
+    await userEvent.click(outside);
+    startCapture();
+
+    await userEvent.click(frame);
+    await expect.poll(() => controller!.live.textContent).toBe("Content inside frames can't be annotated.");
+
+    await userEvent.hover(outside);
+    await expect.poll(() => controller!.live.textContent).toBe('button#outside');
+
+    await userEvent.click(frame);
+    expect(frameClicks).toBe(2);
+    await expect.poll(() => controller!.live.textContent).toBe("Content inside frames can't be annotated.");
+    expect(controller!.active).toBe(true);
+    expect(selected).toEqual([]);
+    frame.remove();
+    outside.remove();
+  });
+});
+
 describe('a page that stops events at window capture (real browser)', () => {
   const HOSTILE = ['click', 'pointerdown', 'pointermove'] as const;
   let pageSaw: string[];

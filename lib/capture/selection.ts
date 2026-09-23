@@ -57,25 +57,34 @@ const FRAME_MESSAGE = "Content inside frames can't be annotated.";
 const INTERCEPTED_EVENTS = ['pointermove', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'keydown'] as const;
 
 type PageEventRoute = (event: Event) => void;
-const hubs = new WeakMap<Window, Set<PageEventRoute>>();
+const hubs = new WeakMap<Window, { routes: Set<PageEventRoute>; listener: (event: Event) => void }>();
 
 /**
  * Registers, once per window, the capture-phase listeners that must run before the page's own, so a page
  * that stops propagation at window capture cannot disable capture. The content script calls this first at
- * document_start; controllers route through the same set. With no route (capture idle) a listener does
- * nothing beyond one size check.
+ * document_start and releases it when its context is invalidated; controllers route through the same set.
+ * With no route (capture idle) a listener does nothing beyond one size check.
  */
 export function interceptPageEvents(win: Window): Set<PageEventRoute> {
   const existing = hubs.get(win);
-  if (existing) return existing;
+  if (existing) return existing.routes;
   const routes = new Set<PageEventRoute>();
-  hubs.set(win, routes);
   const listener = (event: Event) => {
     if (routes.size === 0) return;
     for (const route of routes) route(event);
   };
+  hubs.set(win, { routes, listener });
   for (const type of INTERCEPTED_EVENTS) win.addEventListener(type, listener, true);
   return routes;
+}
+
+/** Removes the window's capture-phase listeners and drops its routes. */
+export function releasePageEvents(win: Window): void {
+  const hub = hubs.get(win);
+  if (!hub) return;
+  hubs.delete(win);
+  hub.routes.clear();
+  for (const type of INTERCEPTED_EVENTS) win.removeEventListener(type, hub.listener, true);
 }
 
 /** The CSS zoom an element inherits (from the page's html or body); 1 where the engine has no CSS zoom. */
@@ -118,6 +127,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
 
   const handlePointerMove = (event: PointerEvent) => {
     if (!active || isExtensionEvent(event, options.shadowHost)) return;
+    releaseFrameFocus();
     const element = resolveTarget(event, options.document);
     if (element !== hoveredElement) retrace = [];
     setHoveredElement(element);
@@ -199,6 +209,13 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
       if (active && options.document.activeElement?.localName === 'iframe') announce(FRAME_MESSAGE);
     }, 0);
   };
+
+  // The top window gets no event for a click into a frame that already holds focus. Moving the pointer
+  // back over the page returns focus to it, so the next click into a frame blurs the window again.
+  function releaseFrameFocus() {
+    const focused = options.document.activeElement;
+    if (focused?.localName === 'iframe') (focused as HTMLIFrameElement).blur();
+  }
 
   function announce(text: string) {
     live.textContent = text;

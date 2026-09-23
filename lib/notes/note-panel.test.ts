@@ -1125,6 +1125,36 @@ describe('note panel across tabs', () => {
     expect(status(panel)).toBe(CHANGED);
   });
 
+  it('renumbers the open panel when another tab adds an annotation earlier on the page', async () => {
+    const panel = document.createElement('div');
+    const here = annotation('Here');
+    const listAnnotations = vi.fn().mockResolvedValue([here]);
+    const { notePanel } = await render(panel, [], { listAnnotations });
+    expect(panel.querySelector('[data-annotation-edit-note]')?.getAttribute('aria-label')).toBe('Edit note, annotation 1');
+
+    listAnnotations.mockResolvedValue([{ ...annotation('Elsewhere'), id: 'annotation-0', selector: '.other' }, here]);
+    await notePanel.syncWithStorage();
+
+    expect(panel.querySelector('[data-annotation-edit-note]')?.getAttribute('aria-label')).toBe('Edit note, annotation 2');
+    expect(status(panel)).toBeUndefined();
+  });
+
+  it('keeps typed text and says the page changed when another tab deletes an earlier annotation', async () => {
+    const panel = document.createElement('div');
+    const here = annotation('Here');
+    const listAnnotations = vi.fn().mockResolvedValue([{ ...annotation('Elsewhere'), id: 'annotation-0', selector: '.other' }, here]);
+    const { notePanel } = await render(panel, [], { listAnnotations });
+    const editor = panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
+    editor.value = 'B typing';
+
+    listAnnotations.mockResolvedValue([here]);
+    await notePanel.syncWithStorage();
+
+    expect(panel.querySelector('[data-annotation-edit-note]')).toBe(editor);
+    expect(editor.value).toBe('B typing');
+    expect(status(panel)).toBe(CHANGED);
+  });
+
   it('leaves the panel alone when storage matches what it shows', async () => {
     const panel = document.createElement('div');
     const { notePanel } = await render(panel, [annotation('Same')]);

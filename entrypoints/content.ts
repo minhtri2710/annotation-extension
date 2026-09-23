@@ -19,6 +19,7 @@ import {
   createCaptureController,
   interceptPageEvents,
   isCaptureToggleMessage,
+  releasePageEvents,
   type CaptureEvents,
 } from '../lib/capture';
 
@@ -28,6 +29,7 @@ export default defineContentScript({
   async main(ctx) {
     // The only work before the DOM exists: capture listeners that must precede the page's own.
     interceptPageEvents(window);
+    ctx.onInvalidated(() => releasePageEvents(window));
     await domReady();
 
     const bus = createEventBus<CaptureEvents>();

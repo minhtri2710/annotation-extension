@@ -37,7 +37,7 @@ export function createNotePanel(
   let statusMessage: string | undefined;
   // Shows statusMessage in the current render without re-rendering, so typed text survives.
   let showCurrentStatus = () => {};
-  // What the current render shows (ids and update times), and how many of this panel's writes are in flight.
+  // What the current render shows (ids, update times and page positions), and how many of this panel's writes are in flight.
   let shownVersion = '';
   let pendingWrites = 0;
   const previewUrls = new Set<string>();
@@ -61,19 +61,18 @@ export function createNotePanel(
   async function refresh(context: ElementContext): Promise<void> {
     if (selectedContext && selectedContext.selector !== context.selector) statusMessage = undefined;
     selectedContext = context;
-    let annotations: Annotation[] = [];
-    // Names use the annotation's 1-based position on the page, as the annotation list does.
-    const positions = new Map<string, number>();
+    let pageAnnotations: Annotation[] = [];
     try {
-      const pageAnnotations = await persistence.listAnnotations(context.url);
-      pageAnnotations.forEach((annotation, index) => positions.set(annotation.id, index + 1));
-      annotations = pageAnnotations.filter((annotation) => annotation.selector === context.selector);
+      pageAnnotations = await persistence.listAnnotations(context.url);
     } catch (error) {
       statusMessage = errorMessage(error);
     }
     if (selectedContext !== context) return;
+    // Names use the annotation's 1-based position on the page, as the annotation list does.
+    const positions = new Map(pageAnnotations.map((annotation, index) => [annotation.id, index + 1]));
+    const annotations = pageAnnotations.filter((annotation) => annotation.selector === context.selector);
 
-    shownVersion = versionOf(annotations);
+    shownVersion = versionOf(pageAnnotations, context.selector);
     revokePreviewUrls();
     const restoreFocus = keepPanelFocus(panel);
     panel.replaceChildren();
@@ -201,7 +200,7 @@ export function createNotePanel(
       return;
     }
     if (selectedContext !== context || pendingWrites > 0) return;
-    if (versionOf(annotations.filter((annotation) => annotation.selector === context.selector)) === shownVersion) return;
+    if (versionOf(annotations, context.selector) === shownVersion) return;
     const typing = Array.from(panel.querySelectorAll('textarea')).some((field) => field.value !== field.defaultValue);
     if (typing) {
       statusMessage = CHANGED_ELSEWHERE_MESSAGE;
@@ -562,8 +561,10 @@ export function createNotePanel(
   return { render, clear, teardown, syncWithStorage, live };
 }
 
-function versionOf(annotations: Annotation[]): string {
-  return annotations.map(({ id, updatedAt }) => `${id}@${updatedAt}`).join(' ');
+function versionOf(pageAnnotations: Annotation[], selector: string): string {
+  return pageAnnotations
+    .flatMap(({ id, updatedAt, selector: shown }, index) => shown === selector ? [`${id}@${updatedAt}#${index + 1}`] : [])
+    .join(' ');
 }
 
 function errorMessage(error: unknown): string {

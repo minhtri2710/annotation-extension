@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ElementContext } from './context';
-import { createCaptureController, interceptPageEvents, type CaptureController } from './selection';
+import { createCaptureController, interceptPageEvents, releasePageEvents, type CaptureController } from './selection';
 import { createEventBus } from '../ui/event-bus';
 import type { CaptureEvents } from './selection';
 
@@ -790,6 +790,21 @@ describe('clicks inside frames', () => {
     await nextTask();
     expect(controller.live.textContent).toBe('');
   });
+
+  it('returns focus from a frame to the page when the pointer moves over the page, only while active', () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    vi.spyOn(document, 'activeElement', 'get').mockReturnValue(frame);
+    const blur = vi.spyOn(frame, 'blur');
+    const target = document.querySelector('#target')!;
+
+    pointer('pointermove', target);
+    expect(blur).not.toHaveBeenCalled();
+
+    controller.activate();
+    pointer('pointermove', target);
+    expect(blur).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('window capture listeners that precede the page', () => {
@@ -807,6 +822,24 @@ describe('window capture listeners that precede the page', () => {
 
   it('installs one hub per window', () => {
     expect(interceptPageEvents(window)).toBe(interceptPageEvents(window));
+  });
+
+  it('stops routing page events once released, and a later call installs a fresh hub', () => {
+    const routes = interceptPageEvents(window);
+    const routed: string[] = [];
+    routes.add((event) => routed.push(event.type));
+    controller.activate();
+    const target = document.querySelector('#target')!;
+
+    releasePageEvents(window);
+    pointer('pointermove', target);
+    pointer('pointerdown', target);
+    key('ArrowUp');
+
+    expect(routed).toEqual([]);
+    expect(label().hidden).toBe(true);
+    expect(selected).toEqual([]);
+    expect(interceptPageEvents(window)).not.toBe(routes);
   });
 
   it('highlights and commits although the page stops pointer events at window capture', () => {

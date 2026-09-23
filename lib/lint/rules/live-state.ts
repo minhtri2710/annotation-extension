@@ -437,10 +437,28 @@ function isPositioned(ctx: ScanContext, el: Element): boolean {
   return (styleValue(ctx, el, 'position').toLowerCase() || 'static') !== 'static';
 }
 
+const STACKING_WILL_CHANGE = /\b(?:position|transform|translate|rotate|scale|filter|perspective|backdrop-filter|opacity|isolation|mix-blend-mode|contain|z-index)\b/;
+
+// Positioned, or creating a stacking context that can paint above a positioned sibling chain.
+function layersAboveFlow(ctx: ScanContext, el: Element): boolean {
+  const value = (property: string) => styleValue(ctx, el, property).toLowerCase();
+  if (isPositioned(ctx, el)) return true;
+  if (['transform', 'translate', 'rotate', 'scale', 'filter', 'perspective', 'backdrop-filter'].some((property) => (value(property) || 'none') !== 'none')) return true;
+  if (numberValue(value('opacity'), 1) < 1 || value('isolation') === 'isolate') return true;
+  if ((value('mix-blend-mode') || 'normal') !== 'normal') return true;
+  if (/\b(?:paint|layout|strict|content)\b/.test(value('contain')) || STACKING_WILL_CHANGE.test(value('will-change'))) return true;
+  const parentDisplay = el.parentElement ? styleValue(ctx, el.parentElement, 'display').toLowerCase() : '';
+  return /\b(?:flex|grid)\b/.test(parentDisplay) && (value('z-index') || 'auto') !== 'auto';
+}
+
 // Hit testing skips pointer-events:none, so such a victim never shows in the stack. CSS paints a
-// positioned element (in a chain with no negative z-index) above every unpositioned one.
+// positioned element (in a chain with no negative z-index) above an unpositioned one, unless the
+// candidate or its ancestor below the common ancestor is positioned or creates a stacking context.
 function paintsAbove(ctx: ScanContext, victim: Element, candidate: Element): boolean {
-  if (styleValue(ctx, victim, 'pointer-events') !== 'none' || isPositioned(ctx, candidate)) return false;
+  if (styleValue(ctx, victim, 'pointer-events') !== 'none') return false;
+  for (let current: Element | null = candidate; current && !current.contains(victim); current = current.parentElement) {
+    if (layersAboveFlow(ctx, current)) return false;
+  }
   let positioned = false;
   for (let current: Element | null = victim; current && current !== ctx.doc.body; current = current.parentElement) {
     if (!isPositioned(ctx, current)) continue;

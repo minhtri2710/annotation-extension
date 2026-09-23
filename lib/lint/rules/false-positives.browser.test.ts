@@ -166,6 +166,26 @@ describe('text-occlusion on floating labels in a real browser', () => {
     expect(hits[0]!.el).toBe(win.document.querySelector('label'));
     expect(hits[0]!.detail).toContain('covered by an opaque element (input)');
   });
+
+  it.each([
+    ['a transform', '', ';transform:translateZ(0);background:#fff'],
+    ['opacity below 1', '', ';opacity:0.99;background:#fff'],
+    ['a flex-item z-index', '.field{display:flex;flex-direction:column}', ';z-index:1;background:#fff'],
+  ])('flags the label when an unpositioned input with %s paints over it', async (_name, fieldCss, input) => {
+    const win = await load(field(input).replace('</style>', `${fieldCss}</style>`));
+    const hits = await findings(win, liveStateRules, 'text-occlusion');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.el).toBe(win.document.querySelector('label'));
+    expect(hits[0]!.detail).toContain('covered by an opaque element (input)');
+  });
+
+  it('flags the label when a wrapper of the unpositioned input creates a stacking context', async () => {
+    const win = await load(field(';background:#fff').replace('<input id="dest">', '<div style="will-change:transform"><input id="dest"></div>'));
+    const hits = await findings(win, liveStateRules, 'text-occlusion');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.el).toBe(win.document.querySelector('label'));
+    expect(hits[0]!.detail).toContain('covered by an opaque element (input)');
+  });
 });
 
 describe('first-viewport-column-overflow on sidebar layouts at tablet width in a real browser', () => {
