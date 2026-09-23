@@ -2,7 +2,7 @@ import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
 import { createAnnotationList } from '../lib/annotation-list/annotation-list';
 import { createNotePanel } from '../lib/notes/note-panel';
-import { createScanPanel, scanPage } from '../lib/scan-panel/scan-panel';
+import { createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import type { ElementContext } from '../lib/capture/context';
 import { resolveLiveElementContext } from '../lib/wiring/live-element';
@@ -60,6 +60,10 @@ export default defineContentScript({
         let annotationList = createAnnotationList(shell.panel, url);
         const activeScanPanel = createScanPanel(shell.panel, {
           scan: () => scanPage(window, shadowHost),
+          deepScan: (signal) => deepScanPage(window, shadowHost, signal),
+          onUpdate: () => {
+            if (panelMode === 'scan') anchorPanel(shell.toolbar.getBoundingClientRect());
+          },
           highlightRoot: shell.root,
         });
         scanPanel = activeScanPanel;

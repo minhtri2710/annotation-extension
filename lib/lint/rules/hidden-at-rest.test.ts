@@ -1,0 +1,123 @@
+// @vitest-environment happy-dom
+
+import { afterEach, describe, expect, it } from 'vitest';
+import { collectFindings, createScanContext } from '../engine';
+import { hiddenAtRestRules } from './hidden-at-rest';
+
+function text(length: number): string {
+  return 'x'.repeat(length);
+}
+
+function load(html: string): void {
+  const base = document.createElement('style');
+  base.textContent = 'body, body * { opacity: 1; }';
+  document.head.replaceChildren(base);
+  document.body.replaceChildren(...new DOMParser().parseFromString(html, 'text/html').body.childNodes);
+}
+
+function detailsFor(): string[] {
+  return collectFindings(hiddenAtRestRules, createScanContext(window)).map((finding) => finding.detail);
+}
+
+afterEach(() => {
+  document.head.replaceChildren();
+  document.body.replaceChildren();
+});
+
+describe('content-hidden-at-rest', () => {
+  it('registers one error-severity page rule with impeccable metadata', () => {
+    expect(hiddenAtRestRules).toHaveLength(1);
+    const [rule] = hiddenAtRestRules;
+    expect(rule).toMatchObject({
+      id: 'content-hidden-at-rest',
+      category: 'quality',
+      severity: 'error',
+      scope: 'page',
+      name: 'Content invisible at rest',
+    });
+    expect(rule?.description).toBe(
+      'A large share of the page text sits at opacity 0 or visibility hidden even after every reveal handler had a chance to run. This is the failed-reveal signature: the content shipped but never becomes visible. Make content visible by default and let JavaScript enhance its entrance instead of gating its existence.',
+    );
+    expect(rule?.skillSection).toBeUndefined();
+  });
+
+  it('fires once with the share, counts, and first hidden sample', () => {
+    load(`<p>${text(100)}</p><section style="opacity: 0"><p>Hidden hero copy ${text(150)}</p></section>`);
+    const details = detailsFor();
+    expect(details).toHaveLength(1);
+    expect(details[0]).toBe(
+      `63% of page text (167 of 267 chars) stays at opacity 0 / visibility hidden after reveal handlers ran (e.g. "Hidden hero copy ${text(23)}")`,
+    );
+  });
+
+  it('does not fire when total text is 199 chars', () => {
+    load(`<p>${text(49)}</p><p style="opacity: 0">${text(150)}</p>`);
+    expect(detailsFor()).toEqual([]);
+  });
+
+  it('does not fire when hidden text is 149 chars', () => {
+    load(`<p>${text(51)}</p><p style="opacity: 0">${text(149)}</p>`);
+    expect(detailsFor()).toEqual([]);
+  });
+
+  it('does not fire when the hidden share is exactly 0.3', () => {
+    load(`<p>${text(350)}</p><p style="opacity: 0">${text(150)}</p>`);
+    expect(detailsFor()).toEqual([]);
+  });
+
+  it('fires just above the 0.3 share', () => {
+    load(`<p>${text(349)}</p><p style="opacity: 0">${text(150)}</p>`);
+    expect(detailsFor()).toHaveLength(1);
+  });
+
+  it('counts opacity at or below 0.02 as hidden and above it as visible', () => {
+    load(`<p>${text(50)}</p><p style="opacity: 0.02">${text(150)}</p>`);
+    expect(detailsFor()).toHaveLength(1);
+    load(`<p>${text(50)}</p><p style="opacity: 0.03">${text(150)}</p>`);
+    expect(detailsFor()).toEqual([]);
+  });
+
+  it('counts visibility hidden and collapse as hidden', () => {
+    load(`<p>${text(50)}</p><p style="visibility: hidden">${text(150)}</p>`);
+    expect(detailsFor()[0]).toContain('(150 of 200 chars)');
+    load(`<p>${text(50)}</p><p style="visibility: collapse">${text(150)}</p>`);
+    expect(detailsFor()[0]).toContain('(150 of 200 chars)');
+  });
+
+  it('inherits invisibility from an invisible ancestor', () => {
+    load(`<p>${text(50)}</p><div style="opacity: 0"><p><span>${text(150)}</span></p></div>`);
+    expect(detailsFor()[0]).toContain('(150 of 200 chars)');
+  });
+
+  it.each([
+    ['display none', `<div style="display: none">`],
+    ['the hidden attribute', `<div hidden style="display: block">`],
+    ['aria-hidden true', `<div aria-hidden="true">`],
+    ['content-visibility hidden', `<div style="content-visibility: hidden">`],
+  ])('excludes text under %s from both counts', (_label, open) => {
+    load(`<p>${text(50)}</p><p style="opacity: 0">${text(150)}</p>${open}<p style="opacity: 0">${text(500)}</p></div>`);
+    expect(detailsFor()[0]).toContain('(150 of 200 chars)');
+  });
+
+  it.each(['script', 'style', 'noscript', 'template', 'select', 'datalist', 'dialog'])(
+    'excludes text inside <%s>',
+    (tag) => {
+      load(`<p>${text(50)}</p><p style="opacity: 0">${text(150)}</p><${tag} style="opacity: 0">${text(500)}</${tag}>`);
+      expect(detailsFor()[0]).toContain('(150 of 200 chars)');
+    },
+  );
+
+  it('counts collapsed, trimmed direct text only', () => {
+    load(`<p>  ${text(25)}   \n  ${text(24)}  </p><p style="opacity: 0">${text(150)}</p>`);
+    expect(detailsFor()[0]).toContain('(150 of 200 chars)');
+  });
+
+  it('does not count text inside shadow roots', () => {
+    load(`<p>${text(50)}</p><p style="opacity: 0">${text(150)}</p><div id="host"></div>`);
+    const shadow = document.getElementById('host')!.attachShadow({ mode: 'open' });
+    const inner = document.createElement('p');
+    inner.textContent = text(5000);
+    shadow.append(inner);
+    expect(detailsFor()[0]).toContain('(150 of 200 chars)');
+  });
+});

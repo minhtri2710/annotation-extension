@@ -2,7 +2,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Finding, Rule, Severity } from '../lint/engine';
-import { createScanPanel, scanPage } from './scan-panel';
+import { hiddenAtRestRules } from '../lint/rules/hidden-at-rest';
+import { createScanPanel, deepScanPage, scanPage } from './scan-panel';
 
 function finding(ruleId: string, name: string, severity: Severity, detail: string, el?: Element): Finding {
   return {
@@ -11,11 +12,34 @@ function finding(ruleId: string, name: string, severity: Severity, detail: strin
   };
 }
 
-function setup(scan: () => Finding[]) {
+type DeepScan = (signal: AbortSignal) => Promise<Finding[]>;
+
+function setup(scan: () => Finding[], deepScan: DeepScan = () => new Promise<Finding[]>(() => {})) {
   const panel = document.createElement('div');
   const highlightRoot = document.createElement('div');
   document.body.append(panel, highlightRoot);
-  return { panel, highlightRoot, scanPanel: createScanPanel(panel, { scan, highlightRoot }) };
+  const deepScanSpy = vi.fn(deepScan);
+  const onUpdate = vi.fn();
+  const scanPanel = createScanPanel(panel, { scan, highlightRoot, deepScan: deepScanSpy, onUpdate });
+  return { panel, highlightRoot, scanPanel, deepScan: deepScanSpy, onUpdate };
+}
+
+function deferredDeepScan() {
+  const calls: { signal: AbortSignal; resolve: (findings: Finding[]) => void; reject: (error: unknown) => void }[] = [];
+  const deepScan: DeepScan = (signal) =>
+    new Promise<Finding[]>((resolve, reject) => {
+      calls.push({ signal, resolve, reject });
+      signal.addEventListener('abort', () => reject(signal.reason));
+    });
+  return { deepScan, calls };
+}
+
+function deepButton(panel: HTMLElement): HTMLButtonElement | null {
+  return panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan]');
+}
+
+async function flush(): Promise<void> {
+  await vi.runAllTimersAsync();
 }
 
 async function renderNow(render: () => Promise<void>): Promise<void> {
@@ -192,5 +216,202 @@ describe('scan panel', () => {
     expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).toBeNull();
     expect(panel.childElementCount).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('deepScanPage', () => {
+  const originalScrollTo = window.scrollTo;
+  afterEach(() => {
+    window.scrollTo = originalScrollTo;
+  });
+
+  it('rejects on abort and runs no rule', async () => {
+    const ruleTest = vi.spyOn(hiddenAtRestRules[0]!, 'test');
+    const scrollTo = vi.fn();
+    window.scrollTo = scrollTo;
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled'));
+    await expect(deepScanPage(window, document.createElement('div'), controller.signal)).rejects.toThrow('cancelled');
+    expect(ruleTest).not.toHaveBeenCalled();
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('sweeps, restores the scroll position, then runs the deep-scan rules', async () => {
+    vi.useFakeTimers();
+    const hidden = document.createElement('p');
+    hidden.style.opacity = '0';
+    hidden.textContent = 'x'.repeat(300);
+    document.body.append(hidden);
+    const ruleTest = vi.spyOn(hiddenAtRestRules[0]!, 'test');
+    const scrollTo = vi.fn();
+    window.scrollTo = scrollTo;
+    const pending = deepScanPage(window, document.createElement('div'), new AbortController().signal);
+    await vi.runAllTimersAsync();
+    const findings = await pending;
+    expect(findings.map((f) => f.ruleId)).toContain('content-hidden-at-rest');
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: window.scrollY, left: window.scrollX, behavior: 'instant' });
+    expect(ruleTest.mock.invocationCallOrder[0]).toBeGreaterThan(scrollTo.mock.invocationCallOrder.at(-1)!);
+  });
+});
+
+describe('scan panel deep scan', () => {
+  it('shows the Deep scan button right after the summary in both result states, and plain render never deep-scans', async () => {
+    vi.useFakeTimers();
+    const empty = setup(() => []);
+    await renderNow(empty.scanPanel.render);
+    const button = deepButton(empty.panel);
+    expect(button?.type).toBe('button');
+    expect(button?.textContent).toBe('Deep scan (scrolls the page)');
+    expect(button?.previousElementSibling?.hasAttribute('data-annotation-scan-summary')).toBe(true);
+    expect(empty.deepScan).not.toHaveBeenCalled();
+
+    const full = setup(() => [finding('a', 'A', 'error', 'x')]);
+    await renderNow(full.scanPanel.render);
+    expect(deepButton(full.panel)?.previousElementSibling?.hasAttribute('data-annotation-scan-summary')).toBe(true);
+    expect(deepButton(full.panel)?.nextElementSibling?.hasAttribute('data-annotation-scan-group')).toBe(true);
+    expect(full.deepScan).not.toHaveBeenCalled();
+  });
+
+  it('shows no Deep scan button after a failed scan', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(() => {
+      throw new Error('boom');
+    });
+    await renderNow(scanPanel.render);
+    expect(deepButton(panel)).toBeNull();
+  });
+
+  it('runs: shows a running status and a focused Cancel, then renders prefixed results with Locate', async () => {
+    vi.useFakeTimers();
+    const target = document.createElement('p');
+    document.body.append(target);
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel, onUpdate, deepScan: spy } = setup(() => [], deepScan);
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(calls[0]?.signal.aborted).toBe(false);
+    expect([...panel.children].map((el) => el.tagName)).toEqual(['H2', 'P', 'BUTTON']);
+    expect(panel.querySelector('h2')?.textContent).toBe('Design scan');
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Deep scan running…');
+    const cancel = panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]');
+    expect(cancel?.type).toBe('button');
+    expect(cancel?.textContent).toBe('Cancel');
+    expect(document.activeElement).toBe(cancel);
+    expect(onUpdate).not.toHaveBeenCalled();
+
+    calls[0]?.resolve([finding('h', 'Hidden', 'error', 'most text hidden', target), finding('w', 'W', 'warning', 'w')]);
+    await flush();
+    expect(panel.querySelector('[data-annotation-status]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-deep-scan-cancel]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 2 findings: 1 errors, 1 warnings, 0 advisory');
+    expect([...panel.querySelectorAll<HTMLElement>('[data-annotation-scan-group]')].map((g) => g.dataset.ruleId)).toEqual(['h', 'w']);
+    expect(panel.querySelector('[data-annotation-scan-locate]')?.textContent).toBe('Locate');
+    expect(deepButton(panel)?.previousElementSibling?.hasAttribute('data-annotation-scan-summary')).toBe(true);
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the prefixed empty state for a deep scan with no findings', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(() => [], () => Promise.resolve([]));
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    await flush();
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-empty-state]')?.textContent).toBe('No findings on this page.');
+    expect(deepButton(panel)).not.toBeNull();
+  });
+
+  it('Cancel aborts: shows cancelled with the Deep scan button, no list, and removes the Escape listener', async () => {
+    vi.useFakeTimers();
+    const removeListener = vi.spyOn(document, 'removeEventListener');
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel, onUpdate } = setup(() => [], deepScan);
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]')?.click();
+    await flush();
+    expect(calls[0]?.signal.aborted).toBe(true);
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Deep scan cancelled');
+    expect(deepButton(panel)).not.toBeNull();
+    expect(panel.querySelector('[data-annotation-scan-summary]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-scan-group]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-deep-scan-cancel]')).toBeNull();
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    expect(removeListener).toHaveBeenCalledWith('keydown', expect.any(Function));
+  });
+
+  it('Escape on the document aborts, and a later Escape does nothing', async () => {
+    vi.useFakeTimers();
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel, onUpdate } = setup(() => [], deepScan);
+    await renderNow(scanPanel.render);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(onUpdate).not.toHaveBeenCalled();
+    deepButton(panel)?.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(calls[0]?.signal.aborted).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flush();
+    expect(calls[0]?.signal.aborted).toBe(true);
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Deep scan cancelled');
+
+    deepButton(panel)?.click();
+    calls[1]?.resolve([]);
+    await flush();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flush();
+    expect(calls[1]?.signal.aborted).toBe(false);
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(onUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails closed with the error message and no list when the deep scan throws', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel, onUpdate } = setup(() => [], () => Promise.reject(new Error('sweep broke')));
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    await flush();
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Scan failed: sweep broke');
+    expect(panel.querySelector('[data-annotation-scan-summary]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-scan-group]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-empty-state]')).toBeNull();
+    expect(deepButton(panel)).toBeNull();
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('clear() aborts an in-flight deep scan and drops its late result', async () => {
+    vi.useFakeTimers();
+    const calls: { signal: AbortSignal; resolve: (findings: Finding[]) => void }[] = [];
+    const deepScan: DeepScan = (signal) => new Promise<Finding[]>((resolve) => calls.push({ signal, resolve }));
+    const { panel, scanPanel, onUpdate } = setup(() => [], deepScan);
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    scanPanel.clear();
+    expect(calls[0]?.signal.aborted).toBe(true);
+    calls[0]?.resolve([finding('late', 'Late', 'error', 'late')]);
+    await flush();
+    expect(panel.childElementCount).toBe(0);
+    expect(onUpdate).not.toHaveBeenCalled();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(panel.childElementCount).toBe(0);
+  });
+
+  it('a newer render() aborts an in-flight deep scan and its late result does not land', async () => {
+    vi.useFakeTimers();
+    const calls: { signal: AbortSignal; resolve: (findings: Finding[]) => void }[] = [];
+    const deepScan: DeepScan = (signal) => new Promise<Finding[]>((resolve) => calls.push({ signal, resolve }));
+    const { panel, scanPanel, onUpdate } = setup(() => [], deepScan);
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    const rerender = scanPanel.render();
+    expect(calls[0]?.signal.aborted).toBe(true);
+    calls[0]?.resolve([finding('late', 'Late', 'error', 'late')]);
+    await flush();
+    await rerender;
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-scan-group]')).toBeNull();
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,11 @@
 import { collectFindings, createScanContext, type Finding, type Rule, type Severity } from '../lint/engine';
-import { ALL_RULES } from '../lint/rules';
+import { ALL_RULES, DEEP_SCAN_RULES } from '../lint/rules';
+import { revealSweep } from './reveal-sweep';
 
 export interface ScanPanelOptions {
   scan: () => Finding[];
+  deepScan: (signal: AbortSignal) => Promise<Finding[]>;
+  onUpdate: () => void;
   highlightRoot: HTMLElement;
 }
 
@@ -22,21 +25,33 @@ export function scanPage(win: Window, host: Element, rules: readonly Rule[] = AL
   );
 }
 
+export async function deepScanPage(win: Window, host: Element, signal: AbortSignal): Promise<Finding[]> {
+  await revealSweep(win, signal);
+  return scanPage(win, host, [...ALL_RULES, ...DEEP_SCAN_RULES]);
+}
+
 export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): ScanPanel {
   let renderVersion = 0;
   let highlight: HTMLElement | undefined;
   let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+  let stopDeepScan: (() => void) | undefined;
 
-  async function render(): Promise<void> {
+  function begin(statusText: string): { version: number; document: Document; heading: HTMLElement; status: HTMLElement } {
     const version = ++renderVersion;
+    stopDeepScan?.();
     removeHighlight();
     const document = panel.ownerDocument;
     const heading = document.createElement('h2');
     heading.textContent = 'Design scan';
     const status = document.createElement('p');
     status.dataset.annotationStatus = '';
-    status.textContent = 'Scanning…';
+    status.textContent = statusText;
     panel.replaceChildren(heading, status);
+    return { version, document, heading, status };
+  }
+
+  async function render(): Promise<void> {
+    const { version, document, status } = begin('Scanning…');
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     if (version !== renderVersion) return;
@@ -50,11 +65,70 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     }
 
     status.remove();
+    showFindings(document, findings, '');
+  }
+
+  async function runDeepScan(): Promise<void> {
+    const { version, document, heading, status } = begin('Deep scan running…');
+    const controller = new AbortController();
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.dataset.annotationDeepScanCancel = '';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => controller.abort());
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') controller.abort();
+    };
+    document.addEventListener('keydown', onKeydown);
+    const finish = () => {
+      stopDeepScan = undefined;
+      document.removeEventListener('keydown', onKeydown);
+    };
+    stopDeepScan = () => {
+      finish();
+      controller.abort();
+    };
+    panel.append(cancel);
+    cancel.focus();
+
+    let findings: Finding[];
+    try {
+      findings = await options.deepScan(controller.signal);
+    } catch (error) {
+      if (version !== renderVersion) return;
+      finish();
+      if (controller.signal.aborted) {
+        status.textContent = 'Deep scan cancelled';
+        panel.replaceChildren(heading, status, createDeepScanButton(document));
+      } else {
+        status.textContent = `Scan failed: ${error instanceof Error ? error.message : String(error)}`;
+        panel.replaceChildren(heading, status);
+      }
+      options.onUpdate();
+      return;
+    }
+    if (version !== renderVersion) return;
+    finish();
+    panel.replaceChildren(heading);
+    showFindings(document, findings, 'Deep scan: ');
+    options.onUpdate();
+  }
+
+  function createDeepScanButton(document: Document): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.annotationDeepScan = '';
+    button.textContent = 'Deep scan (scrolls the page)';
+    button.addEventListener('click', () => void runDeepScan());
+    return button;
+  }
+
+  function showFindings(document: Document, findings: Finding[], prefix: string): void {
     const count = (severity: Severity) => findings.filter((finding) => finding.severity === severity).length;
     const summary = document.createElement('p');
     summary.dataset.annotationScanSummary = '';
-    summary.textContent = `${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}: ${count('error')} errors, ${count('warning')} warnings, ${count('advisory')} advisory`;
-    panel.append(summary);
+    summary.textContent = `${prefix}${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}: ${count('error')} errors, ${count('warning')} warnings, ${count('advisory')} advisory`;
+    panel.append(summary, createDeepScanButton(document));
 
     if (findings.length === 0) {
       const empty = document.createElement('p');
@@ -150,6 +224,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
 
   function clear(): void {
     renderVersion += 1;
+    stopDeepScan?.();
     removeHighlight();
     panel.replaceChildren();
   }

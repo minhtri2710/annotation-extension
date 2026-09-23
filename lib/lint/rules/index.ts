@@ -1,6 +1,7 @@
 import type { Rule } from '../engine';
 import { colorRules } from './color';
 import { copyRules } from './copy';
+import { hiddenAtRestRules } from './hidden-at-rest';
 import { imageryRules } from './imagery';
 import { layoutSpaceRules } from './layout-space';
 import { liveStateRules } from './live-state';
@@ -20,3 +21,6 @@ export const ALL_RULES: readonly Rule[] = [
   ...imageryRules,
   ...copyRules,
 ];
+
+// Rules that are only valid after revealSweep has run the page's reveal handlers.
+export const DEEP_SCAN_RULES: readonly Rule[] = [...hiddenAtRestRules];
