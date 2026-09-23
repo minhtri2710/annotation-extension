@@ -87,6 +87,7 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
   const onPointerDown = (event: PointerEvent) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    grip.focus({ preventScroll: true });
     drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin: currentPosition(), moved: false };
     grip.setPointerCapture(event.pointerId);
     grip.setAttribute('data-dragging', '');

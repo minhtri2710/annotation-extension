@@ -159,7 +159,7 @@ export default defineContentScript({
           win: window,
           prefs: { read: readToolbarPrefs, write: writeToolbarPrefs },
           onCollapsedChange: (collapsed) => {
-            if (collapsed) closePanel();
+            if (collapsed && panelMode !== 'none') closePanel();
           },
           onPositionChange: () => {
             if (panelMode !== 'none') anchorPanel(shell.toolbar.getBoundingClientRect());

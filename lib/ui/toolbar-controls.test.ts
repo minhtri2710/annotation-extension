@@ -157,6 +157,16 @@ describe('toolbar controls', () => {
     expect(prefs.write).toHaveBeenCalledTimes(6);
   });
 
+  it('focuses the grip on a primary pointerdown so a following arrow key moves the toolbar', async () => {
+    const { grip } = setup();
+    await controls!.ready;
+    pointer(grip, 'pointerdown', 600, 560);
+    pointer(grip, 'pointerup', 600, 560);
+    expect(grip.ownerDocument.activeElement).toBe(grip);
+    key(grip.ownerDocument.activeElement!, 'ArrowLeft');
+    expect(inlinePosition().left).toBe('568px');
+  });
+
   it('re-clamps a custom position on resize without persisting', async () => {
     const { prefs } = setup({ position: { x: 500, y: 400 }, collapsed: false });
     await controls!.ready;
