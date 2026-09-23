@@ -185,6 +185,15 @@ describe('visual-details lint rules through the real engine', () => {
     expect(top.map((finding) => finding.detail)).toEqual(['.card — inset box-shadow 4px stripe (top)']);
   });
 
+  it('names the bottom edge of an inset stripe in the detail', async () => {
+    const bottom = await ruleFindings(
+      '<div class="card"></div>',
+      'side-tab',
+      '.card { width: 80px; box-shadow: inset 0 -4px 0 0 rgb(0, 128, 255); }',
+    );
+    expect(bottom.map((finding) => finding.detail)).toEqual(['.card — inset box-shadow 4px stripe (bottom)']);
+  });
+
   it('detects an accent top border on a rounded element and rejects 1.5px', async () => {
     document.body.innerHTML = '<div style="border-top: 2px solid rgb(0, 128, 255); border-radius: 8px"></div>';
     vi.spyOn(document.querySelector('div')!, 'getBoundingClientRect').mockReturnValue({

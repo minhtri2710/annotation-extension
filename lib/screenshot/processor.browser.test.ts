@@ -99,6 +99,27 @@ describe('processScreenshot', () => {
     expectColor(image.pixel(70, 70), YELLOW);
   });
 
+  it('places the colour boundaries of an asymmetric crop exactly where the device-pixel offsets put them', async () => {
+    const capture = await quadrantImage(400, 200);
+
+    // Device-pixel crop is x 170..250, y 80..150: the vertical split (x 200) lands at output column 30 of 80,
+    // the horizontal split (y 100) at output row 20 of 70.
+    const result = await processScreenshot(capture, { x: 85, y: 40, width: 40, height: 35 }, 2);
+
+    expect([result.width, result.height]).toEqual([80, 70]);
+    const image = await decode(result.blob);
+    expect([image.width, image.height]).toEqual([80, 70]);
+    expectColor(image.pixel(0, 0), RED);
+    expectColor(image.pixel(79, 0), BLUE);
+    expectColor(image.pixel(0, 69), GREEN);
+    expectColor(image.pixel(79, 69), YELLOW);
+
+    const firstBlueColumn = Array.from({ length: 80 }, (_, x) => x).find((x) => image.pixel(x, 10)[2]! > 127);
+    const firstGreenRow = Array.from({ length: 70 }, (_, y) => y).find((y) => image.pixel(10, y)[1]! > 127);
+    expect(Math.abs(firstBlueColumn! - 30)).toBeLessThanOrEqual(1);
+    expect(Math.abs(firstGreenRow! - 20)).toBeLessThanOrEqual(1);
+  });
+
   it('keeps a crop at or under 1600px at full size', async () => {
     const capture = await splitImage(1600, 40);
 

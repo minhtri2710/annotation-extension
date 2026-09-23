@@ -8,6 +8,23 @@ import contentScript from '../../entrypoints/content';
 import { interceptPageEvents, releasePageEvents } from '../capture';
 import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
 
+// Spy: the content script's event bus is closure-private; the real bus runs, and each `on` records its unsubscriber.
+const busSubscriptions = vi.hoisted(() => [] as { event: PropertyKey; unsubscribe: import('vitest').Mock }[]);
+vi.mock('../ui/event-bus', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../ui/event-bus')>();
+  return {
+    createEventBus: <Events extends object>() => {
+      const bus = original.createEventBus<Events>();
+      const on: typeof bus.on = (event, handler) => {
+        const unsubscribe = vi.fn(bus.on(event, handler));
+        busSubscriptions.push({ event, unsubscribe });
+        return unsubscribe;
+      };
+      return { ...bus, on };
+    },
+  };
+});
+
 const HOST = 'annotation-extension-root';
 const PAGE_EVENTS = ['pointermove', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'keydown'];
 
@@ -130,6 +147,15 @@ describe('content script entrypoint', () => {
     expect(get.mock.calls.filter(([key]) => key === SITE_POLICY_STORAGE_KEY)).toEqual([[SITE_POLICY_STORAGE_KEY]]);
   });
 
+  it('does not re-read the policy for a local change to another key', async () => {
+    await start();
+    const get = vi.spyOn(browser.storage.local, 'get');
+
+    await fakeBrowser.storage.onChanged.trigger({ 'unrelated:key': { newValue: 1 } }, 'local');
+
+    expect(get.mock.calls.filter(([key]) => key === SITE_POLICY_STORAGE_KEY)).toEqual([]);
+  });
+
   it('opening one panel closes the other panel mode', async () => {
     await start();
     button('View all').click();
@@ -180,5 +206,20 @@ describe('content script entrypoint', () => {
     releasePageEvents(window);
     expect(storageListeners.mock.calls).toHaveLength(2);
     expect(storageListeners.mock.calls.map(([listener]) => browser.storage.onChanged.hasListener(listener))).toEqual([false, false]);
+  });
+
+  it('removes the runtime message listener and the selection subscription when the context is invalidated', async () => {
+    busSubscriptions.length = 0;
+    const messageListeners = vi.spyOn(browser.runtime.onMessage, 'addListener');
+    await start();
+    const [messageListener] = messageListeners.mock.calls.map(([listener]) => listener);
+    expect(browser.runtime.onMessage.hasListener(messageListener!)).toBe(true);
+    const selection = busSubscriptions.filter(({ event }) => event === 'element:selected');
+    expect(selection.map(({ unsubscribe }) => unsubscribe.mock.calls)).toEqual([[]]);
+
+    ctx.notifyInvalidated();
+
+    expect(browser.runtime.onMessage.hasListener(messageListener!)).toBe(false);
+    expect(selection.map(({ unsubscribe }) => unsubscribe.mock.calls)).toEqual([[[]]]);
   });
 });
