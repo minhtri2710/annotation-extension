@@ -1,14 +1,18 @@
 import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 import { listAnnotations } from '../annotation-storage';
 import type { Annotation, CssEdit } from '../annotation';
-import { sendScreenshotCapture, sendScreenshotRead } from '../screenshot/messages';
+import { sendScreenshotCapture, sendBlobRead } from '../screenshot/messages';
+import type { AttachmentMetadata } from '../annotation';
+import { sendAttachmentAdd, sendAttachmentDelete } from '../attachments/messages';
 import type { ElementContext } from '../capture/context';
 
 export interface NotePanelPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
   sendAnnotationWrite(message: AnnotationWriteMessage): Promise<unknown>;
   captureScreenshot(annotation: Annotation, context: ElementContext): Promise<Annotation['screenshot'] | undefined>;
-  readScreenshot(annotationId: string): Promise<Blob>;
+  readBlob(key: string): Promise<Blob>;
+  addAttachment(message: Omit<Parameters<typeof sendAttachmentAdd>[0], 'type'>): Promise<AttachmentMetadata>;
+  deleteAttachment(message: Omit<Parameters<typeof sendAttachmentDelete>[0], 'type'>): Promise<boolean>;
   applyCssEdits(annotation: Annotation, edits: CssEdit[]): void;
   revertCssEdits(annotation: Annotation): void;
   revertAllCssEdits(): void;
@@ -88,7 +92,9 @@ export function createNotePanelPersistence(): NotePanelPersistence {
     listAnnotations,
     sendAnnotationWrite,
     captureScreenshot,
-    readScreenshot: sendScreenshotRead,
+    readBlob: sendBlobRead,
+    addAttachment: sendAttachmentAdd,
+    deleteAttachment: sendAttachmentDelete,
     ...createCssEditRegistry(),
   };
 }

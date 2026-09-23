@@ -18,6 +18,15 @@ export interface ScreenshotMetadata {
   byteLength: number;
 }
 
+export interface AttachmentMetadata {
+  id: string;
+  name: string;
+  mimeType: string;
+  byteLength: number;
+}
+
+export type AnnotationStatus = 'open' | 'resolved';
+
 export interface Annotation {
   id: string;
   pageUrl: string;
@@ -26,7 +35,9 @@ export interface Annotation {
   elementContext: ElementContext;
   createdAt: string;
   updatedAt: string;
+  status: AnnotationStatus;
   screenshot?: ScreenshotMetadata;
+  attachments?: AttachmentMetadata[];
   repro?: Repro;
   cssEdits?: CssEdit[];
 }
@@ -34,6 +45,8 @@ export interface Annotation {
 export type AnnotationInput = Pick<
   Annotation,
   'note' | 'selector' | 'elementContext' | 'repro' | 'cssEdits'
->;
+> & {
+  status?: AnnotationStatus;
+};
 
 export type AnnotationUpdate = Partial<AnnotationInput>;

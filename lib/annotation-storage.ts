@@ -1,7 +1,14 @@
 import { browser } from 'wxt/browser';
 import { pageKey } from '../utils/page-key';
-import type { ScreenshotStore } from './screenshot/store';
-import type { Annotation, AnnotationInput, AnnotationUpdate, ScreenshotMetadata } from './annotation';
+import { attachmentKey, screenshotKey, type BlobStore } from './blob-store';
+import { validateAttachmentName, validateImageBlob } from './attachments/validation';
+import type {
+  Annotation,
+  AnnotationInput,
+  AnnotationUpdate,
+  AttachmentMetadata,
+  ScreenshotMetadata,
+} from './annotation';
 
 const writeQueues = new Map<string, Promise<void>>();
 
@@ -19,19 +26,20 @@ export async function addAnnotationWithScreenshot(
   input: AnnotationInput,
   blob: Blob,
   dimensions: Pick<ScreenshotMetadata, 'width' | 'height'>,
-  screenshotStore: ScreenshotStore,
+  blobStore: BlobStore,
 ): Promise<Annotation> {
+  validateImageBlob(blob);
   return withPageWrite(pageUrl, async (key) => {
     const annotation = {
       ...createAnnotation(pageUrl, input),
       screenshot: screenshotMetadata(blob, dimensions),
     };
     const annotations = await readPage(key);
-    await screenshotStore.put(annotation.id, blob);
+    await blobStore.put(screenshotKey(annotation.id), blob);
     try {
       await browser.storage.local.set({ [key]: [...annotations, annotation] });
     } catch (error) {
-      await screenshotStore.delete([annotation.id]);
+      await blobStore.delete([screenshotKey(annotation.id)]);
       throw error;
     }
     return annotation;
@@ -62,6 +70,8 @@ export async function updateAnnotation(
       selector: changes.selector ?? existing.selector,
       elementContext: changes.elementContext ?? existing.elementContext,
       screenshot: existing.screenshot,
+      ...(existing.attachments === undefined ? {} : { attachments: existing.attachments }),
+      status: changes.status ?? existing.status,
       repro: changes.repro ?? existing.repro,
       cssEdits: changes.cssEdits ?? existing.cssEdits,
       createdAt: existing.createdAt,
@@ -98,30 +108,97 @@ export async function updateAnnotationScreenshot(
   });
 }
 
-export async function deleteAnnotation(
+export async function addAttachment(
   pageUrl: string,
-  id: string,
-  screenshotStore: ScreenshotStore,
+  annotationId: string,
+  metadata: AttachmentMetadata,
+  blob: Blob,
+  blobStore: BlobStore,
+): Promise<AttachmentMetadata> {
+  validateAttachmentName(metadata.name);
+  validateImageBlob(blob, metadata.mimeType);
+  if (metadata.byteLength !== blob.size) throw new Error('Attachment byte length does not match its Blob.');
+  return withPageWrite(pageUrl, async (key) => {
+    const annotations = await readPage(key);
+    const index = annotations.findIndex((annotation) => annotation.id === annotationId);
+    if (index === -1) throw new Error('Annotation was not found');
+    const existing = annotations[index];
+    if (!existing) throw new Error('Annotation was not found');
+    if ((existing.attachments?.length ?? 0) >= 5) throw new Error('An annotation can have at most 5 attachments');
+
+    const keyForBlob = attachmentKey(metadata.id);
+    await blobStore.put(keyForBlob, blob);
+    try {
+      const attachments = [...(existing.attachments ?? []), metadata];
+      const updated: Annotation = {
+        ...existing,
+        attachments,
+        updatedAt: nextTimestamp(existing.updatedAt),
+      };
+      annotations[index] = updated;
+      await browser.storage.local.set({ [key]: annotations });
+    } catch (error) {
+      await blobStore.delete([keyForBlob]);
+      throw error;
+    }
+    return metadata;
+  });
+}
+
+export async function deleteAttachment(
+  pageUrl: string,
+  annotationId: string,
+  attachmentId: string,
+  blobStore: BlobStore,
 ): Promise<boolean> {
   return withPageWrite(pageUrl, async (key) => {
     const annotations = await readPage(key);
-    const remaining = annotations.filter((annotation) => annotation.id !== id);
-    if (remaining.length === annotations.length) return false;
+    const index = annotations.findIndex((annotation) => annotation.id === annotationId);
+    if (index === -1) return false;
+    const existing = annotations[index];
+    if (!existing || !existing.attachments?.some((attachment) => attachment.id === attachmentId)) return false;
 
+    const attachments = existing.attachments.filter((attachment) => attachment.id !== attachmentId);
+    const updated = { ...existing, attachments: attachments.length > 0 ? attachments : undefined, updatedAt: nextTimestamp(existing.updatedAt) };
+    annotations[index] = updated;
+    await browser.storage.local.set({ [key]: annotations });
+    await blobStore.delete([attachmentKey(attachmentId)]);
+    return true;
+  });
+}
+
+export async function deleteAnnotation(
+  pageUrl: string,
+  id: string,
+  blobStore: BlobStore,
+): Promise<boolean> {
+  return withPageWrite(pageUrl, async (key) => {
+    const annotations = await readPage(key);
+    const target = annotations.find((annotation) => annotation.id === id);
+    if (!target) return false;
+
+    const remaining = annotations.filter((annotation) => annotation.id !== id);
     await browser.storage.local.set({ [key]: remaining });
-    await screenshotStore.delete([id]);
+    await blobStore.delete([
+      screenshotKey(id),
+      ...(target.attachments ?? []).map((attachment) => attachmentKey(attachment.id)),
+    ]);
     return true;
   });
 }
 
 export async function clearAnnotations(
   pageUrl: string,
-  screenshotStore: ScreenshotStore,
+  blobStore: BlobStore,
 ): Promise<void> {
   return withPageWrite(pageUrl, async (key) => {
     const annotations = await readPage(key);
     await browser.storage.local.remove(key);
-    await screenshotStore.delete(annotations.map((annotation) => annotation.id));
+    const keys = annotations.flatMap((annotation) => [
+      screenshotKey(annotation.id),
+      ...(annotation.attachments ?? []).map((attachment) => attachmentKey(attachment.id)),
+    ]);
+    await blobStore.delete(keys);
   });
 }
 
@@ -130,7 +207,12 @@ function createAnnotation(pageUrl: string, input: AnnotationInput): Annotation {
   return {
     id: crypto.randomUUID(),
     pageUrl,
-    ...input,
+    note: input.note,
+    selector: input.selector,
+    elementContext: input.elementContext,
+    ...(input.repro === undefined ? {} : { repro: input.repro }),
+    ...(input.cssEdits === undefined ? {} : { cssEdits: input.cssEdits }),
+    status: input.status ?? 'open',
     createdAt: now,
     updatedAt: now,
   };

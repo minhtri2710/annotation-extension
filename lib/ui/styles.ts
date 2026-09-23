@@ -66,6 +66,10 @@ ${ANNOTATION_DARK_TOKENS}
   margin-top: var(--annotation-space-3);
 }
 
+[data-annotation-shell] .annotation-pin[data-annotation-status="resolved"] {
+  opacity: 0.55;
+}
+
 [data-annotation-shell] .annotation-pin {
   display: inline-flex;
   align-items: center;

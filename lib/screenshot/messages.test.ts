@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { isAnnotationErrorResponse, isAnnotationWriteMessage } from '../annotation-messages';
-import { isScreenshotCaptureMessage, isScreenshotReadMessage, sendScreenshotCapture, sendScreenshotRead } from './messages';
+import { isBlobReadMessage, isScreenshotCaptureMessage, sendBlobRead, sendScreenshotCapture } from './messages';
 
 const captureMessage = {
   pageUrl: 'https://example.com/page',
@@ -20,8 +20,8 @@ describe('screenshot messages', () => {
   it('guards capture and read messages', () => {
     expect(isScreenshotCaptureMessage({ type: 'screenshot.capture', ...captureMessage })).toBe(true);
     expect(isScreenshotCaptureMessage({ type: 'screenshot.capture' })).toBe(false);
-    expect(isScreenshotReadMessage({ type: 'screenshot.read', annotationId: 'annotation-1' })).toBe(true);
-    expect(isScreenshotReadMessage({ type: 'screenshot.read', annotationId: 5 })).toBe(false);
+    expect(isBlobReadMessage({ type: 'blob.read', key: 'screenshot:annotation-1' })).toBe(true);
+    expect(isBlobReadMessage({ type: 'blob.read', key: 'foreign' })).toBe(false);
     expect(isScreenshotCaptureMessage(null)).toBe(false);
     expect(isScreenshotCaptureMessage('screenshot.capture')).toBe(false);
   });
@@ -42,11 +42,11 @@ describe('screenshot messages', () => {
     await expect(sendScreenshotCapture(captureMessage)).rejects.toThrow('Invalid screenshot metadata response');
   });
 
-  it('round-trips screenshot.read bytes as a Blob', async () => {
+  it('round-trips blob.read bytes as a Blob', async () => {
     const bytes = btoa('screenshot-bytes');
     vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ mimeType: 'image/png', base64: bytes } as never);
 
-    const blob = await sendScreenshotRead('annotation-1');
+    const blob = await sendBlobRead('screenshot:annotation-1');
     expect(blob.type).toBe('image/png');
     expect(await blob.text()).toBe('screenshot-bytes');
   });
@@ -73,7 +73,7 @@ describe('screenshot messages', () => {
 
   it('rejects a malformed read response', async () => {
     vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'missing' } as never);
-    await expect(sendScreenshotRead('annotation-1')).rejects.toThrow('missing');
+    await expect(sendBlobRead('screenshot:annotation-1')).rejects.toThrow('missing');
     expect(isAnnotationErrorResponse({ ok: false, error: 'missing' })).toBe(true);
   });
 });

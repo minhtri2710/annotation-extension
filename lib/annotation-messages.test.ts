@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { listAnnotations } from './annotation-storage';
 import { registerBackgroundMessageHandlers } from './wiring/background-messages';
-import type { ScreenshotStore } from './screenshot/store';
+import type { BlobStore } from './blob-store';
 import {
   isAnnotationWriteMessage,
+  isAttachmentMetadata,
   isCssEdit,
   isCssEdits,
   isScreenshotMetadata,
@@ -25,7 +26,7 @@ const elementContext = {
   sourcePath: null,
 };
 
-class MemoryScreenshotStore implements ScreenshotStore {
+class MemoryBlobStore implements BlobStore {
   async put(): Promise<void> {}
   async get(): Promise<Blob | undefined> { return undefined; }
   async delete(): Promise<void> {}
@@ -34,10 +35,25 @@ class MemoryScreenshotStore implements ScreenshotStore {
 beforeEach(() => {
   vi.restoreAllMocks();
   fakeBrowser.reset();
-  registerBackgroundMessageHandlers({ screenshotStore: new MemoryScreenshotStore() });
+  registerBackgroundMessageHandlers({ blobStore: new MemoryBlobStore() });
 });
 
 describe('annotation write messages', () => {
+  it('rejects attachments on add and update, and validates status values', () => {
+    expect(isAnnotationWriteMessage({
+      type: 'annotation.add', pageUrl, input: { note: 'x', selector: '#target', elementContext, attachments: [] },
+    })).toBe(false);
+    expect(isAnnotationWriteMessage({
+      type: 'annotation.update', pageUrl, id: 'annotation-1', changes: { attachments: [] },
+    })).toBe(false);
+    expect(isAnnotationWriteMessage({
+      type: 'annotation.update', pageUrl, id: 'annotation-1', changes: { status: 'resolved' },
+    })).toBe(true);
+    expect(isAnnotationWriteMessage({
+      type: 'annotation.update', pageUrl, id: 'annotation-1', changes: { status: 'closed' },
+    })).toBe(false);
+  });
+
   it('validates optional screenshot changes without weakening existing updates', () => {
     expect(
       isAnnotationWriteMessage({
@@ -69,6 +85,14 @@ describe('annotation write messages', () => {
         input: { note: 'valid', selector: '#target', elementContext },
       }),
     ).toBe(true);
+  });
+
+  it('validates attachment metadata and shared image limits', () => {
+    expect(isAttachmentMetadata({ id: 'a', name: 'photo.png', mimeType: 'image/png', byteLength: 1 })).toBe(true);
+    expect(isAttachmentMetadata({ id: 'a', name: ' ', mimeType: 'image/png', byteLength: 1 })).toBe(false);
+    expect(isAttachmentMetadata({ id: 'a', name: ' photo.png', mimeType: 'image/png', byteLength: 1 })).toBe(false);
+    expect(isAttachmentMetadata({ id: 'a', name: 'photo.png', mimeType: 'image/png', byteLength: 2 * 1024 * 1024 + 1 })).toBe(false);
+    expect(isAttachmentMetadata({ id: 'a', name: 'photo.svg', mimeType: 'image/svg+xml', byteLength: 1 })).toBe(false);
   });
 
   it('validates screenshot metadata and supported MIME types', () => {

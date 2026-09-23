@@ -4,11 +4,20 @@ import type { ElementContext } from './capture/context';
 import type {
   Annotation,
   AnnotationInput,
+  AnnotationStatus,
   AnnotationUpdate,
+  AttachmentMetadata,
   CssEdit,
   Repro,
   ScreenshotMetadata,
 } from './annotation';
+import {
+  isSupportedImageMimeType,
+  MAX_ATTACHMENT_NAME_LENGTH,
+  MAX_ATTACHMENTS,
+  MAX_IMAGE_BYTES,
+  validateAttachmentName,
+} from './attachments/validation';
 
 export type AnnotationWriteMessage =
   | { type: 'annotation.add'; pageUrl: string; input: AnnotationInput }
@@ -74,6 +83,10 @@ export function isCssEdits(value: unknown): value is CssEdit[] {
   return Array.isArray(value) && value.every(isCssEdit);
 }
 
+export function isAnnotationStatus(value: unknown): value is AnnotationStatus {
+  return value === 'open' || value === 'resolved';
+}
+
 function isAnnotationInput(value: unknown): value is AnnotationInput {
   return (
     isRecord(value) &&
@@ -81,6 +94,8 @@ function isAnnotationInput(value: unknown): value is AnnotationInput {
     typeof value.selector === 'string' &&
     isElementContext(value.elementContext) &&
     !('screenshot' in value) &&
+    !('attachments' in value) &&
+    (value.status === undefined || isAnnotationStatus(value.status)) &&
     (value.repro === undefined || isRepro(value.repro)) &&
     (value.cssEdits === undefined || isCssEdits(value.cssEdits))
   );
@@ -93,6 +108,8 @@ function isAnnotationUpdate(value: unknown): value is AnnotationUpdate {
     (value.selector === undefined || typeof value.selector === 'string') &&
     (value.elementContext === undefined || isElementContext(value.elementContext)) &&
     !('screenshot' in value) &&
+    !('attachments' in value) &&
+    (value.status === undefined || isAnnotationStatus(value.status)) &&
     (value.repro === undefined || isRepro(value.repro)) &&
     (value.cssEdits === undefined || isCssEdits(value.cssEdits))
   );
@@ -112,18 +129,40 @@ export function isScreenshotMetadata(value: unknown): value is ScreenshotMetadat
   return (
     isRecord(value) &&
     typeof value.mimeType === 'string' &&
-    isSupportedScreenshotMimeType(value.mimeType) &&
+    isSupportedImageMimeType(value.mimeType) &&
     isFiniteNumber(value.width) &&
     value.width > 0 &&
     isFiniteNumber(value.height) &&
     value.height > 0 &&
     isFiniteNumber(value.byteLength) &&
-    value.byteLength >= 0
+    value.byteLength > 0 &&
+    value.byteLength <= MAX_IMAGE_BYTES
   );
 }
 
-export function isSupportedScreenshotMimeType(value: string): boolean {
-  return value === 'image/webp' || value === 'image/jpeg' || value === 'image/png';
+export function isAttachmentMetadata(value: unknown): value is AttachmentMetadata {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.mimeType !== 'string' ||
+    !isSupportedImageMimeType(value.mimeType) ||
+    !isFiniteNumber(value.byteLength) ||
+    value.byteLength <= 0 ||
+    value.byteLength > MAX_IMAGE_BYTES
+  ) {
+    return false;
+  }
+  try {
+    validateAttachmentName(value.name);
+  } catch {
+    return false;
+  }
+  return value.name.length <= MAX_ATTACHMENT_NAME_LENGTH;
+}
+
+export function isAttachmentMetadataList(value: unknown): value is AttachmentMetadata[] {
+  return Array.isArray(value) && value.length <= MAX_ATTACHMENTS && value.every(isAttachmentMetadata);
 }
 
 export function isElementContext(value: unknown): value is ElementContext {

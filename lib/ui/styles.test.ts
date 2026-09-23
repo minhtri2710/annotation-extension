@@ -140,6 +140,8 @@ ${ANNOTATION_DARK_TOKENS}
   });
 
   it('defines marker, tooltip, and reduced-motion-safe locate pulse styles', () => {
+    expect(OVERLAY_STYLES).toContain('.annotation-pin[data-annotation-status="resolved"]');
+    expect(OVERLAY_STYLES).toContain('opacity: 0.55');
     expect(OVERLAY_STYLES).toContain('.annotation-pin');
     expect(OVERLAY_STYLES).toContain('.annotation-pin-tooltip');
     expect(OVERLAY_STYLES).toContain('pointer-events: none');

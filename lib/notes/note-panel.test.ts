@@ -29,6 +29,7 @@ function annotation(note: string): Annotation {
     elementContext: context,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
+    status: 'open',
   };
 }
 
@@ -40,7 +41,7 @@ async function render(
   const listAnnotations = persistence?.listAnnotations ?? vi.fn().mockResolvedValue(annotations);
   const sendAnnotationWrite = persistence?.sendAnnotationWrite ?? vi.fn().mockResolvedValue(undefined);
   const captureScreenshot = persistence?.captureScreenshot ?? vi.fn();
-  const readScreenshot = persistence?.readScreenshot ?? vi.fn().mockResolvedValue(new Blob(['preview'], { type: 'image/png' }));
+  const readBlob = persistence?.readBlob ?? vi.fn().mockResolvedValue(new Blob(['preview'], { type: 'image/png' }));
   const applyCssEdits = persistence?.applyCssEdits ?? vi.fn();
   const revertCssEdits = persistence?.revertCssEdits ?? vi.fn();
   const revertAllCssEdits = persistence?.revertAllCssEdits ?? vi.fn();
@@ -48,7 +49,9 @@ async function render(
     listAnnotations,
     sendAnnotationWrite,
     captureScreenshot,
-    readScreenshot,
+    readBlob,
+    addAttachment: persistence?.addAttachment ?? vi.fn().mockResolvedValue({}),
+    deleteAttachment: persistence?.deleteAttachment ?? vi.fn().mockResolvedValue(true),
     applyCssEdits,
     revertCssEdits,
     revertAllCssEdits,
@@ -58,7 +61,9 @@ async function render(
     listAnnotations,
     sendAnnotationWrite,
     captureScreenshot,
-    readScreenshot,
+    readBlob,
+    addAttachment: persistence?.addAttachment ?? vi.fn().mockResolvedValue({}),
+    deleteAttachment: persistence?.deleteAttachment ?? vi.fn().mockResolvedValue(true),
     applyCssEdits,
     revertCssEdits,
     revertAllCssEdits,
@@ -110,6 +115,24 @@ describe('note panel', () => {
       input: { note: 'New note', selector: context.selector, elementContext: context },
     } satisfies AnnotationWriteMessage);
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps render resolved when listing annotations fails', async () => {
+    const panel = document.createElement('div');
+    const notePanel = createNotePanel(panel, {
+      listAnnotations: vi.fn().mockRejectedValue(new Error('list failed')),
+      sendAnnotationWrite: vi.fn(),
+      captureScreenshot: vi.fn(),
+      readBlob: vi.fn(),
+      addAttachment: vi.fn(),
+      deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(),
+      revertCssEdits: vi.fn(),
+      revertAllCssEdits: vi.fn(),
+    });
+    await expect(notePanel.render(context)).resolves.toBeUndefined();
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('list failed');
+    expect(panel.querySelector('[data-annotation-new-note]')).not.toBeNull();
   });
 
   it('shows a write error and keeps the note form after a rejected save', async () => {
@@ -437,20 +460,35 @@ describe('note panel', () => {
     const createObjectURL = vi.fn().mockReturnValue('blob:preview');
     const revokeObjectURL = vi.fn();
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
-    const { notePanel, readScreenshot } = await render(panel, [existing], {
+    const { notePanel, readBlob } = await render(panel, [existing], {
       listAnnotations: vi.fn().mockResolvedValue([existing]),
       sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
       captureScreenshot: vi.fn(),
-      readScreenshot: vi.fn().mockResolvedValue(new Blob(['existing'], { type: 'image/png' })),
+      readBlob: vi.fn().mockResolvedValue(new Blob(['existing'], { type: 'image/png' })),
     });
 
     const preview = panel.querySelector('[data-annotation-screenshot]') as HTMLImageElement;
     expect(preview).not.toBeNull();
     expect(preview.src).toContain('blob:preview');
-    expect(readScreenshot).toHaveBeenCalledWith(existing.id);
+    expect(readBlob).toHaveBeenCalledWith(`screenshot:${existing.id}`);
     await notePanel.render(context);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview');
     vi.unstubAllGlobals();
+  });
+
+  it('shows attachment controls, previews names safely, and reports attachment read errors', async () => {
+    const panel = document.createElement('div');
+    const existing = {
+      ...annotation('Attachment note'),
+      attachments: [{ id: 'attachment-1', name: '<img src=x>', mimeType: 'image/png', byteLength: 7 }],
+    };
+    const readBlob = vi.fn().mockResolvedValue(new Blob(['attachment'], { type: 'image/png' }));
+    const addAttachment = vi.fn().mockResolvedValue({ id: 'attachment-2', name: 'new.png', mimeType: 'image/png', byteLength: 3 });
+    await render(panel, [existing], { listAnnotations: vi.fn().mockResolvedValue([existing]), readBlob, addAttachment });
+    expect(panel.querySelector('[data-annotation-attachment-input]')?.getAttribute('accept')).toContain('image/png');
+    expect(panel.querySelector('[data-annotation-attachment] figcaption')?.textContent).toBe('<img src=x>');
+    expect(panel.querySelector('[data-annotation-attachment] img')).not.toBeNull();
+    expect(panel.querySelector('[data-annotation-attachment] img')?.innerHTML).toBe('');
   });
 
   it('reports screenshot read errors and continues rendering without a preview', async () => {
@@ -463,13 +501,24 @@ describe('note panel', () => {
       listAnnotations: vi.fn().mockResolvedValue([existing]),
       sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
       captureScreenshot: vi.fn(),
-      readScreenshot: vi.fn().mockRejectedValue(new Error('screenshot read failed')),
+      readBlob: vi.fn().mockRejectedValue(new Error('screenshot read failed')),
     });
 
     expect(panel.querySelector(`[data-annotation-id="${existing.id}"]`)).not.toBeNull();
     expect(panel.querySelector('[data-annotation-screenshot]')).toBeNull();
     expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('screenshot read failed');
     expect(panel.querySelector('[data-annotation-new-note]')).not.toBeNull();
+  });
+
+  it('reports a rejected file through statusMessage without rejecting render', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('File target');
+    await render(panel, [existing]);
+    const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'bad.svg', { type: 'image/svg+xml' })] });
+    input.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')?.textContent).toContain('Unsupported image mime type'));
+    await expect(createNotePanel(panel).render(context)).resolves.toBeUndefined();
   });
 
   it('does not add an empty or whitespace-only note', async () => {
@@ -487,6 +536,17 @@ describe('note panel', () => {
     await Promise.resolve();
 
     expect(sendAnnotationWrite).not.toHaveBeenCalled();
+  });
+
+  it('toggles resolved status through annotation.update', async () => {
+    const panel = document.createElement('div');
+    const existing = { ...annotation('Resolve me'), status: 'open' as const };
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    await render(panel, [existing], { listAnnotations: vi.fn().mockResolvedValue([existing]), sendAnnotationWrite });
+    (panel.querySelector('[data-annotation-status-toggle]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.update', pageUrl, id: existing.id, changes: { status: 'resolved' },
+    } satisfies AnnotationWriteMessage));
   });
 
   it('updates a note with the exact write message and re-reads storage', async () => {

@@ -7,6 +7,7 @@ import {
 import type { BoundingBox } from '../capture/context';
 import type { ScreenshotMetadata } from '../annotation';
 import { isRecord } from '../guards';
+import { isBlobKey } from '../blob-store';
 
 export type ScreenshotCaptureMessage = {
   type: 'screenshot.capture';
@@ -16,9 +17,9 @@ export type ScreenshotCaptureMessage = {
   devicePixelRatio: number;
 };
 
-export type ScreenshotReadMessage = { type: 'screenshot.read'; annotationId: string };
+export type BlobReadMessage = { type: 'blob.read'; key: string };
 
-export interface ScreenshotReadResponse {
+export interface BlobReadResponse {
   mimeType: string;
   base64: string;
 }
@@ -35,8 +36,8 @@ export function isScreenshotCaptureMessage(value: unknown): value is ScreenshotC
   );
 }
 
-export function isScreenshotReadMessage(value: unknown): value is ScreenshotReadMessage {
-  return isRecord(value) && value.type === 'screenshot.read' && typeof value.annotationId === 'string';
+export function isBlobReadMessage(value: unknown): value is BlobReadMessage {
+  return isRecord(value) && value.type === 'blob.read' && isBlobKey(value.key);
 }
 
 export function sendScreenshotCapture(
@@ -54,16 +55,16 @@ export function sendScreenshotCapture(
     });
 }
 
-export function sendScreenshotRead(annotationId: string): Promise<Blob> {
+export function sendBlobRead(key: string): Promise<Blob> {
   return browser.runtime
-    .sendMessage<ScreenshotReadMessage, ScreenshotReadResponse | AnnotationErrorResponse>({
-      type: 'screenshot.read',
-      annotationId,
+    .sendMessage<BlobReadMessage, BlobReadResponse | AnnotationErrorResponse>({
+      type: 'blob.read',
+      key,
     })
     .then((response) => {
       if (isAnnotationErrorResponse(response)) throw new Error(response.error);
       if (!isRecord(response) || typeof response.mimeType !== 'string' || typeof response.base64 !== 'string') {
-        throw new Error('Invalid screenshot response');
+        throw new Error('Invalid blob response');
       }
       return base64ToBlob(response.base64, response.mimeType);
     });

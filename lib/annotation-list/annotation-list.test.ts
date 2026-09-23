@@ -20,6 +20,7 @@ function annotation(id: string, note: string, mimeType?: string): Annotation {
   return {
     id, pageUrl, note, selector: `#target-${id}`, elementContext,
     createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+    status: 'open',
     ...(mimeType ? { screenshot: { mimeType, width: 10, height: 10, byteLength: 3 } } : {}),
   };
 }
@@ -28,7 +29,7 @@ function persistence(annotations: Annotation[]): AnnotationListPersistence {
   return {
     listAnnotations: vi.fn().mockResolvedValue(annotations),
     sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
-    readScreenshot: vi.fn().mockResolvedValue(new Blob(['abc'], { type: 'image/webp' })),
+    readBlob: vi.fn().mockResolvedValue(new Blob(['abc'], { type: 'image/webp' })),
   };
 }
 
@@ -72,7 +73,21 @@ describe('annotation list', () => {
     await vi.waitFor(() => expect(delivery.downloadAsset).toHaveBeenCalledTimes(2));
     expect(delivery.downloadAsset).toHaveBeenNthCalledWith(1, expect.any(Blob), 'annotations-annotation-1.webp');
     expect(delivery.downloadAsset).toHaveBeenNthCalledWith(2, expect.any(Blob), 'annotations-annotation-2.jpeg');
-    expect(store.readScreenshot).toHaveBeenCalledWith('annotation-1');
+    expect(store.readBlob).toHaveBeenCalledWith('screenshot:annotation-1');
+  });
+
+  it('downloads attachment assets even without a screenshot', async () => {
+    const panel = document.createElement('div');
+    const annotations = [annotation('annotation-1', 'Export attachment')];
+    annotations[0]!.attachments = [{ id: 'attachment-1', name: 'photo.png', mimeType: 'image/png', byteLength: 3 }];
+    const store = persistence(annotations);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn().mockResolvedValue(undefined), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(delivery.downloadAsset).toHaveBeenCalledTimes(1));
+    expect(delivery.downloadAsset).toHaveBeenCalledWith(expect.any(Blob), 'annotations-annotation-1-attachment-1.png');
+    expect(store.readBlob).toHaveBeenCalledWith('attachment:attachment-1');
   });
 
   it('shows a write error and keeps the list after delete rejects', async () => {

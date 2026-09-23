@@ -1,6 +1,9 @@
 import type { Annotation, CssEdit } from '../annotation';
-import type { ElementContext } from '../capture/context';
 import type { AnnotationWriteMessage } from '../annotation-messages';
+import { isSupportedImageMimeType, validateAttachmentName, validateImageBlob, MAX_ATTACHMENTS } from '../attachments/validation';
+import { SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/validation';
+import { attachmentKey, screenshotKey } from '../blob-store';
+import type { ElementContext } from '../capture/context';
 import { createNotePanelPersistence, type NotePanelPersistence } from './persistence';
 
 export interface NotePanel {
@@ -19,9 +22,14 @@ export function createNotePanel(
   async function render(context: ElementContext): Promise<void> {
     if (selectedContext && selectedContext.selector !== context.selector) statusMessage = undefined;
     selectedContext = context;
-    const annotations = (await persistence.listAnnotations(context.url)).filter(
-      (annotation) => annotation.selector === context.selector,
-    );
+    let annotations: Annotation[] = [];
+    try {
+      annotations = (await persistence.listAnnotations(context.url)).filter(
+        (annotation) => annotation.selector === context.selector,
+      );
+    } catch (error) {
+      statusMessage = errorMessage(error);
+    }
     if (selectedContext !== context) return;
 
     revokePreviewUrls();
@@ -43,12 +51,17 @@ export function createNotePanel(
     showStatus();
 
     for (const annotation of annotations) {
-      const item = await createAnnotationItem(document, annotation, context, (error) => {
+      try {
+        const item = await createAnnotationItem(document, annotation, context, (error) => {
+          statusMessage = errorMessage(error);
+          showStatus();
+        });
+        if (selectedContext !== context) return;
+        panel.append(item);
+      } catch (error) {
         statusMessage = errorMessage(error);
         showStatus();
-      });
-      if (selectedContext !== context) return;
-      panel.append(item);
+      }
     }
 
     const form = document.createElement('form');
@@ -88,6 +101,37 @@ export function createNotePanel(
     }
   }
 
+  async function addFiles(
+    annotation: Annotation,
+    context: ElementContext,
+    files: File[],
+  ): Promise<void> {
+    const existingCount = annotation.attachments?.length ?? 0;
+    if (existingCount + files.length > MAX_ATTACHMENTS) {
+      throw new Error('An annotation can have at most 5 attachments.');
+    }
+    for (const file of files) {
+      if (!isSupportedImageMimeType(file.type)) throw new Error(`Unsupported image mime type: ${file.type}.`);
+      validateImageBlob(file, file.type);
+      const name = validateAttachmentName(file.name);
+      const base64 = await fileToBase64(file);
+      await persistence.addAttachment({
+        pageUrl: context.url,
+        annotationId: annotation.id,
+        name,
+        mimeType: file.type,
+        base64,
+      });
+    }
+  }
+
+  function reportFileError(error: unknown, context: ElementContext): void {
+    statusMessage = errorMessage(error);
+    void render(context).catch((renderError) => {
+      statusMessage = errorMessage(renderError);
+    });
+  }
+
   async function createAnnotationItem(
     document: Document,
     annotation: Annotation,
@@ -96,6 +140,7 @@ export function createNotePanel(
   ): Promise<HTMLElement> {
     const item = document.createElement('article');
     item.dataset.annotationId = annotation.id;
+    if (annotation.status === 'resolved') item.dataset.annotationStatus = 'resolved';
     if (annotation.cssEdits && annotation.cssEdits.length > 0) {
       persistence.applyCssEdits(annotation, annotation.cssEdits);
     }
@@ -119,6 +164,27 @@ export function createNotePanel(
         },
         context,
       );
+    });
+    note.addEventListener('paste', (event) => {
+      const files = Array.from(event.clipboardData?.files ?? []);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void addFiles(annotation, context, files).then(
+        () => render(context),
+        (error) => reportFileError(error, context),
+      );
+    });
+    const statusToggle = document.createElement('button');
+    statusToggle.type = 'button';
+    statusToggle.dataset.annotationStatusToggle = '';
+    statusToggle.textContent = annotation.status === 'resolved' ? 'Reopen' : 'Resolve';
+    statusToggle.addEventListener('click', () => {
+      void mutate({
+        type: 'annotation.update',
+        pageUrl: context.url,
+        id: annotation.id,
+        changes: { status: annotation.status === 'resolved' ? 'open' : 'resolved' },
+      }, context);
     });
     const capture = document.createElement('button');
     capture.type = 'button';
@@ -146,6 +212,33 @@ export function createNotePanel(
         context,
       );
     });
+    const attachmentInput = document.createElement('input');
+    attachmentInput.type = 'file';
+    attachmentInput.accept = SUPPORTED_IMAGE_MIME_TYPES.join(',');
+    attachmentInput.multiple = true;
+    attachmentInput.dataset.annotationAttachmentInput = '';
+    attachmentInput.addEventListener('change', () => {
+      const files = Array.from(attachmentInput.files ?? []);
+      if (files.length === 0) return;
+      void addFiles(annotation, context, files).then(
+        () => render(context),
+        (error) => reportFileError(error, context),
+      );
+      attachmentInput.value = '';
+    });
+    item.addEventListener('drop', (event) => {
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void addFiles(annotation, context, files).then(
+        () => render(context),
+        (error) => reportFileError(error, context),
+      );
+    });
+    item.addEventListener('dragover', (event) => event.preventDefault());
+    const attachmentLabel = document.createElement('label');
+    attachmentLabel.textContent = 'Attach image';
+    attachmentLabel.append(attachmentInput);
     const reproSteps = document.createElement('textarea');
     reproSteps.dataset.annotationReproSteps = '';
     reproSteps.value = annotation.repro?.steps.join('\n') ?? '';
@@ -221,8 +314,10 @@ export function createNotePanel(
     item.append(
       note,
       edit,
+      statusToggle,
       capture,
       remove,
+      attachmentLabel,
       cssDecls,
       saveCss,
       reproSteps,
@@ -259,19 +354,54 @@ export function createNotePanel(
     }
     if (annotation.screenshot) {
       try {
-        const blob = await persistence.readScreenshot(annotation.id);
-        const preview = document.createElement('img');
-        preview.dataset.annotationScreenshot = '';
-        const url = URL.createObjectURL(blob);
-        previewUrls.add(url);
-        preview.src = url;
-        preview.alt = 'Annotation screenshot';
-        item.append(preview);
+        const blob = await persistence.readBlob(screenshotKey(annotation.id));
+        appendPreview(document, item, blob, 'Annotation screenshot', 'data-annotation-screenshot');
+      } catch (error) {
+        reportReadError(error);
+      }
+    }
+    for (const attachment of annotation.attachments ?? []) {
+      try {
+        const blob = await persistence.readBlob(attachmentKey(attachment.id));
+        const wrapper = document.createElement('figure');
+        wrapper.dataset.annotationAttachment = attachment.id;
+        appendPreview(document, wrapper, blob, attachment.name, 'data-annotation-attachment-preview');
+        const caption = document.createElement('figcaption');
+        caption.textContent = attachment.name;
+        const removeAttachment = document.createElement('button');
+        removeAttachment.type = 'button';
+        removeAttachment.dataset.annotationAttachmentDelete = attachment.id;
+        removeAttachment.textContent = 'Remove';
+        removeAttachment.addEventListener('click', () => {
+          void persistence.deleteAttachment({
+            pageUrl: context.url,
+            annotationId: annotation.id,
+            attachmentId: attachment.id,
+          }).then(() => render(context), (error) => reportFileError(error, context));
+        });
+        wrapper.append(caption, removeAttachment);
+        item.append(wrapper);
       } catch (error) {
         reportReadError(error);
       }
     }
     return item;
+  }
+
+  function appendPreview(
+    document: Document,
+    parent: HTMLElement,
+    blob: Blob,
+    alt: string,
+    dataAttribute: string,
+  ): void {
+    const preview = document.createElement('img');
+    preview.setAttribute(dataAttribute, '');
+    const url = URL.createObjectURL(blob);
+    previewUrls.add(url);
+    preview.src = url;
+    preview.alt = alt;
+    parent.append(preview);
   }
 
   function revokePreviewUrls(): void {
@@ -300,4 +430,11 @@ function parseCssEdits(value: string): CssEdit[] {
     const editValue = line.slice(separator + 1).trim();
     return property && editValue ? [{ property, value: editValue }] : [];
   });
+}
+
+async function fileToBase64(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }

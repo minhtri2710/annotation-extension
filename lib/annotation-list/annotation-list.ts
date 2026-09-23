@@ -1,17 +1,18 @@
 import type { Annotation } from '../annotation';
-import { format, screenshotAssetFilename } from '../export/format';
+import { attachmentAssetFilename, format, screenshotAssetFilename } from '../export/format';
 import {
   productionExportDelivery,
   type AnnotationExportDelivery,
 } from '../export/delivery';
 import { listAnnotations } from '../annotation-storage';
 import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
-import { sendScreenshotRead } from '../screenshot/messages';
+import { sendBlobRead } from '../screenshot/messages';
+import { attachmentKey, screenshotKey } from '../blob-store';
 
 export interface AnnotationListPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
   sendAnnotationWrite(message: AnnotationWriteMessage): Promise<unknown>;
-  readScreenshot(annotationId: string): Promise<Blob>;
+  readBlob(key: string): Promise<Blob>;
 }
 
 export interface AnnotationList {
@@ -19,7 +20,7 @@ export interface AnnotationList {
   clear(): void;
 }
 
-const productionPersistence: AnnotationListPersistence = { listAnnotations, sendAnnotationWrite, readScreenshot: sendScreenshotRead };
+const productionPersistence: AnnotationListPersistence = { listAnnotations, sendAnnotationWrite, readBlob: sendBlobRead };
 
 export function createAnnotationList(
   panel: HTMLElement,
@@ -99,12 +100,20 @@ export function createAnnotationList(
         try {
           delivery.download(markdown(), 'annotations.md');
           for (const annotation of annotations) {
-            if (!annotation.screenshot) continue;
-            const blob = await persistence.readScreenshot(annotation.id);
-            delivery.downloadAsset(
-              blob,
-              screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType),
-            );
+            if (annotation.screenshot) {
+              const blob = await persistence.readBlob(screenshotKey(annotation.id));
+              delivery.downloadAsset(
+                blob,
+                screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType),
+              );
+            }
+            for (const [attachmentIndex, attachment] of (annotation.attachments ?? []).entries()) {
+              const attachmentBlob = await persistence.readBlob(attachmentKey(attachment.id));
+              delivery.downloadAsset(
+                attachmentBlob,
+                attachmentAssetFilename(annotation.id, attachmentIndex, attachment.mimeType),
+              );
+            }
           }
         } catch (error) {
           statusMessage = errorMessage(error);
@@ -130,6 +139,10 @@ export function createAnnotationList(
     hint.dataset.annotationHint = '';
     hint.textContent = annotation.selector;
 
+    const status = document.createElement('p');
+    status.dataset.annotationStatus = annotation.status;
+    status.textContent = `Status: ${annotation.status}`;
+
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.dataset.annotationDelete = '';
@@ -139,7 +152,7 @@ export function createAnnotationList(
       void mutate({ type: 'annotation.delete', pageUrl, id: annotation.id });
     });
 
-    row.append(note, hint, remove);
+    row.append(note, hint, status, remove);
     return row;
   }
 

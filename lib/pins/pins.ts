@@ -110,6 +110,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       marker.type = 'button';
       marker.className = PIN_CLASS;
       marker.setAttribute(MARKER_ATTRIBUTE, annotation.id);
+      if (annotation.status === 'resolved') marker.dataset.annotationStatus = 'resolved';
       marker.setAttribute('aria-label', `Annotation ${index + 1}`);
       marker.textContent = String(index + 1);
       marker.style.cssText = MARKER_STYLE;

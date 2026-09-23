@@ -27,6 +27,7 @@ function annotation(id: string, selector = context.selector): Annotation {
     elementContext: context,
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
+    status: 'open',
   };
 }
 
@@ -159,6 +160,19 @@ describe('pins controller', () => {
     expect(marker.style.top).toBe('34px');
     expect(marker.style.width).toBe('18px');
     expect(marker.style.height).toBe('18px');
+    controller.destroy();
+  });
+
+  it('marks resolved pins while keeping them clickable', () => {
+    const { toolbar, overlay } = setup();
+    const matching = { ...annotation('annotation-1'), status: 'resolved' as const };
+    const onActivate = vi.fn();
+    const controller = createPinsController({ document, container: overlay, toolbar, onActivate });
+    controller.setAnnotations([matching]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    expect(marker.dataset.annotationStatus).toBe('resolved');
+    marker.click();
+    expect(onActivate).toHaveBeenCalledWith(matching);
     controller.destroy();
   });
 

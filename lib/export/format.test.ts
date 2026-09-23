@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from '../annotation';
-import { format, screenshotAssetFilename } from './format';
+import { attachmentAssetFilename, format, screenshotAssetFilename } from './format';
 
 const pageUrl = 'https://example.com/article';
 
@@ -23,6 +23,7 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
     },
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
+    status: 'open',
     ...overrides,
   };
 }
@@ -45,10 +46,21 @@ describe('Markdown annotation formatter', () => {
     expect(markdown).toContain('![Annotation screenshot](./annotations-annotation-1.webp)');
   });
 
+  it('renders status and attachment links', () => {
+    const markdown = format([annotation({
+      status: 'resolved',
+      attachments: [{ id: 'attachment-1', name: 'photo.png', mimeType: 'image/png', byteLength: 4 }],
+    })], pageUrl);
+    expect(markdown).toContain('- Status: resolved');
+    expect(markdown).toContain('### Attachments');
+    expect(markdown).toContain('[photo.png](./annotations-annotation-1-attachment-1.png)');
+  });
+
   it('derives asset extensions from MIME type', () => {
     expect(screenshotAssetFilename('one', 'image/webp')).toBe('annotations-one.webp');
     expect(screenshotAssetFilename('two', 'image/jpeg')).toBe('annotations-two.jpeg');
     expect(screenshotAssetFilename('three', 'image/png')).toBe('annotations-three.png');
+    expect(attachmentAssetFilename('four', 0, 'image/png')).toBe('annotations-four-attachment-1.png');
   });
 
   it('orders annotations by createdAt regardless of input order', () => {

@@ -1,9 +1,16 @@
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 
+export function imageAssetExtension(mimeType: string): string {
+  return mimeType === 'image/webp' ? 'webp' : mimeType === 'image/jpeg' ? 'jpeg' : 'png';
+}
+
 export function screenshotAssetFilename(annotationId: string, mimeType: string): string {
-  const extension = mimeType === 'image/webp' ? 'webp' : mimeType === 'image/jpeg' ? 'jpeg' : 'png';
-  return `annotations-${annotationId}.${extension}`;
+  return `annotations-${annotationId}.${imageAssetExtension(mimeType)}`;
+}
+
+export function attachmentAssetFilename(annotationId: string, index: number, mimeType: string): string {
+  return `annotations-${annotationId}-attachment-${index + 1}.${imageAssetExtension(mimeType)}`;
 }
 
 export function format(annotations: Annotation[], pageUrl: string): string {
@@ -13,15 +20,25 @@ export function format(annotations: Annotation[], pageUrl: string): string {
   const blocks = orderedAnnotations.map((annotation, index) => {
     const sourcePath = readSourcePath(annotation.elementContext);
     const element = formatElementContext(annotation.elementContext);
+    const attachmentBlock = annotation.attachments && annotation.attachments.length > 0
+      ? [
+          '### Attachments',
+          ...annotation.attachments.map((attachment, attachmentIndex) =>
+            `- [${attachment.name}](./${attachmentAssetFilename(annotation.id, attachmentIndex, attachment.mimeType)})`,
+          ),
+        ].join('\n')
+      : undefined;
     const lines = [
       `## Annotation ${index + 1}`,
       `- Note: ${annotation.note}`,
+      `- Status: ${annotation.status}`,
       `- Selector: ${annotation.selector}`,
       element ? `- Element: ${element}` : undefined,
       sourcePath ? `- Source: ${sourcePath}` : undefined,
       annotation.screenshot
         ? `![Annotation screenshot](./${screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType)})`
         : undefined,
+      attachmentBlock,
       annotation.repro
         ? [
             '### Reproduction',

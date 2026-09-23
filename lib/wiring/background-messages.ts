@@ -1,8 +1,10 @@
 import { browser } from 'wxt/browser';
 import {
   addAnnotation,
+  addAttachment,
   clearAnnotations,
   deleteAnnotation,
+  deleteAttachment,
   updateAnnotation,
   updateAnnotationScreenshot,
 } from '../annotation-storage';
@@ -11,22 +13,29 @@ import {
   isAnnotationWriteMessage,
 } from '../annotation-messages';
 import {
+  isAttachmentAddMessage,
+  isAttachmentDeleteMessage,
+  type AttachmentAddMessage,
+} from '../attachments/messages';
+import { validateImageBlob, validateAttachmentName } from '../attachments/validation';
+import {
+  isBlobReadMessage,
   isScreenshotCaptureMessage,
-  isScreenshotReadMessage,
+  type BlobReadMessage,
   type ScreenshotCaptureMessage,
 } from '../screenshot/messages';
-import { createScreenshotStore, type ScreenshotStore } from '../screenshot/store';
+import { createBlobStore, screenshotKey, type BlobStore } from '../blob-store';
 import { processScreenshot, type ScreenshotProcessor } from '../screenshot/processor';
 
 export interface BackgroundMessageDependencies {
-  screenshotStore?: ScreenshotStore;
+  blobStore?: BlobStore;
   screenshotProcessor?: ScreenshotProcessor;
 }
 
 export function registerBackgroundMessageHandlers(
   dependencies: BackgroundMessageDependencies = {},
 ): void {
-  const screenshotStore = dependencies.screenshotStore ?? createScreenshotStore();
+  const blobStore = dependencies.blobStore ?? createBlobStore();
   const screenshotProcessor = dependencies.screenshotProcessor ?? processScreenshot;
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -38,9 +47,9 @@ export function registerBackgroundMessageHandlers(
           case 'annotation.update':
             return updateAnnotation(message.pageUrl, message.id, message.changes);
           case 'annotation.delete':
-            return deleteAnnotation(message.pageUrl, message.id, screenshotStore);
+            return deleteAnnotation(message.pageUrl, message.id, blobStore);
           case 'annotation.clear':
-            return clearAnnotations(message.pageUrl, screenshotStore);
+            return clearAnnotations(message.pageUrl, blobStore);
         }
       })();
 
@@ -49,14 +58,36 @@ export function registerBackgroundMessageHandlers(
     }
 
     if (isScreenshotCaptureMessage(message)) {
-      const capture = captureScreenshot(message, sender.tab?.windowId, screenshotStore, screenshotProcessor);
+      const capture = captureScreenshot(message, sender.tab?.windowId, blobStore, screenshotProcessor);
       void capture.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
       return true;
     }
 
-    if (isScreenshotReadMessage(message)) {
-      const read = readScreenshot(message.annotationId, screenshotStore);
+    if (isAttachmentAddMessage(message)) {
+      const add = addAttachmentMessage(message, blobStore);
+      void add.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
+      return true;
+    }
+
+    if (isAttachmentDeleteMessage(message)) {
+      const remove = deleteAttachment(
+        message.pageUrl,
+        message.annotationId,
+        message.attachmentId,
+        blobStore,
+      );
+      void remove.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
+      return true;
+    }
+
+    if (isBlobReadMessage(message)) {
+      const read = readBlob(message, blobStore);
       void read.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
+      return true;
+    }
+
+    if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'blob.read') {
+      sendResponse(createAnnotationErrorResponse(new Error('Invalid blob key')));
       return true;
     }
 
@@ -67,15 +98,17 @@ export function registerBackgroundMessageHandlers(
 async function captureScreenshot(
   message: ScreenshotCaptureMessage,
   windowId: number | undefined,
-  screenshotStore: ScreenshotStore,
+  blobStore: BlobStore,
   screenshotProcessor: ScreenshotProcessor,
 ) {
   const capture = windowId === undefined
     ? await browser.tabs.captureVisibleTab()
     : await browser.tabs.captureVisibleTab(windowId);
   const processed = await screenshotProcessor(capture, message.rect, message.devicePixelRatio);
-  const previousBlob = await screenshotStore.get(message.annotationId);
-  await screenshotStore.put(message.annotationId, processed.blob);
+  validateImageBlob(processed.blob);
+  const key = screenshotKey(message.annotationId);
+  const previousBlob = await blobStore.get(key);
+  await blobStore.put(key, processed.blob);
 
   let annotation;
   try {
@@ -86,25 +119,51 @@ async function captureScreenshot(
       byteLength: processed.blob.size,
     });
   } catch (error) {
-    if (previousBlob) await screenshotStore.put(message.annotationId, previousBlob);
-    else await screenshotStore.delete([message.annotationId]);
+    if (previousBlob) await blobStore.put(key, previousBlob);
+    else await blobStore.delete([key]);
     throw error;
   }
 
   if (!annotation) {
-    await screenshotStore.delete([message.annotationId]);
+    await blobStore.delete([key]);
     throw new Error('Annotation was not found for screenshot capture');
   }
   return annotation.screenshot;
 }
 
-async function readScreenshot(
-  annotationId: string,
-  screenshotStore: ScreenshotStore,
+async function addAttachmentMessage(
+  message: AttachmentAddMessage,
+  blobStore: BlobStore,
+) {
+  const blob = base64ToBlob(message.base64, message.mimeType);
+  validateImageBlob(blob, message.mimeType);
+  const metadata = {
+    id: crypto.randomUUID(),
+    name: validateAttachmentName(message.name),
+    mimeType: message.mimeType,
+    byteLength: blob.size,
+  };
+  return addAttachment(message.pageUrl, message.annotationId, metadata, blob, blobStore);
+}
+
+async function readBlob(
+  message: BlobReadMessage,
+  blobStore: BlobStore,
 ): Promise<{ mimeType: string; base64: string }> {
-  const blob = await screenshotStore.get(annotationId);
-  if (!blob) throw new Error('Screenshot was not found');
+  const blob = await blobStore.get(message.key);
+  if (!blob) throw new Error('Blob was not found');
   return { mimeType: blob.type, base64: await blobToBase64(blob) };
+}
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  let binary: string;
+  try {
+    binary = atob(base64);
+  } catch {
+    throw new Error('Image base64 data is invalid.');
+  }
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new Blob([bytes], { type: mimeType });
 }
 
 async function blobToBase64(blob: Blob): Promise<string> {
