@@ -168,7 +168,7 @@ describe('annotation list', () => {
     expect(store.listAnnotations).toHaveBeenCalledTimes(1);
   });
 
-  it('drops the post-action error render when the list re-renders while the write is pending', async () => {
+  it('keeps the post-action error render when the list re-renders while the write is pending', async () => {
     const panel = document.createElement('div');
     const store = persistence([annotation('annotation-1', 'Clear me')]);
     let rejectWrite: (error: unknown) => void = () => undefined;
@@ -178,10 +178,103 @@ describe('annotation list', () => {
     (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
 
     await list.render();
+    rejectWrite(new Error('late failure'));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('late failure'));
+    expect(store.listAnnotations).toHaveBeenCalledTimes(3);
+  });
+
+  it('drops the post-action error render when the list is cleared while the write is pending', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Clear me')]);
+    let rejectWrite: (error: unknown) => void = () => undefined;
+    vi.mocked(store.sendAnnotationWrite).mockReturnValue(new Promise((_resolve, reject) => { rejectWrite = reject; }));
+    const list = createAnnotationList(panel, pageUrl, store);
+    await list.render();
+    (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+
+    list.clear();
     rejectWrite(new Error('stale failure'));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(panel.textContent).not.toContain('stale failure');
-    expect(store.listAnnotations).toHaveBeenCalledTimes(2);
+    expect(panel.childElementCount).toBe(0);
+    expect(store.listAnnotations).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-renders after each of two in-flight deletes resolving in order', async () => {
+    const panel = document.createElement('div');
+    let stored = [annotation('annotation-a', 'Row A'), annotation('annotation-b', 'Row B')];
+    const store = persistence([]);
+    vi.mocked(store.listAnnotations).mockImplementation(async () => stored);
+    const resolvers = new Map<string, () => void>();
+    vi.mocked(store.sendAnnotationWrite).mockImplementation((message) => new Promise((resolve) => {
+      const id = message.type === 'annotation.delete' ? message.id : '';
+      resolvers.set(id, () => {
+        stored = stored.filter((entry) => entry.id !== id);
+        resolve(undefined);
+      });
+    }));
+    const list = createAnnotationList(panel, pageUrl, store);
+    await list.render();
+    const deletes = panel.querySelectorAll<HTMLButtonElement>('[data-annotation-delete]');
+    deletes[0]!.click();
+    deletes[1]!.click();
+    expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(2);
+
+    resolvers.get('annotation-a')!();
+    await vi.waitFor(() => expect(store.listAnnotations).toHaveBeenCalledTimes(2));
+    resolvers.get('annotation-b')!();
+    await vi.waitFor(() => expect(store.listAnnotations).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-empty-state]')).not.toBeNull());
+    expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(0);
+  });
+
+  it('clears an action error on a later success even if a render ran while it was pending', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Retry me')]);
+    vi.mocked(store.sendAnnotationWrite).mockRejectedValueOnce(new Error('delete failed'));
+    const list = createAnnotationList(panel, pageUrl, store);
+    await list.render();
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('delete failed'));
+
+    let resolveWrite: (value: unknown) => void = () => undefined;
+    vi.mocked(store.sendAnnotationWrite).mockReturnValueOnce(new Promise((resolve) => { resolveWrite = resolve; }));
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    await list.render();
+    expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('delete failed');
+    resolveWrite(undefined);
+    await vi.waitFor(() => expect(store.listAnnotations).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')).toBeNull());
+  });
+
+  it('surfaces an export-download error, even across a re-render, but not after clear', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Export me', 'image/webp')]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn().mockResolvedValue(undefined), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    const download = () => (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
+    let rejectRead: (error: unknown) => void = () => undefined;
+    const pendingRead = () => vi.mocked(store.readBlob).mockReturnValueOnce(new Promise((_resolve, reject) => { rejectRead = reject; }));
+
+    await list.render();
+    vi.mocked(store.readBlob).mockRejectedValueOnce(new Error('read failed'));
+    download();
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('read failed'));
+
+    pendingRead();
+    download();
+    await list.render();
+    rejectRead(new Error('late read failed'));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('late read failed'));
+
+    pendingRead();
+    download();
+    const calls = vi.mocked(store.listAnnotations).mock.calls.length;
+    list.clear();
+    rejectRead(new Error('stale read failed'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(panel.childElementCount).toBe(0);
+    expect(store.listAnnotations).toHaveBeenCalledTimes(calls);
+    expect(delivery.downloadAsset).not.toHaveBeenCalled();
   });
 
   it('renders a How it works section right after the heading with the five steps', async () => {

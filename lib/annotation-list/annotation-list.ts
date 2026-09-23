@@ -46,6 +46,7 @@ export function createAnnotationList(
   delivery: AnnotationExportDelivery = productionExportDelivery,
 ): AnnotationList {
   let renderVersion = 0;
+  let clearVersion = 0;
   let statusMessage: string | undefined;
 
   async function render(): Promise<void> {
@@ -139,7 +140,7 @@ export function createAnnotationList(
     download.dataset.annotationExportDownload = '';
     download.textContent = 'Download';
     download.addEventListener('click', () => {
-      const version = renderVersion;
+      const version = clearVersion;
       void (async () => {
         try {
           delivery.download(markdown(), 'annotations.md');
@@ -160,7 +161,7 @@ export function createAnnotationList(
             }
           }
         } catch (error) {
-          if (version !== renderVersion) return;
+          if (version !== clearVersion) return;
           statusMessage = errorMessage(error);
           await render();
         }
@@ -201,22 +202,23 @@ export function createAnnotationList(
     return row;
   }
 
-  // An action re-renders only if no clear() or render() ran while it was pending.
+  // An action re-renders only if clear() did not run while it was pending.
   async function mutate(message: AnnotationWriteMessage): Promise<void> {
-    const version = renderVersion;
+    const version = clearVersion;
     try {
       await persistence.sendAnnotationWrite(message);
-      if (version !== renderVersion) return;
+      if (version !== clearVersion) return;
       statusMessage = undefined;
       await render();
     } catch (error) {
-      if (version !== renderVersion) return;
+      if (version !== clearVersion) return;
       statusMessage = errorMessage(error);
       await render();
     }
   }
 
   function clear(): void {
+    clearVersion += 1;
     renderVersion += 1;
     statusMessage = undefined;
     panel.replaceChildren();
