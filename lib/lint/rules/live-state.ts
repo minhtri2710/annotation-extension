@@ -451,21 +451,50 @@ function layersAboveFlow(ctx: ScanContext, el: Element): boolean {
   return /\b(?:flex|grid)\b/.test(parentDisplay) && (value('z-index') || 'auto') !== 'auto';
 }
 
-// Hit testing skips pointer-events:none, so such a victim never shows in the stack. CSS paints a
-// positioned element (in a chain with no negative z-index) above an unpositioned one, unless the
-// candidate or its ancestor below the common ancestor is positioned or creates a stacking context.
+// The outermost element of the chain from el up to (not including) ancestor that is positioned or
+// creates a stacking context, with the child of ancestor that holds el.
+function layerBelow(ctx: ScanContext, el: Element, ancestor: Element): { branch: Element; layer?: Element } {
+  let branch = el;
+  let layer: Element | undefined;
+  for (let current: Element | null = el; current && current !== ancestor; current = current.parentElement) {
+    if (layersAboveFlow(ctx, current)) layer = current;
+    branch = current;
+  }
+  return { branch, layer };
+}
+
+// The flow layer sits below every z 0 layer and above every negative z; z-index applies to a
+// positioned element or a flex or grid item, and auto counts as 0.
+const FLOW_LAYER_KEY = -0.5;
+
+function paintKey(ctx: ScanContext, layer: Element | undefined): number {
+  if (!layer) return FLOW_LAYER_KEY;
+  const parentDisplay = layer.parentElement ? styleValue(ctx, layer.parentElement, 'display').toLowerCase() : '';
+  if (!isPositioned(ctx, layer) && !/\b(?:flex|grid)\b/.test(parentDisplay)) return 0;
+  return numberValue(styleValue(ctx, layer, 'z-index'), 0);
+}
+
+// Hit testing skips pointer-events:none, so such a victim never shows in the stack. Within the
+// stacking context of the common ancestor, the side whose layer has the higher z paints above;
+// layers with the same z (0 or equal positive) paint in tree order.
 function paintsAbove(ctx: ScanContext, victim: Element, candidate: Element): boolean {
   if (styleValue(ctx, victim, 'pointer-events') !== 'none') return false;
-  for (let current: Element | null = candidate; current && !current.contains(victim); current = current.parentElement) {
-    if (layersAboveFlow(ctx, current)) return false;
-  }
   let positioned = false;
   for (let current: Element | null = victim; current && current !== ctx.doc.body; current = current.parentElement) {
     if (!isPositioned(ctx, current)) continue;
     positioned = true;
     if (numberValue(styleValue(ctx, current, 'z-index'), 0) < 0) return false;
   }
-  return positioned;
+  if (!positioned) return false;
+  let common = victim.parentElement;
+  while (common && !common.contains(candidate)) common = common.parentElement;
+  if (!common) return false;
+  const victimSide = layerBelow(ctx, victim, common);
+  const candidateSide = layerBelow(ctx, candidate, common);
+  const victimKey = paintKey(ctx, victimSide.layer);
+  const candidateKey = paintKey(ctx, candidateSide.layer);
+  if (victimKey !== candidateKey) return victimKey > candidateKey;
+  return victimKey >= 0 && (candidateSide.branch.compareDocumentPosition(victimSide.branch) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 }
 
 // The topmost element over the point, or undefined when the victim, its descendant or its
