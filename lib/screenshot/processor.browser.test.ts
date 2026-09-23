@@ -133,6 +133,19 @@ describe('processScreenshot', () => {
     expectColor(image.pixel(61, 0), BLUE);
     expectColor(image.pixel(0, 64), GREEN);
     expectColor(image.pixel(61, 64), YELLOW);
+
+    // At dpr 1.25 each axis gets one device size below .5 and one above, so ceil or floor on either axis fails.
+    // Box 41 x 43 is 51.25 x 53.75 device pixels (51 x 54); box 43 x 41 is 53.75 x 51.25 (54 x 51).
+    const cases: [number, number, number, number][] = [
+      [41, 43, 51, 54],
+      [43, 41, 54, 51],
+    ];
+    for (const [boxWidth, boxHeight, width, height] of cases) {
+      const rounded = await processScreenshot(capture, { x: 120, y: 40, width: boxWidth, height: boxHeight }, 1.25);
+      expect([rounded.width, rounded.height]).toEqual([width, height]);
+      const roundedImage = await decode(rounded.blob);
+      expect([roundedImage.width, roundedImage.height]).toEqual([width, height]);
+    }
   });
 
   it('keeps a crop at or under 1600px at full size', async () => {
