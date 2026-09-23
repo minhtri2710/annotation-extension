@@ -33,6 +33,9 @@ const TOOLTIP_ATTRIBUTE = 'data-annotation-tooltip';
 const PIN_CLASS = 'annotation-pin';
 const PULSE_CLASS = 'locate-pulse';
 const NOTE_PREVIEW_LENGTH = 120;
+const PIN_SIZE = 18;
+const TOOLTIP_GAP = 8;
+const TOOLTIP_MARGIN = 8;
 export const RERESOLVE_DEBOUNCE_MS = 250;
 export const RERESOLVE_MAX_WAIT_MS = 1000;
 export const RERESOLVE_BACKOFF_CAP_MS = 30_000;
@@ -41,8 +44,8 @@ export const RESOLVE_SLICE_MS = 12;
 const MARKER_STYLE = [
   'position: fixed',
   'z-index: 2147483647',
-  'width: 18px',
-  'height: 18px',
+  `width: ${PIN_SIZE}px`,
+  `height: ${PIN_SIZE}px`,
   'padding: 0',
   'border: 2px solid #ffffff',
   'border-radius: 50%',
@@ -54,6 +57,41 @@ const MARKER_STYLE = [
   'pointer-events: auto',
   'transform: translate(-50%, -50%)',
 ].join(';');
+
+interface Viewport {
+  width: number;
+  height: number;
+}
+
+// The pin is centred on the element's top-left corner, pulled fully inside the viewport while the
+// element intersects it; an element outside the viewport keeps its pin off-screen with it.
+export function pinCenter(
+  rect: { left: number; top: number; right: number; bottom: number },
+  viewport: Viewport,
+): { x: number; y: number } {
+  const intersects = rect.right > 0 && rect.bottom > 0 && rect.left < viewport.width && rect.top < viewport.height;
+  if (!intersects) return { x: rect.left, y: rect.top };
+  const half = PIN_SIZE / 2;
+  return { x: clamp(rect.left, half, viewport.width - half), y: clamp(rect.top, half, viewport.height - half) };
+}
+
+// Right of the pin, or left of it when the right side has no room, then clamped into the viewport.
+export function placeTooltip(
+  pin: { left: number; top: number; right: number },
+  size: Viewport,
+  viewport: Viewport,
+): { left: number; top: number } {
+  let left = pin.right + TOOLTIP_GAP;
+  if (left + size.width > viewport.width - TOOLTIP_MARGIN) left = pin.left - TOOLTIP_GAP - size.width;
+  return {
+    left: clamp(left, TOOLTIP_MARGIN, viewport.width - TOOLTIP_MARGIN - size.width),
+    top: clamp(pin.top, TOOLTIP_MARGIN, viewport.height - TOOLTIP_MARGIN - size.height),
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, max));
+}
 
 export function createPinsController(options: PinsControllerOptions): PinsController {
   const view = options.document.defaultView;
@@ -71,6 +109,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   let resolveTimer: number | undefined;
   let maxWaitTimer: number | undefined;
   let tooltip: HTMLDivElement | undefined;
+  let tooltipPin: TrackedPin | undefined;
   let destroyed = false;
   // Doubles after each re-resolve pass that pins nothing new; 1 again once one does or the set changes.
   let backoff = 1;
@@ -87,10 +126,10 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
         continue;
       }
 
-      const rect = pin.element.getBoundingClientRect();
+      const { x, y } = pinCenter(pin.element.getBoundingClientRect(), viewport());
       pin.marker.hidden = false;
-      pin.marker.style.left = `${rect.left}px`;
-      pin.marker.style.top = `${rect.top}px`;
+      pin.marker.style.left = `${x}px`;
+      pin.marker.style.top = `${y}px`;
     }
   };
 
@@ -139,6 +178,11 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   observer.observe(options.document, { childList: true, subtree: true });
   options.document.addEventListener('scroll', scheduleReanchor, true);
   view?.addEventListener('resize', scheduleReanchor, true);
+  // WCAG 1.4.13: Escape dismisses the tooltip without moving focus or the pointer.
+  const dismissTooltip = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && tooltip) hideTooltip();
+  };
+  options.document.addEventListener('keydown', dismissTooltip, true);
 
   const setAnnotations = (annotations: Annotation[]) => {
     for (const pin of trackedPins) {
@@ -163,6 +207,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     observer.disconnect();
     options.document.removeEventListener('scroll', scheduleReanchor, true);
     view?.removeEventListener('resize', scheduleReanchor, true);
+    options.document.removeEventListener('keydown', dismissTooltip, true);
     if (frame !== undefined) {
       view?.cancelAnimationFrame(frame);
       frame = undefined;
@@ -249,7 +294,8 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       pin.hovered = true;
       showTooltip(pin);
     });
-    marker.addEventListener('mouseleave', () => {
+    marker.addEventListener('mouseleave', (event) => {
+      if (tooltip && event.relatedTarget === tooltip) return;
       pin.hovered = false;
       updateTooltip(pin);
     });
@@ -281,14 +327,27 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       tooltip.setAttribute(TOOLTIP_ATTRIBUTE, '');
       tooltip.className = 'annotation-pin-tooltip';
       tooltip.setAttribute('role', 'tooltip');
+      // The pointer may move from the pin onto the tooltip; leaving it for anything but the pin hides it.
+      tooltip.addEventListener('mouseleave', (event) => {
+        if (!tooltipPin || event.relatedTarget === tooltipPin.marker) return;
+        tooltipPin.hovered = false;
+        updateTooltip(tooltipPin);
+      });
       options.container.append(tooltip);
     }
+    tooltipPin = pin;
     tooltip.id = tooltipId(pin.annotation);
     tooltip.textContent = truncateNote(pin.annotation.note);
-    const rect = pin.marker.getBoundingClientRect();
-    tooltip.style.left = `${rect.right + 8}px`;
-    tooltip.style.top = `${rect.top}px`;
     tooltip.hidden = false;
+    const { width, height } = tooltip.getBoundingClientRect();
+    const { left, top } = placeTooltip(pin.marker.getBoundingClientRect(), { width, height }, viewport());
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function viewport(): Viewport {
+    const root = options.document.documentElement;
+    return { width: root.clientWidth, height: root.clientHeight };
   }
 
   function updateTooltip(pin: TrackedPin): void {
@@ -302,6 +361,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   function hideTooltip(): void {
     tooltip?.remove();
     tooltip = undefined;
+    tooltipPin = undefined;
   }
 
   function clearPulse(pin: TrackedPin): void {

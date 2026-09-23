@@ -32,6 +32,84 @@ export function positionPopover(
   };
 }
 
+export interface PanelAnchor {
+  place(box: () => { x: number; y: number; width: number; height: number }): void;
+  clear(): void;
+  destroy(): void;
+}
+
+const PANEL_MARGIN = 10;
+const PANEL_PLACEMENT = ['position', 'top', 'left', 'right', 'bottom', 'max-height'] as const;
+
+// Keeps a placed panel inside the viewport and clear of the toolbar, which paints above it: its
+// height is capped to the free room below its top (the panel scrolls internally, and a focused
+// control is scrolled fully into view), and it is placed again whenever it or the window resizes.
+export function createPanelAnchor(panel: HTMLElement, toolbar: HTMLElement): PanelAnchor {
+  const document = panel.ownerDocument;
+  const win = document.defaultView!;
+  let source: (() => { x: number; y: number; width: number; height: number }) | undefined;
+
+  const update = () => {
+    if (!source) return;
+    panel.style.removeProperty('max-height');
+    const { width, height } = panel.getBoundingClientRect();
+    const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
+    const placed = positionPopover(source(), { width, height }, viewport);
+    const { left } = placed;
+    let { top } = placed;
+    let bottom = viewport.height - PANEL_MARGIN;
+    const bar = toolbar.getBoundingClientRect();
+    if (bar.width > 0 && bar.left < left + width && bar.right > left) {
+      if (bar.top > top) bottom = Math.min(bottom, bar.top - PANEL_MARGIN);
+      else if (bar.bottom > top) top = bar.bottom + PANEL_MARGIN;
+    }
+    panel.style.position = 'fixed';
+    panel.style.top = `${top}px`;
+    panel.style.left = `${left}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.maxHeight = `${Math.max(0, bottom - top)}px`;
+  };
+  // Browsers leave a partly visible control partly clipped when it takes focus, and Firefox's own
+  // focus scroll can land after a synchronous one, so the reveal runs on the next frame.
+  const reveal = (event: FocusEvent) => {
+    const target = event.target;
+    if (!(target instanceof win.Element)) return;
+    win.requestAnimationFrame(() => {
+      if (target.isConnected) target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  };
+  const observer = new ResizeObserver(update);
+  observer.observe(panel);
+  win.addEventListener('resize', update);
+  panel.addEventListener('focusin', reveal);
+
+  const clear = () => {
+    source = undefined;
+    for (const property of PANEL_PLACEMENT) panel.style.removeProperty(property);
+  };
+  return {
+    place(box) {
+      source = box;
+      update();
+    },
+    clear,
+    destroy() {
+      clear();
+      observer.disconnect();
+      win.removeEventListener('resize', update);
+      panel.removeEventListener('focusin', reveal);
+    },
+  };
+}
+
+// Puts the overlay host in the browser's top layer: above every page z-index, and placed against
+// the viewport even when <html> or <body> is transformed, filtered or contained.
+export function raiseOverlay(host: HTMLElement): void {
+  host.popover = 'manual';
+  host.showPopover();
+}
+
 export function clampToolbarPosition(
   position: { x: number; y: number },
   size: { width: number; height: number },

@@ -38,8 +38,13 @@ ${ANNOTATION_DARK_TOKENS}
   border: 1px solid var(--annotation-color-border);
   border-radius: var(--annotation-radius-lg);
   background: var(--annotation-color-surface);
-  box-shadow: 0 0.25rem 1rem rgba(23, 32, 51, 0.2);
+  box-shadow: 0 4px 16px rgba(23, 32, 51, 0.2);
   pointer-events: auto;
+}
+
+[data-annotation-shell] [data-annotation-mount="toolbar"] {
+  flex-wrap: wrap;
+  max-width: calc(100vw - 2 * var(--annotation-space-4));
 }
 
 [data-annotation-shell] [data-annotation-toolbar-grip] {
@@ -58,17 +63,21 @@ ${ANNOTATION_DARK_TOKENS}
 [data-annotation-shell] [data-annotation-mount="panel"] {
   position: fixed;
   right: var(--annotation-space-4);
-  bottom: calc(var(--annotation-space-4) + 3.5rem);
+  bottom: calc(var(--annotation-space-4) + 56px);
   z-index: 2147483645;
-  width: min(24rem, calc(100vw - 2 * var(--annotation-space-4)));
+  width: min(384px, calc(100vw - 2 * var(--annotation-space-4)));
   max-height: calc(100vh - 2 * var(--annotation-space-4));
   overflow: auto;
   padding: var(--annotation-space-4);
   border: 1px solid var(--annotation-color-border);
   border-radius: var(--annotation-radius-lg);
   background: var(--annotation-color-surface);
-  box-shadow: 0 0.75rem 2rem rgba(23, 32, 51, 0.24);
+  box-shadow: 0 12px 32px rgba(23, 32, 51, 0.24);
   pointer-events: auto;
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] {
+  overflow-wrap: anywhere;
 }
 
 [data-annotation-shell] [data-annotation-mount="panel"]:empty {
@@ -76,7 +85,7 @@ ${ANNOTATION_DARK_TOKENS}
 }
 
 @keyframes annotation-panel-enter {
-  from { opacity: 0; transform: translateY(0.5rem); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 
@@ -152,16 +161,23 @@ ${ANNOTATION_DARK_TOKENS}
 [data-annotation-shell] .annotation-pin-tooltip {
   position: fixed;
   z-index: 2147483647;
-  max-width: 16rem;
+  max-width: min(256px, calc(100vw - 16px));
   padding: var(--annotation-space-1) var(--annotation-space-2);
   border: 1px solid var(--annotation-color-border);
   border-radius: var(--annotation-radius-sm);
   background: var(--annotation-color-surface);
   color: var(--annotation-color-text);
-  box-shadow: 0 0.25rem 1rem rgba(23, 32, 51, 0.2);
+  box-shadow: 0 4px 16px rgba(23, 32, 51, 0.2);
   font-size: var(--annotation-font-size-caption);
   line-height: 1.3;
-  pointer-events: none;
+  pointer-events: auto;
+}
+
+[data-annotation-shell] .annotation-pin-tooltip::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
 }
 
 @keyframes annotation-tooltip-fade-in {

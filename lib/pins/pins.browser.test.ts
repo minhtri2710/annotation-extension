@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { page as browserPage, userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import { buildSelector } from '../capture/selector';
+import { buildOverlayShell } from '../ui/shell';
 import { createPinsController, type PinsController } from './pins';
 
 const PAGE_ELEMENTS = 50_000;
@@ -162,4 +164,133 @@ describe('pin resolve cost on a 50k-element page (real browser)', () => {
     expect(passes).toBeGreaterThanOrEqual(2);
     expect(passes).toBeLessThanOrEqual(4);
   }, 30_000);
+});
+
+describe('pins and their tooltip at the viewport edges (real browser)', () => {
+  function mountShell() {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const container = document.createElement('div');
+    shadow.append(container);
+    return { shadow, shell: buildOverlayShell(container) };
+  }
+
+  function placeTarget(css: string): HTMLElement {
+    const target = document.createElement('div');
+    target.id = 'edge-target';
+    target.style.cssText = `position: fixed; width: 100px; height: 40px; ${css}`;
+    document.body.append(target);
+    return target;
+  }
+
+  function viewport() {
+    return { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
+  }
+
+  function expectInside(rect: DOMRect): void {
+    expect(rect.left).toBeGreaterThanOrEqual(0);
+    expect(rect.top).toBeGreaterThanOrEqual(0);
+    expect(rect.right).toBeLessThanOrEqual(viewport().width);
+    expect(rect.bottom).toBeLessThanOrEqual(viewport().height);
+  }
+
+  afterEach(async () => {
+    await browserPage.viewport(1280, 720);
+  });
+
+  for (const [name, css] of [
+    ['flush with the top-left corner', 'left: 0; top: 0'],
+    ['partly outside the left and top edges', 'left: -50px; top: -20px'],
+  ] as const) {
+    it(`shows the pin of an element ${name} fully inside the viewport, on the element's corner region`, () => {
+      const { shell } = mountShell();
+      const target = placeTarget(css);
+      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      controller.setAnnotations([annotation(0, '#edge-target')]);
+      controller.reanchor();
+
+      const marker = shell.root.querySelector<HTMLElement>('.annotation-pin')!;
+      const pin = marker.getBoundingClientRect();
+      expectInside(pin);
+      const element = target.getBoundingClientRect();
+      const centerX = pin.left + pin.width / 2;
+      const centerY = pin.top + pin.height / 2;
+      expect(centerX).toBeGreaterThanOrEqual(element.left);
+      expect(centerY).toBeGreaterThanOrEqual(element.top);
+      expect(centerX - Math.max(element.left, 0)).toBeLessThanOrEqual(pin.width);
+      expect(centerY - Math.max(element.top, 0)).toBeLessThanOrEqual(pin.height);
+    });
+  }
+
+  it('leaves the pin of an element outside the viewport off-screen', () => {
+    const { shell } = mountShell();
+    placeTarget('left: -500px; top: 100px');
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller.setAnnotations([annotation(0, '#edge-target')]);
+    controller.reanchor();
+
+    expect(shell.root.querySelector<HTMLElement>('.annotation-pin')!.getBoundingClientRect().right).toBeLessThanOrEqual(0);
+  });
+
+  it('dismisses the tooltip with Escape without moving focus or hover', async () => {
+    const { shadow, shell } = mountShell();
+    placeTarget('left: 200px; top: 200px');
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller.setAnnotations([annotation(0, '#edge-target')]);
+    controller.reanchor();
+    const marker = shell.root.querySelector<HTMLElement>('.annotation-pin')!;
+
+    marker.focus();
+    expect(shell.root.querySelector('[role="tooltip"]')).not.toBeNull();
+    await userEvent.keyboard('{Escape}');
+    expect(shell.root.querySelector('[role="tooltip"]')).toBeNull();
+    expect(shadow.activeElement).toBe(marker);
+
+    marker.blur();
+    await userEvent.hover(marker);
+    expect(shell.root.querySelector('[role="tooltip"]')).not.toBeNull();
+    await userEvent.keyboard('{Escape}');
+    expect(shell.root.querySelector('[role="tooltip"]')).toBeNull();
+    expect(marker.matches(':hover')).toBe(true);
+  });
+
+  it('keeps the tooltip while the pointer moves onto it', async () => {
+    const { shell } = mountShell();
+    placeTarget('left: 200px; top: 200px');
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller.setAnnotations([annotation(0, '#edge-target')]);
+    controller.reanchor();
+    const marker = shell.root.querySelector<HTMLElement>('.annotation-pin')!;
+
+    await userEvent.hover(marker);
+    const tooltip = shell.root.querySelector<HTMLElement>('[role="tooltip"]')!;
+    expect(tooltip).not.toBeNull();
+    await userEvent.hover(tooltip);
+    expect(shell.root.querySelector('[role="tooltip"]')).toBe(tooltip);
+    expect(tooltip.matches(':hover')).toBe(true);
+
+    const away = document.createElement('div');
+    away.style.cssText = 'position: fixed; left: 900px; top: 500px; width: 40px; height: 40px';
+    document.body.append(away);
+    await userEvent.hover(away);
+    expect(shell.root.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  for (const width of [320, 600]) {
+    it(`clamps the tooltip inside a ${width} px viewport at the right and bottom edges`, async () => {
+      await browserPage.viewport(width, 480);
+      const { shell } = mountShell();
+      placeTarget('right: 4px; bottom: 4px; width: 20px; height: 20px');
+      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      const long = annotation(0, '#edge-target');
+      long.note = 'A long note that fills the tooltip preview. '.repeat(6);
+      controller.setAnnotations([long]);
+      controller.reanchor();
+      const marker = shell.root.querySelector<HTMLElement>('.annotation-pin')!;
+
+      marker.focus();
+      expectInside(shell.root.querySelector<HTMLElement>('[role="tooltip"]')!.getBoundingClientRect());
+    });
+  }
 });

@@ -8,6 +8,8 @@ import {
   createPinsController as createController,
   type PinsController,
   type PinsControllerOptions,
+  pinCenter,
+  placeTooltip,
   RERESOLVE_BACKOFF_CAP_MS,
   RERESOLVE_DEBOUNCE_MS,
   RERESOLVE_MAX_WAIT_MS,
@@ -548,5 +550,66 @@ describe('pins controller', () => {
       expect(overlay.querySelector('[data-annotation-id]')).toBeNull();
       expect(vi.getTimerCount()).toBe(0);
     });
+  });
+});
+
+describe('pin and tooltip placement', () => {
+  const viewport = { width: 320, height: 480 };
+
+  it('keeps the pin centred on the element corner away from the edges', () => {
+    expect(pinCenter({ left: 40, top: 60, right: 140, bottom: 100 }, viewport)).toEqual({ x: 40, y: 60 });
+  });
+
+  it('pulls the pin fully inside the viewport while its element intersects it', () => {
+    expect(pinCenter({ left: 0, top: 0, right: 100, bottom: 40 }, viewport)).toEqual({ x: 9, y: 9 });
+    expect(pinCenter({ left: -50, top: -20, right: 50, bottom: 20 }, viewport)).toEqual({ x: 9, y: 9 });
+    expect(pinCenter({ left: 316, top: 478, right: 400, bottom: 500 }, viewport)).toEqual({ x: 311, y: 471 });
+  });
+
+  it('leaves the pin of an element outside the viewport where the element is', () => {
+    expect(pinCenter({ left: -500, top: 100, right: -400, bottom: 140 }, viewport)).toEqual({ x: -500, y: 100 });
+    expect(pinCenter({ left: 40, top: 900, right: 140, bottom: 940 }, viewport)).toEqual({ x: 40, y: 900 });
+  });
+
+  it('places the tooltip right of the pin, flips it left at the right edge, and clamps it inside the viewport', () => {
+    const size = { width: 200, height: 60 };
+    expect(placeTooltip({ left: 20, top: 40, right: 38 }, size, viewport)).toEqual({ left: 46, top: 40 });
+    expect(placeTooltip({ left: 280, top: 40, right: 298 }, size, viewport)).toEqual({ left: 72, top: 40 });
+    expect(placeTooltip({ left: 150, top: 460, right: 168 }, size, viewport)).toEqual({ left: 8, top: 412 });
+    expect(placeTooltip({ left: 20, top: -5, right: 38 }, { width: 400, height: 60 }, viewport)).toEqual({ left: 8, top: 8 });
+  });
+});
+
+describe('pin tooltip dismissal', () => {
+  it('hides the tooltip on Escape, keeps focus on the pin, and shows it again on the next hover', () => {
+    const { toolbar, overlay } = setup();
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+
+    marker.focus();
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+    expect(document.activeElement).toBe(marker);
+
+    marker.dispatchEvent(new Event('mouseenter'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+  });
+
+  it('keeps the tooltip while the pointer moves from the pin onto it and hides it once the pointer leaves both', () => {
+    const { toolbar, overlay } = setup();
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+
+    marker.dispatchEvent(new MouseEvent('mouseenter'));
+    const tooltip = overlay.querySelector('[data-annotation-tooltip]') as HTMLElement;
+    marker.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: tooltip }));
+    tooltip.dispatchEvent(new MouseEvent('mouseenter', { relatedTarget: marker }));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBe(tooltip);
+
+    tooltip.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: document.body }));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
   });
 });

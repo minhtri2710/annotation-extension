@@ -45,22 +45,22 @@ ${ANNOTATION_DARK_TOKENS}
   border: 1px solid var(--annotation-color-border);
   border-radius: var(--annotation-radius-lg);
   background: var(--annotation-color-surface);
-  box-shadow: 0 0.25rem 1rem rgba(23, 32, 51, 0.2);
+  box-shadow: 0 4px 16px rgba(23, 32, 51, 0.2);
   pointer-events: auto;
 }`;
     const panelRule = `[data-annotation-shell] [data-annotation-mount="panel"] {
   position: fixed;
   right: var(--annotation-space-4);
-  bottom: calc(var(--annotation-space-4) + 3.5rem);
+  bottom: calc(var(--annotation-space-4) + 56px);
   z-index: 2147483645;
-  width: min(24rem, calc(100vw - 2 * var(--annotation-space-4)));
+  width: min(384px, calc(100vw - 2 * var(--annotation-space-4)));
   max-height: calc(100vh - 2 * var(--annotation-space-4));
   overflow: auto;
   padding: var(--annotation-space-4);
   border: 1px solid var(--annotation-color-border);
   border-radius: var(--annotation-radius-lg);
   background: var(--annotation-color-surface);
-  box-shadow: 0 0.75rem 2rem rgba(23, 32, 51, 0.24);
+  box-shadow: 0 12px 32px rgba(23, 32, 51, 0.24);
   pointer-events: auto;
 }`;
     const formControlRule = `[data-annotation-shell] [data-annotation-mount] button,
@@ -89,8 +89,8 @@ ${ANNOTATION_DARK_TOKENS}
     expect(OVERLAY_STYLES).toContain('border: 1px solid var(--annotation-color-border)');
     expect(OVERLAY_STYLES).toContain('border-radius: var(--annotation-radius-lg)');
     expect(OVERLAY_STYLES).toContain('background: var(--annotation-color-surface)');
-    expect(OVERLAY_STYLES).toContain('box-shadow: 0 0.25rem 1rem rgba(23, 32, 51, 0.2)');
-    expect(OVERLAY_STYLES).toContain('box-shadow: 0 0.75rem 2rem rgba(23, 32, 51, 0.24)');
+    expect(OVERLAY_STYLES).toContain('box-shadow: 0 4px 16px rgba(23, 32, 51, 0.2)');
+    expect(OVERLAY_STYLES).toContain('box-shadow: 0 12px 32px rgba(23, 32, 51, 0.24)');
     expect(OVERLAY_STYLES).toContain('[data-annotation-shell] [data-annotation-mount] select');
 
     const declarations = OVERLAY_STYLES.match(/--annotation-[a-z0-9-]+(?=:)/g) ?? [];
@@ -349,3 +349,32 @@ function motionOutsideOptIn(css: string): string[] {
 function noPreferenceBlocks(css: string): string {
   return css.split(NO_PREFERENCE).slice(1).join('\n');
 }
+
+describe('overlay styles independent of the page', () => {
+  it('sizes the overlay in px so the page root font size cannot scale it', () => {
+    expect(OVERLAY_STYLES).not.toMatch(/\d(\.\d+)?rem\b/);
+    expect(ANNOTATION_TOKENS).not.toMatch(/\d(\.\d+)?rem\b/);
+  });
+
+  it('wraps the toolbar inside the viewport width', () => {
+    expect(OVERLAY_STYLES).toContain(`[data-annotation-shell] [data-annotation-mount="toolbar"] {
+  flex-wrap: wrap;
+  max-width: calc(100vw - 2 * var(--annotation-space-4));
+}`);
+  });
+
+  it('wraps long unbroken text inside panels and keeps the pin tooltip hoverable and inside the viewport', () => {
+    expect(OVERLAY_STYLES).toContain(`[data-annotation-shell] [data-annotation-mount="panel"] {
+  overflow-wrap: anywhere;
+}`);
+    const tooltipRule = /\[data-annotation-shell\] \.annotation-pin-tooltip \{([^}]*)\}/.exec(OVERLAY_STYLES)?.[1] ?? '';
+    expect(tooltipRule).toContain('pointer-events: auto;');
+    expect(tooltipRule).toContain('max-width: min(256px, calc(100vw - 16px));');
+    expect(OVERLAY_STYLES).toContain(`[data-annotation-shell] .annotation-pin-tooltip::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+}`);
+  });
+});

@@ -8,7 +8,7 @@ import type { ElementContext } from '../lib/capture/context';
 import type { Annotation } from '../lib/annotation';
 import { resolveLiveElementContext } from '../lib/wiring/live-element';
 import { watchRoute } from '../lib/wiring/route-watch';
-import { buildOverlayShell, positionPopover } from '../lib/ui/shell';
+import { buildOverlayShell, createPanelAnchor, raiseOverlay, type PanelAnchor } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
 import { createToolbarControls } from '../lib/ui/toolbar-controls';
 import { readToolbarPrefs, writeToolbarPrefs } from '../lib/ui/ui-prefs';
@@ -39,7 +39,7 @@ export default defineContentScript({
     let scanToggleButton: HTMLButtonElement | undefined;
     let scanPanel: ReturnType<typeof createScanPanel> | undefined;
     let annotationToggle: HTMLButtonElement | undefined;
-    let resetPanelPosition: (() => void) | undefined;
+    let panelAnchor: PanelAnchor | undefined;
     let stopRouteWatch: (() => void) | undefined;
     let toolbarControls: ReturnType<typeof createToolbarControls> | undefined;
 
@@ -47,7 +47,6 @@ export default defineContentScript({
       name: 'annotation-extension-root',
       position: 'overlay',
       alignment: 'bottom-right',
-      zIndex: 2147483646,
       onMount: (container, _shadow, shadowHost) => {
         const shell = buildOverlayShell(container, {
           theme: 'system',
@@ -64,7 +63,7 @@ export default defineContentScript({
           scan: (signal) => scanPage(window, shadowHost, signal),
           deepScan: (signal, onProgress) => deepScanPage(window, shadowHost, signal, onProgress),
           onUpdate: () => {
-            if (panelMode === 'scan') anchorPanel(shell.toolbar.getBoundingClientRect());
+            if (panelMode === 'scan') activePanelAnchor.place(anchorToToolbar);
           },
           highlightRoot: shell.root,
         });
@@ -76,26 +75,9 @@ export default defineContentScript({
         let panelMode: 'none' | keyof typeof PANEL_LABELS = 'none';
         let panelOpener: HTMLElement | undefined;
         let renderSequence = 0;
-        resetPanelPosition = () => {
-          shell.panel.style.removeProperty('position');
-          shell.panel.style.removeProperty('top');
-          shell.panel.style.removeProperty('left');
-          shell.panel.style.removeProperty('right');
-          shell.panel.style.removeProperty('bottom');
-        };
-        const anchorPanel = (box: { x: number; y: number; width: number; height: number }) => {
-          const { width, height } = shell.panel.getBoundingClientRect();
-          const { top, left } = positionPopover(
-            box,
-            { width, height },
-            { width: window.innerWidth, height: window.innerHeight },
-          );
-          shell.panel.style.position = 'fixed';
-          shell.panel.style.top = `${top}px`;
-          shell.panel.style.left = `${left}px`;
-          shell.panel.style.right = 'auto';
-          shell.panel.style.bottom = 'auto';
-        };
+        const activePanelAnchor = createPanelAnchor(shell.panel, shell.toolbar);
+        panelAnchor = activePanelAnchor;
+        const anchorToToolbar = () => shell.toolbar.getBoundingClientRect();
         const scanToggle = document.createElement('button');
         scanToggleButton = scanToggle;
         scanToggle.type = 'button';
@@ -110,7 +92,7 @@ export default defineContentScript({
           listToggle.setAttribute('aria-expanded', 'false');
           scanToggle.setAttribute('aria-expanded', 'false');
           shell.panel.removeAttribute('aria-label');
-          resetPanelPosition?.();
+          activePanelAnchor.clear();
           panelMode = 'none';
           panelOpener = undefined;
         };
@@ -138,7 +120,7 @@ export default defineContentScript({
           toggle.setAttribute('aria-expanded', 'true');
           void (mode === 'list' ? annotationList.render() : activeScanPanel.render()).then(() => {
             if (sequence !== renderSequence || panelMode !== mode) return;
-            anchorPanel(shell.toolbar.getBoundingClientRect());
+            activePanelAnchor.place(anchorToToolbar);
           });
         };
         scanToggle.addEventListener('click', () => openPanel('scan'));
@@ -167,7 +149,7 @@ export default defineContentScript({
           const sequence = ++renderSequence;
           void activeNotePanel.render(context).then(() => {
             if (sequence !== renderSequence || panelMode !== 'note') return;
-            anchorPanel(context.boundingBox);
+            activePanelAnchor.place(() => context.boundingBox);
           });
         };
         unsubscribeSelection = bus.on('element:selected', (context) => {
@@ -206,7 +188,7 @@ export default defineContentScript({
             if (collapsed && panelMode !== 'none') closePanel();
           },
           onPositionChange: () => {
-            if (panelMode === 'list' || panelMode === 'scan') anchorPanel(shell.toolbar.getBoundingClientRect());
+            if (panelMode === 'list' || panelMode === 'scan') activePanelAnchor.place(anchorToToolbar);
           },
         });
         let pinsSequence = 0;
@@ -259,8 +241,8 @@ export default defineContentScript({
         annotationListToggle = undefined;
         annotationToggle?.remove();
         annotationToggle = undefined;
-        resetPanelPosition?.();
-        resetPanelPosition = undefined;
+        panelAnchor?.destroy();
+        panelAnchor = undefined;
         notePanel?.teardown();
         notePanel = undefined;
         toolbarControls?.destroy();
@@ -273,6 +255,7 @@ export default defineContentScript({
     });
 
     ui.mount();
+    raiseOverlay(ui.shadowHost);
     runtimeMessageListener = (message) => {
       if (isCaptureToggleMessage(message)) controller?.toggle();
     };
