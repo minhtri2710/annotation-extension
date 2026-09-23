@@ -251,6 +251,18 @@ ${ANNOTATION_DARK_TOKENS}
   border: 0;
 }
 
+[data-annotation-shell] [data-annotation-badge-unit] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 [data-annotation-shell] [data-annotation-locate-missing] {
   margin: 0;
   color: var(--annotation-color-danger);

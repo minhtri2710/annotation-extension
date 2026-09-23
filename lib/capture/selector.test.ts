@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from 'vitest';
-import { buildSelector, resolveSelector, SHADOW_SELECTOR_DELIMITER } from './selector';
+import { buildSelector, resolveSelector, SHADOW_SELECTOR_DELIMITER, isShadowRoot } from './selector';
 
 describe('buildSelector', () => {
   it('uses a unique id as the selector', () => {
@@ -168,5 +168,15 @@ describe('resolveSelector', () => {
     expect(resolveSelector(document, '')).toBeNull();
     expect(resolveSelector(document, `x-card${SHADOW_SELECTOR_DELIMITER}`)).toBeNull();
     expect(resolveSelector(document, `${SHADOW_SELECTOR_DELIMITER}i`)).toBeNull();
+  });
+});
+
+describe('isShadowRoot', () => {
+  it('recognizes shadow roots by node type and host, not by realm constructor', () => {
+    const root = document.createElement('div').attachShadow({ mode: 'open' });
+    expect(isShadowRoot(root)).toBe(true);
+    expect(isShadowRoot(document)).toBe(false);
+    expect(isShadowRoot(document.createDocumentFragment())).toBe(false);
+    expect(isShadowRoot(document.createElement('div'))).toBe(false);
   });
 });

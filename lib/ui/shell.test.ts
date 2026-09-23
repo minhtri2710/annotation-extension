@@ -84,6 +84,12 @@ describe('overlay shell', () => {
     });
   });
 
+  it('exposes the toolbar mount as a named toolbar', () => {
+    const shell = buildOverlayShell(document.createElement('div'));
+    expect(shell.toolbar.getAttribute('role')).toBe('toolbar');
+    expect(shell.toolbar.getAttribute('aria-label')).toBe('Annotation tools');
+  });
+
   it('gives the panel mount a region role', () => {
     const shell = buildOverlayShell(document.createElement('div'));
     expect(shell.panel.getAttribute('role')).toBe('region');

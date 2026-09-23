@@ -1,5 +1,6 @@
 import { createEventBus, type EventBus } from '../ui/event-bus';
 import { extractElementContext, type ElementContext } from './context';
+import { isShadowRoot } from './selector';
 
 export interface CaptureEvents {
   'element:selected': ElementContext;
@@ -49,6 +50,7 @@ const LABEL_STYLE = [
 const GESTURE_TIMEOUT_MS = 1000;
 const GESTURE_EVENTS = ['mousedown', 'pointerup', 'mouseup', 'click'] as const;
 const KEYBOARD_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter']);
+const NON_RENDERED_TAGS = new Set(['script', 'style', 'template', 'noscript', 'link', 'meta']);
 
 export function createCaptureController(options: CaptureControllerOptions): CaptureController {
   const bus = options.bus ?? createEventBus<CaptureEvents>();
@@ -65,6 +67,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   let hoveredElement: Element | null = null;
   let retrace: Element[] = [];
   let gestureTimer: ReturnType<typeof setTimeout> | undefined;
+  let followFrame: number | undefined;
 
   const handlePointerMove = (event: PointerEvent) => {
     if (!active || isExtensionEvent(event, options.shadowHost)) return;
@@ -119,7 +122,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
         moveTo(parent);
       }
     } else if (event.key === 'ArrowDown') {
-      moveTo(retrace.pop() ?? hoveredElement.firstElementChild);
+      moveTo(retrace.pop() ?? firstChildOf(hoveredElement));
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       const sibling = siblingOf(hoveredElement, event.key === 'ArrowRight');
       if (sibling) {
@@ -141,14 +144,24 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
       if (!inner || inner === element) break;
       element = inner;
     }
-    if (element && isSelectable(element)) return element;
-    return [...options.document.body.children].find(isSelectable) ?? null;
+    if (element && isWalkable(element)) return element;
+    return [...options.document.body.children].find(isWalkable) ?? null;
   }
 
   function siblingOf(element: Element, next: boolean): Element | null {
     let sibling = next ? element.nextElementSibling : element.previousElementSibling;
-    while (sibling && !isSelectable(sibling)) sibling = next ? sibling.nextElementSibling : sibling.previousElementSibling;
+    while (sibling && !isWalkable(sibling)) sibling = next ? sibling.nextElementSibling : sibling.previousElementSibling;
     return sibling;
+  }
+
+  // An open shadow root's content comes before light-DOM children; a closed root reads as null.
+  function firstChildOf(element: Element): Element | null {
+    const inShadow = element.shadowRoot ? [...element.shadowRoot.children].find(isWalkable) : undefined;
+    return inShadow ?? [...element.children].find(isWalkable) ?? null;
+  }
+
+  function isWalkable(element: Element): boolean {
+    return isSelectable(element) && !NON_RENDERED_TAGS.has(element.localName) && element.getClientRects().length > 0;
   }
 
   function isSelectable(element: Element): boolean {
@@ -196,6 +209,8 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     options.document.addEventListener('pointermove', handlePointerMove, true);
     options.document.addEventListener('pointerdown', handlePointerDown, true);
     options.document.addEventListener('keydown', handleKeyDown, true);
+    options.document.addEventListener('scroll', scheduleFollow, { capture: true, passive: true });
+    options.document.defaultView?.addEventListener('resize', scheduleFollow, { passive: true });
     bus.emit('capture:active', true);
   };
 
@@ -209,6 +224,10 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     options.document.removeEventListener('pointermove', handlePointerMove, true);
     options.document.removeEventListener('pointerdown', handlePointerDown, true);
     options.document.removeEventListener('keydown', handleKeyDown, true);
+    options.document.removeEventListener('scroll', scheduleFollow, true);
+    options.document.defaultView?.removeEventListener('resize', scheduleFollow);
+    if (followFrame !== undefined) options.document.defaultView?.cancelAnimationFrame(followFrame);
+    followFrame = undefined;
     bus.emit('capture:active', false);
   };
 
@@ -218,6 +237,15 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     highlight.remove();
     label.remove();
   };
+
+  // Keeps the highlight on the element through smooth scrolls, nested scrollers and resizes.
+  function scheduleFollow() {
+    if (!hoveredElement || followFrame !== undefined) return;
+    followFrame = options.document.defaultView?.requestAnimationFrame(() => {
+      followFrame = undefined;
+      if (active) setHoveredElement(hoveredElement);
+    });
+  }
 
   function setHoveredElement(element: Element | null) {
     if (!element || isExtensionElement(element, options.shadowHost)) {
@@ -264,12 +292,17 @@ function swallow(event: Event) {
 // deep target; a closed root retargets it to the host.
 function resolveTarget(event: MouseEvent, document: Document): Element | null {
   const deep = event.composedPath()[0];
-  return deep instanceof Element ? deep : document.elementFromPoint(event.clientX, event.clientY);
+  // nodeType, not instanceof: targets from another realm (an iframe, Firefox Xray wrappers) fail instanceof.
+  return isElement(deep) ? deep : document.elementFromPoint(event.clientX, event.clientY);
+}
+
+function isElement(target: EventTarget | undefined): target is Element {
+  return (target as Node | undefined)?.nodeType === Node.ELEMENT_NODE;
 }
 
 function parentOf(element: Element, document: Document): Element | null {
   const root = element.getRootNode();
-  const parent = element.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+  const parent = element.parentElement ?? (isShadowRoot(root) ? root.host : null);
   if (!parent || parent === document.documentElement || parent === document.body) return null;
   return parent;
 }

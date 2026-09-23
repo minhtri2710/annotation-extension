@@ -74,6 +74,7 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     toolbar.toggleAttribute('data-collapsed', collapsed);
     collapse.setAttribute('aria-expanded', String(!collapsed));
     collapse.textContent = collapsed ? 'Show' : 'Hide';
+    collapse.setAttribute('aria-label', `${collapse.textContent} annotation toolbar`);
   };
 
   const endDrag = (event: PointerEvent) => {

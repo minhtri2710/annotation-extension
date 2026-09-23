@@ -83,6 +83,16 @@ describe('toolbar controls', () => {
     expect(inlinePosition()).toEqual({ left: '', top: '', right: '', bottom: '' });
   });
 
+  it('names the collapse button with toolbar context while keeping its visible text', async () => {
+    const { collapse } = setup();
+    await controls!.ready;
+    expect(collapse.textContent).toBe('Hide');
+    expect(collapse.getAttribute('aria-label')).toBe('Hide annotation toolbar');
+    collapse.click();
+    expect(collapse.textContent).toBe('Show');
+    expect(collapse.getAttribute('aria-label')).toBe('Show annotation toolbar');
+  });
+
   it('applies the stored position clamped to the viewport and the stored collapsed state without notifying', async () => {
     const { prefs, onCollapsedChange, collapse } = setup({ position: { x: 900, y: 20 }, collapsed: true });
     await controls!.ready;

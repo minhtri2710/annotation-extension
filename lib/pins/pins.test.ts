@@ -4,7 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { buildSelector } from '../capture/selector';
-import { createPinsController, RERESOLVE_DEBOUNCE_MS, RERESOLVE_MAX_WAIT_MS } from './pins';
+import {
+  createPinsController,
+  RERESOLVE_BACKOFF_CAP_MS,
+  RERESOLVE_DEBOUNCE_MS,
+  RERESOLVE_MAX_WAIT_MS,
+  RESOLVE_SLICE_MS,
+} from './pins';
 
 const pageUrl = 'https://example.com/article';
 const context: ElementContext = {
@@ -60,7 +66,7 @@ describe('pins controller', () => {
     controller.setAnnotations([annotation('annotation-1'), annotation('annotation-2', '#missing')]);
 
     const badge = toolbar.querySelector('[data-annotation-badge]');
-    expect(badge?.textContent).toBe('2');
+    expect(badge?.textContent).toBe('2 annotations');
     controller.destroy();
   });
 
@@ -129,6 +135,45 @@ describe('pins controller', () => {
     expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
     controller.destroy();
     expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+  });
+
+  it('describes each pin by its own tooltip id, stable across re-renders', () => {
+    const { toolbar, overlay } = setup();
+    const second = document.createElement('button');
+    second.id = 'second-target';
+    document.body.append(second);
+    const annotations = [annotation('annotation-1'), annotation('annotation-2', '#second-target')];
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations(annotations);
+    const markerOf = (id: string) => overlay.querySelector(`[data-annotation-id="${id}"]`) as HTMLButtonElement;
+    const first = markerOf('annotation-1').getAttribute('aria-describedby');
+    const other = markerOf('annotation-2').getAttribute('aria-describedby');
+    expect(first).toBeTruthy();
+    expect(other).toBeTruthy();
+    expect(first).not.toBe(other);
+
+    markerOf('annotation-2').dispatchEvent(new Event('focus'));
+    const tooltip = overlay.querySelector('[data-annotation-tooltip]');
+    expect(tooltip?.id).toBe(other);
+    expect(tooltip?.textContent).toBe('Note annotation-2');
+
+    controller.setAnnotations(annotations);
+    expect(markerOf('annotation-1').getAttribute('aria-describedby')).toBe(first);
+    expect(markerOf('annotation-2').getAttribute('aria-describedby')).toBe(other);
+    controller.destroy();
+  });
+
+  it('exposes the badge meaning as text instead of an aria-label on a plain span', () => {
+    const { toolbar, overlay } = setup();
+    const controller = createPinsController({ document, container: overlay, toolbar });
+
+    controller.setAnnotations([annotation('annotation-1'), annotation('annotation-2'), annotation('annotation-3')]);
+
+    const badge = toolbar.querySelector('[data-annotation-badge]')!;
+    expect(badge.hasAttribute('aria-label')).toBe(false);
+    expect(badge.textContent).toBe('3 annotations');
+    expect(badge.querySelector('[data-annotation-badge-unit]')?.textContent).toBe(' annotations');
+    controller.destroy();
   });
 
   it('re-anchors tracked markers against their current element rect', () => {
@@ -241,7 +286,7 @@ describe('pins controller', () => {
       const marker = overlay.querySelector('[data-annotation-id="annotation-2"]') as HTMLButtonElement;
       expect(marker.textContent).toBe('2');
       expect(marker.getAttribute('aria-label')).toBe('Annotation 2');
-      expect(toolbar.querySelector('[data-annotation-badge]')?.textContent).toBe('2');
+      expect(toolbar.querySelector('[data-annotation-badge]')?.textContent).toBe('2 annotations');
       marker.click();
       expect(onActivate).toHaveBeenCalledWith(late);
       controller.destroy();
@@ -322,6 +367,144 @@ describe('pins controller', () => {
       expect(marker.style.left).toBe('40px');
       expect(marker.style.top).toBe('50px');
       controller.destroy();
+      });
+
+    it('doubles the forced re-resolve wait after each pass that pins nothing, up to the cap', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1', '#missing')]);
+      const querySelector = vi.spyOn(document, 'querySelector');
+      const ticker = document.createElement('span');
+      document.body.append(ticker);
+      const passTimes: number[] = [];
+
+      for (let elapsed = 100; elapsed <= 100_000; elapsed += 100) {
+        ticker.replaceChildren(String(elapsed));
+        await Promise.resolve();
+        querySelector.mockClear();
+        await vi.advanceTimersByTimeAsync(100);
+        if (querySelector.mock.calls.some(([selector]) => selector === '#missing')) passTimes.push(elapsed + 100);
+      }
+
+      const gaps = passTimes.map((time, index) => time - (passTimes[index - 1] ?? 100));
+      expect(gaps.slice(0, 6)).toEqual([1000, 2000, 4000, 8000, 16000, RERESOLVE_BACKOFF_CAP_MS]);
+      expect(gaps.slice(6).every((gap) => gap === RERESOLVE_BACKOFF_CAP_MS)).toBe(true);
+      querySelector.mockRestore();
+      controller.destroy();
+    });
+
+    it('resets the backoff once a pass pins an annotation, and when setAnnotations runs', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      const annotations = [annotation('annotation-1', '#late'), annotation('annotation-2', '#missing')];
+      controller.setAnnotations(annotations);
+      const ticker = document.createElement('span');
+      document.body.append(ticker);
+      const mutate = async (ms: number) => {
+        for (let elapsed = 0; elapsed < ms; elapsed += 100) {
+          ticker.replaceChildren(String(elapsed));
+          await Promise.resolve();
+          await vi.advanceTimersByTimeAsync(100);
+        }
+      };
+      await mutate(1000 + 2000 + 4000);
+      const lateTarget = document.createElement('button');
+      lateTarget.id = 'late';
+      document.body.append(lateTarget);
+      await mutate(8000);
+      expect(overlay.querySelector('[data-annotation-id="annotation-1"]')?.textContent).toBe('1');
+
+      const querySelector = vi.spyOn(document, 'querySelector');
+      await mutate(RERESOLVE_MAX_WAIT_MS);
+      expect(querySelector.mock.calls.some(([selector]) => selector === '#missing')).toBe(true);
+
+      await mutate(2000 + 4000);
+      controller.setAnnotations(annotations);
+      querySelector.mockClear();
+      await mutate(RERESOLVE_MAX_WAIT_MS);
+      expect(querySelector.mock.calls.some(([selector]) => selector === '#missing')).toBe(true);
+      querySelector.mockRestore();
+      controller.destroy();
+    });
+  });
+
+  describe('time-sliced resolve', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    function slowClock() {
+      let now = 0;
+      vi.spyOn(performance, 'now').mockImplementation(() => (now += RESOLVE_SLICE_MS));
+    }
+
+    function targets(count: number) {
+      for (let index = 1; index <= count; index += 1) {
+        const element = document.createElement('button');
+        element.id = `t${index}`;
+        document.body.append(element);
+      }
+    }
+
+    const markerTexts = (overlay: HTMLElement) =>
+      Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-annotation-id]')).map((marker) => marker.textContent);
+
+    it('yields between slices and pins progressively in list order', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      targets(3);
+      slowClock();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+
+      controller.setAnnotations([
+        annotation('a1', '#t1'),
+        annotation('a2', '#missing'),
+        annotation('a3', '#t2'),
+        annotation('a4', '#t3'),
+      ]);
+
+      expect(markerTexts(overlay)).toEqual(['1']);
+      expect(toolbar.querySelector('[data-annotation-badge]')?.textContent).toBe('4 annotations');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(markerTexts(overlay)).toEqual(['1']);
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.runAllTimersAsync();
+      expect(markerTexts(overlay)).toEqual(['1', '3', '4']);
+      expect(vi.getTimerCount()).toBe(0);
+      controller.destroy();
+    });
+
+    it('cancels a running pass when a newer setAnnotations arrives', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      targets(3);
+      slowClock();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('a1', '#t1'), annotation('a2', '#t2'), annotation('a3', '#t3')]);
+
+      controller.setAnnotations([annotation('b1', '#t3')]);
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(Array.from(overlay.querySelectorAll('[data-annotation-id]')).map((marker) => marker.getAttribute('data-annotation-id'))).toEqual(['b1']);
+      controller.destroy();
+    });
+
+    it('cancels a running pass on destroy', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      targets(3);
+      slowClock();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('a1', '#t1'), annotation('a2', '#t2'), annotation('a3', '#t3')]);
+
+      controller.destroy();
+
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(overlay.querySelector('[data-annotation-id]')).toBeNull();
     });
   });
 });

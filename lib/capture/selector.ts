@@ -7,9 +7,14 @@ export function buildSelector(element: Element): string {
   for (let current: Element | null = element; current; ) {
     const root = current.getRootNode() as Document | ShadowRoot;
     parts.unshift(buildScopedSelector(current, root));
-    current = root instanceof ShadowRoot ? root.host : null;
+    current = isShadowRoot(root) ? root.host : null;
   }
   return parts.join(SHADOW_SELECTOR_DELIMITER);
+}
+
+// Realm-safe: `instanceof ShadowRoot` fails for roots from another realm (an iframe, Firefox Xray wrappers).
+export function isShadowRoot(node: Node): node is ShadowRoot {
+  return node.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in node;
 }
 
 export function resolveSelector(document: Document, selector: string): Element | null {
@@ -59,7 +64,7 @@ function buildScopedSelector(element: Element, root: Document | ShadowRoot): str
     if (root.querySelector(selector) === element) return selector;
 
     // Light-DOM paths anchor at html; a shadow path ends here, so pin its top segment to the root's children.
-    if (!parent && root instanceof ShadowRoot && currentElement.parentNode === root) {
+    if (!parent && isShadowRoot(root) && currentElement.parentNode === root) {
       segments[0] = `${segment}:not(* > ${currentElement.localName})`;
       const anchored = segments.join(' > ');
       if (root.querySelector(anchored) === element) return anchored;

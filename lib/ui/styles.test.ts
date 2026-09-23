@@ -296,6 +296,16 @@ describe('overlay live region and panel chrome styles', () => {
     expect(body).not.toMatch(/display: none|visibility: hidden/);
   });
 
+  it('hides the badge unit visually without removing it from the accessibility tree', () => {
+    const body = ruleBody('[data-annotation-shell] [data-annotation-badge-unit] {');
+    expect(body).toContain('position: absolute');
+    expect(body).toContain('width: 1px');
+    expect(body).toContain('height: 1px');
+    expect(body).toContain('overflow: hidden');
+    expect(body).toContain('clip-path: inset(50%)');
+    expect(body).not.toMatch(/display: none|visibility: hidden/);
+  });
+
   it('styles the stale-anchor note and the clear prompt from tokens without motion', () => {
     expect(ruleBody('[data-annotation-shell] [data-annotation-locate-missing] {')).toContain('color: var(--annotation-color-danger)');
     expect(ruleBody('[data-annotation-shell] [data-annotation-clear-prompt] {')).toMatch(/var\(--annotation-/);

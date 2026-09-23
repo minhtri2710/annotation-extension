@@ -84,4 +84,102 @@ describe('keyboard capture (real browser)', () => {
     expect(rect.top).toBeGreaterThanOrEqual(0);
     expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
   });
+
+  it('walks past display:none and script siblings in a real layout', () => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<p id="a" style="height: 100vh">a</p><script></script><div id="gone" style="display: none">g</div><p id="b">b</p>',
+    );
+    document.body.append(host);
+    controller.activate();
+
+    key('ArrowDown');
+    expect(label()).toBe('p#a');
+    key('ArrowRight');
+    expect(label()).toBe('p#b');
+  });
+
+  it('keeps the highlight on the element while a nested scroller scrolls', async () => {
+    const scroller = document.createElement('div');
+    scroller.style.cssText = 'height: 200px; overflow: auto';
+    const item = document.createElement('div');
+    item.id = 'item';
+    item.style.cssText = 'height: 50px; margin-top: 100px';
+    const spacer = document.createElement('div');
+    spacer.style.cssText = 'height: 2000px';
+    scroller.append(item, spacer);
+    document.body.append(scroller, host);
+    controller.activate();
+    item.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, composed: true }));
+    const box = host.shadowRoot!.querySelector<HTMLElement>('[data-annotation-highlight]')!;
+    expect(box.style.top).toBe(`${item.getBoundingClientRect().top}px`);
+
+    scroller.scrollTop = 80;
+    await new Promise<void>((resolve) => scroller.addEventListener('scroll', () => resolve(), { once: true }));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    expect(item.getBoundingClientRect().top).toBe(20);
+    expect(box.style.top).toBe('20px');
+  });
+});
+
+describe('capture across realms (real browser)', () => {
+  it('walks up from a shadow child to its host when the root comes from an iframe realm', async () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    const frameDocument = frame.contentDocument!;
+    const card = frameDocument.createElement('x-card');
+    card.id = 'card';
+    card.attachShadow({ mode: 'open' }).setHTMLUnsafe('<span id="inner" style="display: block; height: 100vh">i</span>');
+    const frameHost = frameDocument.createElement('div');
+    frameHost.attachShadow({ mode: 'open' });
+    frameDocument.body.append(card, frameHost);
+    const frameSelected: ElementContext[] = [];
+    const bus = createEventBus<CaptureEvents>();
+    bus.on('element:selected', (context) => frameSelected.push(context));
+    const frameController = createCaptureController({ document: frameDocument, shadowHost: frameHost, bus });
+    const frameKey = (name: string) =>
+      frameDocument.body.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+
+    frameController.activate();
+    frameKey('ArrowDown');
+    frameKey('Enter');
+    frameController.activate();
+    frameKey('ArrowDown');
+    frameKey('ArrowUp');
+    frameKey('Enter');
+    frameController.destroy();
+    frame.remove();
+
+    expect(frameSelected.map((context) => context.id)).toEqual(['inner', 'card']);
+  });
+
+  it('commits the composedPath target of a pointer event from an iframe realm', () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    const frameDocument = frame.contentDocument!;
+    frameDocument.body.style.margin = '0';
+    const spacer = frameDocument.createElement('div');
+    spacer.id = 'spacer';
+    spacer.style.cssText = 'height: 50px';
+    const target = frameDocument.createElement('button');
+    target.id = 'target';
+    const frameHost = frameDocument.createElement('div');
+    frameHost.attachShadow({ mode: 'open' });
+    frameDocument.body.append(spacer, target, frameHost);
+    const frameSelected: ElementContext[] = [];
+    const bus = createEventBus<CaptureEvents>();
+    bus.on('element:selected', (context) => frameSelected.push(context));
+    const frameController = createCaptureController({ document: frameDocument, shadowHost: frameHost, bus });
+    const FramePointerEvent = (frame.contentWindow as Window & typeof globalThis).PointerEvent;
+
+    frameController.activate();
+    target.dispatchEvent(
+      new FramePointerEvent('pointerdown', { bubbles: true, composed: true, cancelable: true, button: 0, clientX: 1, clientY: 1 }),
+    );
+    frameController.destroy();
+    frame.remove();
+
+    expect(frameSelected.map((context) => context.id)).toEqual(['target']);
+  });
 });

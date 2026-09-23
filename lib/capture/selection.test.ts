@@ -475,3 +475,189 @@ describe('keyboard-only capture', () => {
     expect(label().textContent).toBe('p#first');
   });
 });
+
+describe('keys capture does not handle', () => {
+  let pageKeys: Array<{ key: string; prevented: boolean }>;
+  const recordKey = (event: KeyboardEvent) => pageKeys.push({ key: event.key, prevented: event.defaultPrevented });
+
+  beforeEach(() => {
+    pageKeys = [];
+    for (const element of document.querySelectorAll('*')) stubRect(element, 100);
+    window.addEventListener('keydown', recordKey);
+  });
+
+  afterEach(() => {
+    window.removeEventListener('keydown', recordKey);
+  });
+
+  it('lets letters, Tab and Space reach the page while capture is active', () => {
+    controller.activate();
+    pointer('pointermove', document.querySelector('#target')!);
+
+    for (const name of ['a', 'Tab', ' ']) key(name);
+
+    expect(pageKeys).toEqual([
+      { key: 'a', prevented: false },
+      { key: 'Tab', prevented: false },
+      { key: ' ', prevented: false },
+    ]);
+    expect(label().textContent).toBe('button#target.primary.big');
+    expect(controller.active).toBe(true);
+  });
+
+  it('lets arrows and Enter reach the page while capture is inactive', () => {
+    const names = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'];
+    for (const name of names) key(name);
+    controller.activate();
+    controller.deactivate();
+    for (const name of names) key(name);
+
+    expect(pageKeys).toEqual([...names, ...names].map((name) => ({ key: name, prevented: false })));
+    expect(highlight().hidden).toBe(true);
+  });
+});
+
+describe('keyboard walking over non-rendered and shadow content', () => {
+  let pointHits: Element[];
+
+  beforeEach(() => {
+    pointHits = [];
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: vi.fn(() => pointHits) });
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    delete (document as { elementsFromPoint?: unknown }).elementsFromPoint;
+  });
+
+  function noBox(element: Element) {
+    vi.spyOn(element, 'getClientRects').mockReturnValue({ length: 0 } as DOMRectList);
+  }
+
+  it('skips script, style, template, noscript, link, meta and box-less siblings', () => {
+    document.body.innerHTML =
+      '<p id="a">a</p><script></script><style></style><template></template><noscript></noscript>' +
+      '<link rel="x"><meta name="x"><div id="hidden"></div><p id="b">b</p>';
+    document.body.append(host);
+    noBox(document.querySelector('#hidden')!);
+    pointHits = [document.querySelector('#a')!];
+    controller.activate();
+
+    key('ArrowRight');
+    expect(label().textContent).toBe('p#a');
+    key('ArrowRight');
+    expect(label().textContent).toBe('p#b');
+    key('ArrowLeft');
+    expect(label().textContent).toBe('p#a');
+  });
+
+  it('skips non-rendered first children on ArrowDown', () => {
+    document.body.innerHTML = '<main id="m"><style></style><span id="gone"></span><p id="kid">k</p></main>';
+    document.body.append(host);
+    noBox(document.querySelector('#gone')!);
+    pointHits = [document.querySelector('#m')!];
+    controller.activate();
+
+    key('ArrowRight');
+    key('ArrowDown');
+    expect(label().textContent).toBe('p#kid');
+  });
+
+  it('starts past a non-rendered centre hit and non-rendered body children', () => {
+    document.body.innerHTML = '<script></script><div id="gone"></div><p id="first">f</p>';
+    document.body.append(host);
+    const gone = document.querySelector('#gone')!;
+    noBox(gone);
+    pointHits = [gone];
+    controller.activate();
+
+    key('ArrowDown');
+    expect(label().textContent).toBe('p#first');
+  });
+
+  it('ArrowDown enters an open shadow root before light children, and ArrowUp returns to the host', () => {
+    document.body.innerHTML = '<x-card id="card"><p id="light">light</p></x-card>';
+    document.body.append(host);
+    const card = document.querySelector('#card')!;
+    const root = card.attachShadow({ mode: 'open' });
+    root.innerHTML = '<style></style><span id="inner">i</span><slot></slot>';
+    Object.defineProperty(root, 'elementFromPoint', { configurable: true, value: () => card });
+    pointHits = [card];
+    controller.activate();
+
+    key('ArrowRight');
+    expect(label().textContent).toBe('x-card#card');
+    key('ArrowDown');
+    expect(label().textContent).toBe('span#inner');
+    key('ArrowUp');
+    expect(label().textContent).toBe('x-card#card');
+    key('ArrowDown');
+    expect(label().textContent).toBe('span#inner');
+    key('Enter');
+    expect(selected.map((context) => context.selector)).toEqual(['#card >>> #inner']);
+  });
+
+  it('ArrowDown on a closed-shadow host goes to its light child', () => {
+    document.body.innerHTML = '<x-card id="card"><p id="light">light</p></x-card>';
+    document.body.append(host);
+    const card = document.querySelector('#card')!;
+    card.attachShadow({ mode: 'closed' }).innerHTML = '<span id="inner">i</span><slot></slot>';
+    pointHits = [card];
+    controller.activate();
+
+    key('ArrowRight');
+    key('ArrowDown');
+    expect(label().textContent).toBe('p#light');
+  });
+});
+
+describe('highlight follows scroll and resize', () => {
+  let frames: FrameRequestCallback[];
+
+  beforeEach(() => {
+    frames = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+  });
+
+  function flushFrames() {
+    const pending = frames;
+    frames = [];
+    for (const callback of pending) callback(0);
+  }
+
+  it('repositions the box and label once per frame on scroll in any scroller and on resize', () => {
+    const target = document.querySelector('#target')!;
+    const getRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rect(100));
+    controller.activate();
+    pointer('pointermove', target);
+    expect(highlight().style.top).toBe('100px');
+
+    getRect.mockReturnValue(rect(40, 30));
+    document.querySelector('#mid')!.dispatchEvent(new Event('scroll'));
+    document.dispatchEvent(new Event('scroll'));
+    expect(frames).toHaveLength(1);
+    expect(highlight().style.top).toBe('100px');
+    flushFrames();
+    expect(highlight().style.top).toBe('40px');
+    expect(highlight().style.left).toBe('30px');
+    expect(label().style.top).toBe('16px');
+
+    getRect.mockReturnValue(rect(200));
+    window.dispatchEvent(new Event('resize'));
+    flushFrames();
+    expect(highlight().style.top).toBe('200px');
+  });
+
+  it('removes the listeners on deactivate', () => {
+    const target = document.querySelector('#target')!;
+    stubRect(target, 100);
+    controller.activate();
+    pointer('pointermove', target);
+    controller.deactivate();
+
+    document.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('resize'));
+    expect(frames).toHaveLength(0);
+  });
+});

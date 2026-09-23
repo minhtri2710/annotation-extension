@@ -57,6 +57,8 @@ export function buildOverlayShell(
   style.textContent = OVERLAY_STYLES;
   root.dataset.annotationShell = '';
   toolbar.dataset.annotationMount = TOOLBAR_MOUNT;
+  toolbar.setAttribute('role', 'toolbar');
+  toolbar.setAttribute('aria-label', 'Annotation tools');
   panel.dataset.annotationMount = PANEL_MOUNT;
   panel.setAttribute('role', 'region');
   applyThemeMode(root, resolveThemeMode(options.theme ?? 'system', options.prefersDark));

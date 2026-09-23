@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildSelector, resolveSelector } from './selector';
+import { buildSelector, isShadowRoot, resolveSelector } from './selector';
 
 const AMBIGUOUS = '<section><div><span>a</span></div></section><div><span>b</span></div>';
 
@@ -52,5 +52,21 @@ describe('shadow selector anchor (real browser)', () => {
 
     expect(selector).toBe('x-card >>> span');
     expect(resolveSelector(document, selector)).toBe(element);
+  });
+
+  it('recognizes a shadow root from another realm (an iframe)', () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    const frameDocument = frame.contentDocument!;
+    const host = frameDocument.createElement('x-card');
+    frameDocument.body.append(host);
+    const root = attach(host, AMBIGUOUS);
+    const element = root.querySelectorAll('span')[1] as HTMLElement;
+
+    expect(root instanceof ShadowRoot).toBe(false);
+    expect(isShadowRoot(root)).toBe(true);
+    const selector = buildSelector(element);
+    expect(selector).toBe('x-card >>> div:not(* > div) > span');
+    expect(resolveSelector(frameDocument, selector)).toBe(element);
   });
 });

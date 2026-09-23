@@ -35,6 +35,9 @@ const PULSE_CLASS = 'locate-pulse';
 const NOTE_PREVIEW_LENGTH = 120;
 export const RERESOLVE_DEBOUNCE_MS = 250;
 export const RERESOLVE_MAX_WAIT_MS = 1000;
+export const RERESOLVE_BACKOFF_CAP_MS = 30_000;
+// Same budget as the lint engine's SCAN_SLICE_MS.
+export const RESOLVE_SLICE_MS = 12;
 const MARKER_STYLE = [
   'position: fixed',
   'z-index: 2147483647',
@@ -56,7 +59,10 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   const view = options.document.defaultView;
   const badge = options.document.createElement('span');
   badge.setAttribute(BADGE_ATTRIBUTE, '');
-  badge.setAttribute('aria-label', 'Annotation count');
+  const badgeCount = options.document.createTextNode('0');
+  const badgeUnit = options.document.createElement('span');
+  badgeUnit.setAttribute('data-annotation-badge-unit', '');
+  badge.append(badgeCount, badgeUnit);
   options.toolbar.append(badge);
 
   let trackedPins: TrackedPin[] = [];
@@ -66,6 +72,11 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   let maxWaitTimer: number | undefined;
   let tooltip: HTMLDivElement | undefined;
   let destroyed = false;
+  // Doubles after each re-resolve pass that pins nothing new; 1 again once one does or the set changes.
+  let backoff = 1;
+  let sliceTimer: number | undefined;
+  let resolving = false;
+  let mutatedWhileResolving = false;
 
   const reanchor = () => {
     if (destroyed) return;
@@ -101,16 +112,19 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     trackedPins = trackedPins.filter((pin) => pin.element.isConnected);
     const pending = [...unresolved, ...detached].sort((a, b) => a.index - b.index);
     unresolved = [];
-    for (const { annotation, index } of pending) track(annotation, index);
-    reanchor();
+    resolvePending(pending, true);
   };
 
   const scheduleReresolve = () => {
     if (destroyed) return;
+    if (resolving) {
+      mutatedWhileResolving = true;
+      return;
+    }
     if (unresolved.length === 0 && trackedPins.every((pin) => pin.element.isConnected)) return;
     if (resolveTimer !== undefined) view?.clearTimeout(resolveTimer);
-    resolveTimer = view?.setTimeout(runReresolve, RERESOLVE_DEBOUNCE_MS);
-    maxWaitTimer ??= view?.setTimeout(runReresolve, RERESOLVE_MAX_WAIT_MS);
+    resolveTimer = view?.setTimeout(runReresolve, Math.min(RERESOLVE_DEBOUNCE_MS * backoff, RERESOLVE_BACKOFF_CAP_MS));
+    maxWaitTimer ??= view?.setTimeout(runReresolve, Math.min(RERESOLVE_MAX_WAIT_MS * backoff, RERESOLVE_BACKOFF_CAP_MS));
   };
 
   const runReresolve = () => {
@@ -133,13 +147,14 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     }
     trackedPins = [];
     hideTooltip();
-    badge.textContent = String(annotations.length);
+    badgeCount.data = String(annotations.length);
+    badgeUnit.textContent = annotations.length === 1 ? ' annotation' : ' annotations';
 
     unresolved = [];
     cancelReresolve();
-    annotations.forEach((annotation, index) => track(annotation, index));
-
-    reanchor();
+    cancelPass();
+    backoff = 1;
+    resolvePending(annotations.map((annotation, index) => ({ annotation, index })), false);
   };
 
   const destroy = () => {
@@ -153,6 +168,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       frame = undefined;
     }
     cancelReresolve();
+    cancelPass();
     unresolved = [];
     for (const pin of trackedPins) {
       clearPulse(pin);
@@ -170,6 +186,39 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     if (maxWaitTimer !== undefined) view?.clearTimeout(maxWaitTimer);
     resolveTimer = undefined;
     maxWaitTimer = undefined;
+  }
+
+  // Tracks in list order, yielding a macrotask whenever a slice reaches RESOLVE_SLICE_MS, so pins
+  // appear progressively. setAnnotations and destroy cancel a running pass through cancelPass.
+  function resolvePending(pending: PendingAnnotation[], adjustBackoff: boolean): void {
+    const pinnedBefore = trackedPins.length;
+    let next = 0;
+    resolving = true;
+    mutatedWhileResolving = false;
+    const slice = () => {
+      sliceTimer = undefined;
+      const start = performance.now();
+      while (next < pending.length) {
+        const { annotation, index } = pending[next++]!;
+        track(annotation, index);
+        if (next < pending.length && performance.now() - start >= RESOLVE_SLICE_MS) {
+          reanchor();
+          sliceTimer = view?.setTimeout(slice, 0);
+          return;
+        }
+      }
+      resolving = false;
+      if (adjustBackoff) backoff = trackedPins.length > pinnedBefore ? 1 : Math.min(backoff * 2, RERESOLVE_BACKOFF_CAP_MS / RERESOLVE_MAX_WAIT_MS);
+      reanchor();
+      if (mutatedWhileResolving) scheduleReresolve();
+    };
+    slice();
+  }
+
+  function cancelPass(): void {
+    if (sliceTimer !== undefined) view?.clearTimeout(sliceTimer);
+    sliceTimer = undefined;
+    resolving = false;
   }
 
   function track(annotation: Annotation, index: number): void {
@@ -193,6 +242,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     marker.setAttribute(MARKER_ATTRIBUTE, annotation.id);
     if (annotation.status === 'resolved') marker.dataset.annotationStatus = 'resolved';
     marker.setAttribute('aria-label', `Annotation ${index + 1}`);
+    marker.setAttribute('aria-describedby', tooltipId(annotation));
     marker.textContent = String(index + 1);
     marker.style.cssText = MARKER_STYLE;
     marker.addEventListener('mouseenter', () => {
@@ -233,6 +283,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       tooltip.setAttribute('role', 'tooltip');
       options.container.append(tooltip);
     }
+    tooltip.id = tooltipId(pin.annotation);
     tooltip.textContent = truncateNote(pin.annotation.note);
     const rect = pin.marker.getBoundingClientRect();
     tooltip.style.left = `${rect.right + 8}px`;
@@ -260,6 +311,10 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     }
     pin.marker.classList.remove(PULSE_CLASS);
   }
+}
+
+function tooltipId(annotation: Annotation): string {
+  return `annotation-pin-tooltip-${annotation.id}`;
 }
 
 function truncateNote(note: string): string {
