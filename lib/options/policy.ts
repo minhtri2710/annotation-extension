@@ -20,10 +20,11 @@ export function isEnabledForUrl(url: string, policy: SitePolicy): boolean {
     return false;
   }
 
-  return policy.allowlist.some((entry) => entryHostname(entry) === hostname);
+  return policy.allowlist.some((entry) => parseAllowlistEntry(entry) === hostname);
 }
 
-function entryHostname(entry: string): string | undefined {
+/** Returns the lowercase (punycode) hostname an entry matches, or undefined when it names no host. */
+export function parseAllowlistEntry(entry: string): string | undefined {
   const value = entry.trim();
   if (!value) return undefined;
 
@@ -33,4 +34,9 @@ function entryHostname(entry: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function allowlistEntryError(entry: string): string | undefined {
+  if (parseAllowlistEntry(entry)) return undefined;
+  return `"${entry.trim()}" is not a valid site. Use a hostname like docs.example.com or a URL.`;
 }
