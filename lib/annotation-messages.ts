@@ -117,7 +117,7 @@ function isAnnotationUpdate(value: unknown): value is AnnotationUpdate {
   );
 }
 
-function isRepro(value: unknown): value is Repro {
+export function isRepro(value: unknown): value is Repro {
   return (
     isRecord(value) &&
     Array.isArray(value.steps) &&

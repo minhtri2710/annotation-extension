@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { pageKey } from '../utils/page-key';
 import {
@@ -10,8 +10,9 @@ import {
   updateAnnotation,
   addAttachment,
   deleteAttachment,
+  restoreAnnotation,
 } from './annotation-storage';
-import type { AnnotationInput } from './annotation';
+import type { Annotation, AnnotationInput } from './annotation';
 import type { BlobStore } from './blob-store';
 import { attachmentKey, screenshotKey } from './blob-store';
 
@@ -283,5 +284,53 @@ describe('annotation storage', () => {
     expect(stored).toHaveLength(created.length);
     expect(new Set(stored.map((annotation) => annotation.id)).size).toBe(created.length);
     expect(stored).toEqual(expect.arrayContaining(created));
+  });
+
+  it('restores an annotation with its given identity and blobs, and skips an id already on the page', async () => {
+    const store = new MemoryBlobStore();
+    const screenshot = new Blob(['shot'], { type: 'image/png' });
+    const attachment = new Blob(['file'], { type: 'image/png' });
+    const restored: Annotation = {
+      id: 'restored-1',
+      pageUrl: firstPage,
+      ...firstInput,
+      status: 'resolved',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-02T00:00:00.000Z',
+      screenshot: { mimeType: 'image/png', width: 3, height: 4, byteLength: screenshot.size },
+      attachments: [{ id: 'restored-attachment', name: 'a.png', mimeType: 'image/png', byteLength: attachment.size }],
+    };
+    const blobs: [string, Blob][] = [[screenshotKey('restored-1'), screenshot], [attachmentKey('restored-attachment'), attachment]];
+
+    await expect(restoreAnnotation(restored, blobs, store)).resolves.toBe(true);
+    expect(await listAnnotations(firstPage)).toEqual([restored]);
+    expect(store.blobs.get(screenshotKey('restored-1'))).toBe(screenshot);
+    expect(store.blobs.get(attachmentKey('restored-attachment'))).toBe(attachment);
+
+    const replacement = new Blob(['other'], { type: 'image/png' });
+    await expect(restoreAnnotation({ ...restored, note: 'changed' }, [[screenshotKey('restored-1'), replacement]], store)).resolves.toBe(false);
+    expect(await listAnnotations(firstPage)).toEqual([restored]);
+    expect(store.blobs.get(screenshotKey('restored-1'))).toBe(screenshot);
+  });
+
+  it('removes the blobs it wrote when the restore metadata write fails', async () => {
+    const store = new MemoryBlobStore();
+    const restored: Annotation = {
+      id: 'restored-2',
+      pageUrl: firstPage,
+      ...firstInput,
+      status: 'open',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+      screenshot: { mimeType: 'image/png', width: 1, height: 1, byteLength: 4 },
+    };
+    const set = vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota exceeded'));
+    try {
+      await expect(restoreAnnotation(restored, [[screenshotKey('restored-2'), new Blob(['shot'], { type: 'image/png' })]], store)).rejects.toThrow('quota exceeded');
+    } finally {
+      set.mockRestore();
+    }
+    expect(store.blobs.size).toBe(0);
+    expect(await listAnnotations(firstPage)).toEqual([]);
   });
 });

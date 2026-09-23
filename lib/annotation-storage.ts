@@ -46,6 +46,26 @@ export async function addAnnotationWithScreenshot(
   });
 }
 
+/** Stores an annotation exactly as given; returns false, writing nothing, when its id is already on the page. */
+export async function restoreAnnotation(
+  annotation: Annotation,
+  blobs: ReadonlyArray<readonly [string, Blob]>,
+  blobStore: BlobStore,
+): Promise<boolean> {
+  return withPageWrite(annotation.pageUrl, async (key) => {
+    const annotations = await readPage(key);
+    if (annotations.some((existing) => existing.id === annotation.id)) return false;
+    try {
+      for (const [blobKey, blob] of blobs) await blobStore.put(blobKey, blob);
+      await browser.storage.local.set({ [key]: [...annotations, annotation] });
+    } catch (error) {
+      await blobStore.delete(blobs.map(([blobKey]) => blobKey));
+      throw error;
+    }
+    return true;
+  });
+}
+
 export async function listAnnotations(pageUrl: string): Promise<Annotation[]> {
   return readPage(pageKey(pageUrl));
 }

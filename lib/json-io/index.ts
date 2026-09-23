@@ -1,9 +1,10 @@
 import { browser } from 'wxt/browser';
 import { isRecord } from '../guards';
-import { addAnnotation, addAnnotationWithScreenshot, addAttachment } from '../annotation-storage';
-import { isElementContext } from '../annotation-messages';
-import type { Annotation, AnnotationInput, AttachmentMetadata } from '../annotation';
+import { deleteAnnotation, restoreAnnotation } from '../annotation-storage';
+import { isAnnotationStatus, isCssEdits, isElementContext, isRepro } from '../annotation-messages';
+import type { Annotation, AttachmentMetadata } from '../annotation';
 import { attachmentKey, createBlobStore, screenshotKey, type BlobStore } from '../blob-store';
+import { pageKey } from '../../utils/page-key';
 import {
   isSupportedImageMimeType,
   MAX_ATTACHMENTS,
@@ -18,139 +19,128 @@ export class JsonImportError extends Error {
   }
 }
 
-export interface JsonImportAttachment {
-  name: string;
-  mimeType: string;
-  blob: Blob;
-}
-
+/** One validated entry: the annotation to store as given, and its blobs keyed for the blob store. */
 export interface JsonImportEntry {
-  pageUrl: string;
-  input: AnnotationInput;
-  screenshot?: { mimeType: string; blob: Blob };
-  attachments?: JsonImportAttachment[];
+  annotation: Annotation;
+  blobs: [string, Blob][];
 }
-
-export type AnnotationAddMessage = {
-  type: 'annotation.add';
-  pageUrl: string;
-  input: AnnotationInput;
-};
 
 export type ImageDimensions = (blob: Blob) => Promise<{ width: number; height: number }>;
-export type JsonAnnotationWriter = (
-  message: AnnotationAddMessage,
-  screenshot?: { blob: Blob; dimensions: { width: number; height: number } },
-) => Promise<Annotation>;
+
+export interface JsonExportDependencies {
+  collect(): Promise<Annotation[]>;
+  blobStore: BlobStore;
+  deliver(json: string): Promise<void>;
+}
+
+const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export async function serialize(
   annotations: Annotation[],
   blobStore: BlobStore = createBlobStore(),
-): Promise<string> {
-  const entries = await Promise.all(
-    annotations.map(async (annotation) => {
-      const entry: Record<string, unknown> = {
-        pageUrl: annotation.pageUrl,
-        ...annotationInput(annotation),
-      };
-      if (annotation.screenshot) {
-        const blob = await blobStore.get(screenshotKey(annotation.id));
-        if (!blob) throw new JsonImportError(`Screenshot is missing for ${annotation.id}.`);
-        entry.screenshot = {
-          mimeType: blob.type,
-          base64: await blobToBase64(blob),
-        };
+): Promise<{ json: string; missing: number }> {
+  let missing = 0;
+  const entries = [];
+  for (const annotation of annotations) {
+    const { screenshot, attachments, ...fields } = annotation;
+    const entry: Record<string, unknown> = { ...fields };
+    if (screenshot) {
+      const blob = await blobStore.get(screenshotKey(annotation.id));
+      if (blob) entry.screenshot = { mimeType: blob.type, base64: await blobToBase64(blob) };
+      else missing += 1;
+    }
+    if (attachments) {
+      const exported = [];
+      for (const attachment of attachments) {
+        const blob = await blobStore.get(attachmentKey(attachment.id));
+        if (!blob) {
+          missing += 1;
+          continue;
+        }
+        exported.push({ id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, base64: await blobToBase64(blob) });
       }
-      if (annotation.attachments) {
-        entry.attachments = await Promise.all(annotation.attachments.map(async (attachment) => {
-          const blob = await blobStore.get(attachmentKey(attachment.id));
-          if (!blob) throw new JsonImportError(`Attachment is missing for ${attachment.id}.`);
-          return {
-            name: attachment.name,
-            mimeType: attachment.mimeType,
-            base64: await blobToBase64(blob),
-          };
-        }));
-      }
-      return entry;
-    }),
-  );
-  return JSON.stringify(entries);
+      if (exported.length > 0) entry.attachments = exported;
+    }
+    entries.push(entry);
+  }
+  return { json: JSON.stringify(entries), missing };
 }
 
-export function parseImport(json: string): JsonImportEntry[] {
+/** Returns the status message for the popup. */
+export async function exportJson({ collect, blobStore, deliver }: JsonExportDependencies): Promise<string> {
+  try {
+    const annotations = await collect();
+    if (annotations.length === 0) return 'No annotations to export.';
+    const { json, missing } = await serialize(annotations, blobStore);
+    await deliver(json);
+    const summary = `Exported ${plural(annotations.length, 'annotation')}`;
+    return missing > 0 ? `${summary}; ${plural(missing, 'missing file')} ${missing === 1 ? 'was' : 'were'} left out.` : `${summary}.`;
+  } catch (error) {
+    return `Export failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/** Validates every entry before returning; any invalid entry rejects the whole file. */
+export async function parseImport(
+  json: string,
+  dimensions: ImageDimensions = imageDimensions,
+): Promise<JsonImportEntry[]> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
   } catch {
-    throw new JsonImportError('Import must be valid JSON.');
+    throw new JsonImportError('Import failed: the file is not valid JSON. Nothing was imported.');
   }
-
   if (!Array.isArray(parsed)) {
-    throw new JsonImportError('Import must be a JSON array.');
+    throw new JsonImportError('Import failed: the file does not contain a list of annotations. Nothing was imported.');
   }
 
-  return parsed.flatMap((entry) => {
-    if (!isRecord(entry)) return [];
-    if (
-      typeof entry.pageUrl !== 'string' ||
-      typeof entry.note !== 'string' ||
-      typeof entry.selector !== 'string' ||
-      !isElementContext(entry.elementContext)
-    ) {
-      return [];
-    }
-
-    const screenshot = parseScreenshot(entry.screenshot);
-    const attachments = parseAttachments(entry.attachments);
-    const input: AnnotationInput = {
-      note: entry.note,
-      selector: entry.selector,
-      elementContext: entry.elementContext,
-      ...(entry.status === undefined ? {} : { status: parseStatus(entry.status) }),
-      ...(entry.repro === undefined ? {} : { repro: parseRepro(entry.repro) }),
-      ...(entry.cssEdits === undefined ? {} : { cssEdits: parseCssEdits(entry.cssEdits) }),
+  const annotationIds = new Set<string>();
+  const attachmentIds = new Set<string>();
+  const plan: JsonImportEntry[] = [];
+  for (const [index, value] of parsed.entries()) {
+    const fail = (reason: string): never => {
+      throw new JsonImportError(`Import failed: entry ${index + 1} ${reason}. Nothing was imported.`);
     };
-    return [{
-      pageUrl: entry.pageUrl,
-      input,
-      ...(screenshot ? { screenshot } : {}),
-      ...(attachments ? { attachments } : {}),
-    }];
-  });
+    plan.push(await parseEntry(value, fail, annotationIds, attachmentIds, dimensions));
+  }
+  return plan;
 }
 
 export async function importAll(
   plan: JsonImportEntry[],
   blobStore: BlobStore = createBlobStore(),
-  dimensions: ImageDimensions = imageDimensions,
-  write: JsonAnnotationWriter = createJsonAnnotationWriter(blobStore),
-): Promise<void> {
-  for (const { pageUrl, input, screenshot, attachments } of plan) {
-    const message: AnnotationAddMessage = { type: 'annotation.add', pageUrl, input };
-    let annotation: Annotation;
-    if (!screenshot) {
-      annotation = await write(message);
-    } else {
-      annotation = await write(message, {
-        blob: screenshot.blob,
-        dimensions: await dimensions(screenshot.blob),
-      });
-    }
-
-    for (const attachment of attachments ?? []) {
-      const metadata: AttachmentMetadata = {
-        id: crypto.randomUUID(),
-        name: attachment.name,
-        mimeType: attachment.mimeType,
-        byteLength: attachment.blob.size,
-      };
-      try {
-        await addAttachment(pageUrl, annotation.id, metadata, attachment.blob, blobStore);
-      } catch (error) {
-        throw new JsonImportError(error instanceof Error ? error.message : String(error));
+): Promise<{ imported: number; skipped: number }> {
+  const written: Annotation[] = [];
+  let skipped = 0;
+  for (const [index, { annotation, blobs }] of plan.entries()) {
+    try {
+      if (await restoreAnnotation(annotation, blobs, blobStore)) written.push(annotation);
+      else skipped += 1;
+    } catch {
+      const rollback = await Promise.allSettled(
+        written.map((entry) => deleteAnnotation(entry.pageUrl, entry.id, blobStore)),
+      );
+      if (rollback.some((result) => result.status === 'rejected')) {
+        throw new JsonImportError(`Import failed while saving entry ${index + 1}, and some earlier entries could not be removed.`);
       }
+      throw new JsonImportError(`Import failed while saving entry ${index + 1}. Nothing was imported.`);
     }
+  }
+  return { imported: written.length, skipped };
+}
+
+/** Returns the status message for the popup. */
+export async function importJson(
+  json: string,
+  blobStore: BlobStore = createBlobStore(),
+  dimensions: ImageDimensions = imageDimensions,
+): Promise<string> {
+  try {
+    const { imported, skipped } = await importAll(await parseImport(json, dimensions), blobStore);
+    return `Imported ${plural(imported, 'annotation')}, skipped ${skipped} already present.`;
+  } catch (error) {
+    return error instanceof JsonImportError ? error.message : 'Import failed. Nothing was imported.';
   }
 }
 
@@ -162,110 +152,125 @@ export async function collectAllAnnotations(): Promise<Annotation[]> {
     .flatMap((key) => (Array.isArray(stored[key]) ? (stored[key] as Annotation[]) : []));
 }
 
-function createJsonAnnotationWriter(blobStore: BlobStore): JsonAnnotationWriter {
-  return async (message, screenshot) => {
-    if (!screenshot) return addAnnotation(message.pageUrl, message.input);
-    return addAnnotationWithScreenshot(
-      message.pageUrl,
-      message.input,
-      screenshot.blob,
-      screenshot.dimensions,
-      blobStore,
-    );
-  };
-}
+async function parseEntry(
+  entry: unknown,
+  fail: (reason: string) => never,
+  annotationIds: Set<string>,
+  attachmentIds: Set<string>,
+  dimensions: ImageDimensions,
+): Promise<JsonImportEntry> {
+  if (!isRecord(entry)) return fail('is not an annotation object');
+  if (entry.id === undefined) fail('has no annotation id');
+  if (typeof entry.id !== 'string' || !ID_PATTERN.test(entry.id)) fail('has an invalid annotation id');
+  const id = entry.id as string;
+  if (annotationIds.has(id)) fail(`repeats annotation id ${id}`);
+  annotationIds.add(id);
+  if (typeof entry.pageUrl !== 'string' || !isPageUrl(entry.pageUrl)) fail('has an invalid page URL');
+  if (typeof entry.note !== 'string') fail('has no note');
+  if (typeof entry.selector !== 'string') fail('has no selector');
+  if (!isElementContext(entry.elementContext)) fail('has invalid element details');
+  if (!isAnnotationStatus(entry.status)) fail('has an invalid status');
+  if (!isTimestamp(entry.createdAt)) fail('has an invalid creation date');
+  if (!isTimestamp(entry.updatedAt)) fail('has an invalid update date');
+  if (entry.repro !== undefined && !isRepro(entry.repro)) fail('has invalid reproduction steps');
+  if (entry.cssEdits !== undefined && !isCssEdits(entry.cssEdits)) fail('has invalid CSS edits');
 
-function annotationInput(value: Annotation): AnnotationInput {
-  return {
-    note: value.note,
-    selector: value.selector,
-    elementContext: value.elementContext,
-    status: value.status,
-    ...(value.repro === undefined ? {} : { repro: value.repro }),
-    ...(value.cssEdits === undefined ? {} : { cssEdits: value.cssEdits }),
-  };
-}
+  const annotation = {
+    id,
+    pageUrl: entry.pageUrl,
+    note: entry.note,
+    selector: entry.selector,
+    elementContext: entry.elementContext,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    status: entry.status,
+    ...(entry.repro === undefined ? {} : { repro: entry.repro }),
+    ...(entry.cssEdits === undefined ? {} : { cssEdits: entry.cssEdits }),
+  } as Annotation;
+  const blobs: [string, Blob][] = [];
 
-function parseScreenshot(value: unknown): { mimeType: string; blob: Blob } | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value) || typeof value.mimeType !== 'string' || typeof value.base64 !== 'string') {
-    throw new JsonImportError('Screenshot must contain a supported mimeType and base64 data.');
-  }
-  const blob = parseImage(value.base64, value.mimeType, 'Screenshot');
-  return { mimeType: value.mimeType, blob };
-}
-
-function parseAttachments(value: unknown): JsonImportAttachment[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.length > MAX_ATTACHMENTS) {
-    throw new JsonImportError('Import cannot contain more than 5 attachments.');
-  }
-  return value.map((entry) => {
-    if (!isRecord(entry) || typeof entry.name !== 'string' || typeof entry.mimeType !== 'string' || typeof entry.base64 !== 'string') {
-      throw new JsonImportError('Attachment must contain name, mimeType and base64 data.');
-    }
-    let name: string;
+  if (entry.screenshot !== undefined) {
+    const blob = parseImage(entry.screenshot, 'screenshot', fail);
+    let size: { width: number; height: number };
     try {
-      name = validateAttachmentName(entry.name);
-    } catch (error) {
-      throw new JsonImportError(error instanceof Error ? error.message : String(error));
+      size = await dimensions(blob);
+    } catch {
+      return fail('has a screenshot that could not be read');
     }
-    return { name, mimeType: entry.mimeType, blob: parseImage(entry.base64, entry.mimeType, 'Attachment') };
-  });
+    if (!(size.width > 0 && size.height > 0)) fail('has a screenshot that could not be read');
+    annotation.screenshot = { mimeType: blob.type, width: size.width, height: size.height, byteLength: blob.size };
+    blobs.push([screenshotKey(id), blob]);
+  }
+
+  if (entry.attachments !== undefined) {
+    if (!Array.isArray(entry.attachments)) fail('has invalid attachments');
+    const attachments = entry.attachments as unknown[];
+    if (attachments.length > MAX_ATTACHMENTS) fail(`has more than ${MAX_ATTACHMENTS} attachments`);
+    const metadata: AttachmentMetadata[] = [];
+    for (const attachment of attachments) {
+      if (!isRecord(attachment) || attachment.id === undefined) fail('has an attachment without an id');
+      const record = attachment as Record<string, unknown>;
+      if (typeof record.id !== 'string' || !ID_PATTERN.test(record.id)) fail('has an attachment with an invalid id');
+      const attachmentId = record.id as string;
+      if (attachmentIds.has(attachmentId)) fail(`repeats attachment id ${attachmentId}`);
+      attachmentIds.add(attachmentId);
+      if (typeof record.name !== 'string') fail('has an attachment with an invalid name');
+      try {
+        validateAttachmentName(record.name as string);
+      } catch {
+        fail('has an attachment with an invalid name');
+      }
+      const blob = parseImage(record, 'attachment', fail);
+      metadata.push({ id: attachmentId, name: record.name as string, mimeType: blob.type, byteLength: blob.size });
+      blobs.push([attachmentKey(attachmentId), blob]);
+    }
+    if (metadata.length > 0) annotation.attachments = metadata;
+  }
+
+  return { annotation, blobs };
 }
 
-function parseImage(base64: string, mimeType: string, label: string): Blob {
-  if (!isSupportedImageMimeType(mimeType)) {
-    throw new JsonImportError(`Unsupported ${label.toLowerCase()} mime type: ${mimeType}.`);
+function parseImage(value: unknown, label: 'screenshot' | 'attachment', fail: (reason: string) => never): Blob {
+  if (!isRecord(value) || typeof value.mimeType !== 'string' || typeof value.base64 !== 'string') {
+    return fail(`has an invalid ${label}`);
   }
-  let binary: string;
+  if (!isSupportedImageMimeType(value.mimeType)) fail(`has an unsupported ${label} type (${value.mimeType})`);
+  let binary = '';
   try {
-    binary = atob(base64);
+    binary = atob(value.base64);
   } catch {
-    throw new JsonImportError(`${label} base64 data is invalid.`);
+    fail(`has ${label} data that is not valid base64`);
   }
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  const blob = new Blob([bytes], { type: mimeType });
+  const blob = new Blob([Uint8Array.from(binary, (character) => character.charCodeAt(0))], { type: value.mimeType });
   try {
-    validateImageBlob(blob, mimeType);
+    validateImageBlob(blob, value.mimeType);
   } catch (error) {
-    throw new JsonImportError(error instanceof Error ? error.message : String(error));
+    fail(`has an invalid ${label}: ${error instanceof Error ? lowerFirst(error.message.replace(/\.$/, '')) : 'unreadable'}`);
   }
   return blob;
 }
 
-function parseStatus(value: unknown): NonNullable<AnnotationInput['status']> {
-  if (value !== 'open' && value !== 'resolved') throw new JsonImportError('Status must be open or resolved.');
-  return value;
+function isPageUrl(value: string): boolean {
+  try {
+    pageKey(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function parseRepro(value: unknown): NonNullable<AnnotationInput['repro']> {
-  if (
-    !isRecord(value) ||
-    !Array.isArray(value.steps) ||
-    !value.steps.every((step) => typeof step === 'string') ||
-    typeof value.expected !== 'string' ||
-    typeof value.actual !== 'string'
-  ) {
-    throw new JsonImportError('Invalid reproduction data.');
-  }
-  return { steps: value.steps, expected: value.expected, actual: value.actual };
+function isTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString() === value;
 }
 
-function parseCssEdits(value: unknown): NonNullable<AnnotationInput['cssEdits']> {
-  if (
-    !Array.isArray(value) ||
-    !value.every(
-      (edit) =>
-        isRecord(edit) &&
-        typeof edit.property === 'string' &&
-        typeof edit.value === 'string' &&
-        typeof edit.original === 'string',
-    )
-  ) {
-    throw new JsonImportError('Invalid CSS edits.');
-  }
-  return value;
+function lowerFirst(value: string): string {
+  return value.charAt(0).toLowerCase() + value.slice(1);
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
 async function blobToBase64(blob: Blob): Promise<string> {

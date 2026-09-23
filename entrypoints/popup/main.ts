@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
-import { collectAllAnnotations, importAll, parseImport, serialize } from '../../lib/json-io';
+import { collectAllAnnotations, exportJson, importJson } from '../../lib/json-io';
 import { createBlobStore } from '../../lib/blob-store';
 import { exportAllPages } from '../../lib/export/all-pages';
 import { productionExportDelivery } from '../../lib/export/delivery';
@@ -20,18 +20,28 @@ const status = document.querySelector<HTMLParagraphElement>('#status');
 const blobStore = createBlobStore();
 
 toggleButton?.addEventListener('click', async () => {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id === undefined) return;
-
-  await browser.tabs.sendMessage(tab.id, { type: CAPTURE_TOGGLE_MESSAGE });
+  try {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id === undefined) throw new Error('No active tab');
+    await browser.tabs.sendMessage(tab.id, { type: CAPTURE_TOGGLE_MESSAGE });
+  } catch {
+    setStatus('Annotations are not available on this page.');
+    return;
+  }
   window.close();
 });
 
 exportButton?.addEventListener('click', async () => {
-  const json = await serialize(await collectAllAnnotations(), blobStore);
-  await navigator.clipboard.writeText(json);
-  downloadJson(json);
-  setStatus('Annotations exported.');
+  setStatus(
+    await exportJson({
+      collect: collectAllAnnotations,
+      blobStore,
+      deliver: async (json) => {
+        await navigator.clipboard.writeText(json);
+        downloadJson(json);
+      },
+    }),
+  );
 });
 
 exportMarkdownButton?.addEventListener('click', async () => {
@@ -51,11 +61,9 @@ importFile?.addEventListener('change', async () => {
   if (!file) return;
 
   try {
-    const plan = parseImport(await file.text());
-    await importAll(plan, blobStore);
-    setStatus(`Imported ${plan.length} annotation${plan.length === 1 ? '' : 's'}.`);
-  } catch (error) {
-    setStatus(error instanceof Error ? error.message : 'Import failed.');
+    setStatus(await importJson(await file.text(), blobStore));
+  } catch {
+    setStatus('Import failed: the file could not be read. Nothing was imported.');
   } finally {
     importFile.value = '';
   }
