@@ -245,6 +245,17 @@ describe('text-occlusion on floating labels in a real browser', () => {
     await expectOccludedExactlyWhenPainted(outside('.field label{z-index:10}', `${outsideField}<div class="cover" style="position:relative;top:-56px;z-index:5"></div>`), false);
   });
 
+  it('reports a z-indexed dropdown in a will-change:scroll-position wrapper painted over a later label', async () => {
+    await expectOccludedExactlyWhenPainted(outside('', `<div style="will-change:scroll-position;height:0"><div class="cover" style="position:absolute;z-index:1000"></div></div>${outsideField}`), true);
+  });
+
+  it.each(['will-change:scroll-position', 'will-change:contents', 'will-change:transform', 'will-change:opacity', 'will-change:scroll-position, transform', 'contain:inline-size', 'contain:paint'])(
+    'reports the label exactly when the browser paints a z-indexed dropdown in a %s wrapper over it',
+    async (wrapper) => {
+      await expectOccludedExactlyWhenPainted(outside('', `<div style="${wrapper};height:0"><div class="cover" style="position:absolute;z-index:1000"></div></div>${outsideField}`));
+    },
+  );
+
   const wrappers = [['no wrapper', ''], ['a position:relative wrapper', 'position:relative'], ['a position:relative;z-index:1 wrapper', 'position:relative;z-index:1'], ['a transform wrapper', 'transform:translateZ(0)']] as const;
   const coverStyles = [['plain', ''], ['position:absolute;z-index:1000', 'position:absolute;z-index:1000'], ['position:relative', 'position:relative'], ['opacity:0.99', 'opacity:0.99']] as const;
   const labelZ = [['auto', 'auto'], ['10', '10']] as const;

@@ -437,7 +437,8 @@ function isPositioned(ctx: ScanContext, el: Element): boolean {
   return (styleValue(ctx, el, 'position').toLowerCase() || 'static') !== 'static';
 }
 
-const STACKING_WILL_CHANGE = /\b(?:position|transform|translate|rotate|scale|filter|perspective|backdrop-filter|opacity|isolation|mix-blend-mode|contain|z-index)\b/;
+const STACKING_WILL_CHANGE = new Set(['position', 'transform', 'translate', 'rotate', 'scale', 'filter', 'perspective', 'backdrop-filter', 'opacity', 'isolation', 'mix-blend-mode', 'contain', 'z-index']);
+const STACKING_CONTAIN = new Set(['paint', 'layout', 'strict', 'content']);
 
 // z-index applies to a positioned element or a flex or grid item.
 function zIndexApplies(ctx: ScanContext, el: Element): boolean {
@@ -455,7 +456,8 @@ function formsStackingContext(ctx: ScanContext, el: Element): boolean {
   if (['transform', 'translate', 'rotate', 'scale', 'filter', 'perspective', 'backdrop-filter'].some((property) => (value(property) || 'none') !== 'none')) return true;
   if (numberValue(value('opacity'), 1) < 1 || value('isolation') === 'isolate') return true;
   if ((value('mix-blend-mode') || 'normal') !== 'normal') return true;
-  return /\b(?:paint|layout|strict|content)\b/.test(value('contain')) || STACKING_WILL_CHANGE.test(value('will-change'));
+  return value('contain').split(/\s+/).some((keyword) => STACKING_CONTAIN.has(keyword))
+    || value('will-change').split(',').some((ident) => STACKING_WILL_CHANGE.has(ident.trim()));
 }
 
 // The flow layer sits below every z 0 layer and above every negative z.
