@@ -12,7 +12,12 @@ export const ANNOTATION_TOKENS = `  --annotation-color-surface: #ffffff;
   --annotation-radius-md: 0.5rem;
   --annotation-radius-lg: 0.75rem;
   --annotation-font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --annotation-font-size: 0.875rem;
+  --annotation-font-size-caption: 0.75rem;
+  --annotation-font-size-body: 0.875rem;
+  --annotation-font-size-title: 1.125rem;
+  --annotation-font-weight-regular: 400;
+  --annotation-font-weight-medium: 500;
+  --annotation-font-weight-bold: 700;
   --annotation-line-height: 1.4;`;
 
 export const ANNOTATION_DARK_TOKENS = `  --annotation-color-surface: #1b2230;

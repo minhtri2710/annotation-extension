@@ -35,4 +35,29 @@ describe('page styles', () => {
       .replace(ANNOTATION_DARK_TOKENS, '');
     expect(pageRules).not.toMatch(/#[0-9a-f]{3,8}\b/i);
   });
+
+  it('uses type tokens instead of font-size and font-weight literals', () => {
+    const rules = PAGE_STYLES.replace(ANNOTATION_TOKENS, '');
+    const values = [...rules.matchAll(/font-(?:size|weight):\s*([^;]+);/g)].map((match) => match[1]);
+    expect(values).toContain('var(--annotation-font-size-body)');
+    expect(values).toContain('var(--annotation-font-size-title)');
+    for (const value of values) expect(value).toMatch(/^var\(--annotation-font-(?:size|weight)-[a-z]+\)$/);
+  });
+
+  it('gives page buttons hover, focus-visible and active states with short transitions', () => {
+    expect(PAGE_STYLES).toContain('.annotation-page__card button:hover {\n  border-color: var(--annotation-color-accent);\n  background: var(--annotation-color-surface-raised);');
+    expect(PAGE_STYLES).toContain('.annotation-page__card button:focus-visible');
+    expect(PAGE_STYLES).toContain('outline: 0.15rem solid var(--annotation-color-accent)');
+    expect(PAGE_STYLES).toMatch(/\.annotation-page__card button:active \{\n  transform: /);
+    const transitions = [...PAGE_STYLES.matchAll(/transition: ([^;]+);/g)].map((match) => match[1] ?? '');
+    expect(transitions.length).toBeGreaterThan(0);
+    for (const transition of transitions.filter((value) => value !== 'none')) {
+      for (const part of transition.split(',')) {
+        const [property, duration] = part.trim().split(/\s+/);
+        expect(['color', 'background', 'background-color', 'border-color', 'box-shadow', 'opacity', 'transform']).toContain(property);
+        expect(Number.parseInt(duration ?? '', 10)).toBeLessThanOrEqual(150);
+      }
+    }
+    expect(PAGE_STYLES).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\n  \.annotation-page__card button \{\n    transition: none;/);
+  });
 });

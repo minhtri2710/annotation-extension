@@ -18,7 +18,7 @@ body.annotation-page--options {
   color: var(--annotation-color-text);
   background: var(--annotation-color-surface-raised);
   font-family: var(--annotation-font-family);
-  font-size: var(--annotation-font-size);
+  font-size: var(--annotation-font-size-body);
   line-height: var(--annotation-line-height);
 }
 
@@ -48,7 +48,8 @@ body.annotation-page--popup .annotation-page__card {
 
 .annotation-page__card h1 {
   margin: 0 0 var(--annotation-space-4);
-  font-size: 1.125rem;
+  font-size: var(--annotation-font-size-title);
+  font-weight: var(--annotation-font-weight-bold);
   line-height: 1.2;
 }
 
@@ -91,10 +92,16 @@ body.annotation-page--popup .annotation-page__card {
 
 .annotation-page__card button {
   cursor: pointer;
+  transition: background 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
 }
 
 .annotation-page__card button:hover {
   border-color: var(--annotation-color-accent);
+  background: var(--annotation-color-surface-raised);
+}
+
+.annotation-page__card button:active {
+  transform: translateY(1px);
 }
 
 .annotation-page__card button:focus-visible,
@@ -135,5 +142,15 @@ body.annotation-page--popup .annotation-page__card {
 
 .annotation-page__toggle input {
   accent-color: var(--annotation-color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .annotation-page__card button {
+    transition: none;
+  }
+
+  .annotation-page__card button:active {
+    transform: none;
+  }
 }
 `;

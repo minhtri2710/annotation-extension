@@ -18,7 +18,7 @@ ${ANNOTATION_TOKENS}
   box-sizing: border-box;
   color: var(--annotation-color-text);
   font-family: var(--annotation-font-family);
-  font-size: var(--annotation-font-size);
+  font-size: var(--annotation-font-size-body);
   line-height: var(--annotation-line-height);
 }`;
     const darkRule = `[data-annotation-shell][data-theme="dark"] {
@@ -94,7 +94,7 @@ ${ANNOTATION_DARK_TOKENS}
     expect(OVERLAY_STYLES).toContain('[data-annotation-shell] [data-annotation-mount] select');
 
     const declarations = OVERLAY_STYLES.match(/--annotation-[a-z0-9-]+(?=:)/g) ?? [];
-    expect(declarations).toHaveLength(22);
+    expect(declarations).toHaveLength(27);
     expect(new Set(declarations)).toEqual(
       new Set([
         ...Object.keys({
@@ -112,7 +112,12 @@ ${ANNOTATION_DARK_TOKENS}
           '--annotation-radius-md': true,
           '--annotation-radius-lg': true,
           '--annotation-font-family': true,
-          '--annotation-font-size': true,
+          '--annotation-font-size-caption': true,
+          '--annotation-font-size-body': true,
+          '--annotation-font-size-title': true,
+          '--annotation-font-weight-regular': true,
+          '--annotation-font-weight-medium': true,
+          '--annotation-font-weight-bold': true,
           '--annotation-line-height': true,
         }),
       ]),
@@ -150,4 +155,86 @@ ${ANNOTATION_DARK_TOKENS}
     expect(OVERLAY_STYLES).toContain('@media (prefers-reduced-motion: reduce)');
     expect(OVERLAY_STYLES).toContain('animation: none');
   });
+
+  it('uses type tokens instead of font-size and font-weight literals', () => {
+    const rules = OVERLAY_STYLES.replace(ANNOTATION_TOKENS, '');
+    const values = [...rules.matchAll(/font-(?:size|weight):\s*([^;]+);/g)].map((match) => match[1]);
+    expect(values.length).toBeGreaterThan(0);
+    for (const value of values) expect(value).toMatch(/^var\(--annotation-font-(?:size|weight)-[a-z]+\)$/);
+    expect(OVERLAY_STYLES).not.toContain('var(--annotation-font-size)');
+    expect(ruleBody('[data-annotation-shell] .annotation-pin {')).toContain('font-weight: var(--annotation-font-weight-bold)');
+    expect(ruleBody('[data-annotation-shell] .annotation-pin-tooltip {')).toContain(
+      'font-size: var(--annotation-font-size-caption)',
+    );
+  });
+
+  it('gives overlay buttons hover, focus-visible and active states from tokens', () => {
+    const button = '[data-annotation-shell] [data-annotation-mount] button';
+    expect(ruleBody(`${button}:hover {`)).toContain('border-color: var(--annotation-color-accent)');
+    expect(ruleBody(`${button}:focus-visible {`)).toMatch(/outline: [^;]*solid var\(--annotation-color-accent\)/);
+    expect(ruleBody(`${button}:active {`)).toContain('transform:');
+    expect(ruleBody(`${button} {`)).toMatch(/transition: /);
+  });
+
+  it('gives pins hover, focus-visible and active states without !important', () => {
+    const pin = '[data-annotation-shell] .annotation-pin';
+    expect(ruleBody(`${pin}:hover {`)).toMatch(/outline: [^;]*var\(--annotation-color-accent\)/);
+    expect(ruleBody(`${pin}:focus-visible {`)).toMatch(/outline: [^;]*solid var\(--annotation-color-text\)/);
+    expect(ruleBody(`${pin}:active {`)).toContain('opacity:');
+    expect(OVERLAY_STYLES).not.toContain('!important');
+  });
+
+  it('keeps transitions short and limited to paint-safe properties', () => {
+    const transitions = [...OVERLAY_STYLES.matchAll(/transition: ([^;]+);/g)].map((match) => match[1] ?? '');
+    expect(transitions.length).toBeGreaterThan(0);
+    for (const transition of transitions.filter((value) => value !== 'none')) {
+      for (const part of transition.split(',')) {
+        const [property, duration] = part.trim().split(/\s+/);
+        expect(['color', 'background', 'background-color', 'border-color', 'box-shadow', 'opacity', 'transform']).toContain(property);
+        expect(Number.parseInt(duration ?? '', 10)).toBeLessThanOrEqual(150);
+      }
+    }
+  });
+
+  it('animates panel entry and the toolbar badge', () => {
+    expect(OVERLAY_STYLES).toContain('@keyframes annotation-panel-enter');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-mount="panel"]:not(:empty) {')).toMatch(
+      /animation: annotation-panel-enter (\d+)ms/,
+    );
+    const panelMs = /animation: annotation-panel-enter (\d+)ms/.exec(OVERLAY_STYLES)?.[1];
+    expect(Number(panelMs)).toBeLessThanOrEqual(200);
+    expect(OVERLAY_STYLES).toMatch(/@keyframes annotation-panel-enter \{\s*from \{ opacity: 0; transform: translateY\(/);
+    expect(OVERLAY_STYLES).toContain('@keyframes annotation-badge-pop');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-badge] {')).toContain('animation: annotation-badge-pop');
+  });
+
+  it('turns off every animation and transition under reduced motion', () => {
+    const media = OVERLAY_STYLES.slice(OVERLAY_STYLES.indexOf('@media (prefers-reduced-motion: reduce)'));
+    for (const selector of [
+      '.annotation-pin-tooltip',
+      '.locate-pulse',
+      '[data-annotation-mount="panel"]',
+      '[data-annotation-badge]',
+    ]) {
+      expect(media).toContain(selector);
+    }
+    expect(media).toContain('animation: none');
+    expect(media).toContain('transition: none');
+    expect(media).toContain('[data-annotation-mount] button');
+    expect(media).toContain('.annotation-pin');
+  });
+
+  it('styles the empty state as a muted, centered caption block', () => {
+    const body = ruleBody('[data-annotation-shell] [data-annotation-empty-state] {');
+    expect(body).toContain('color: var(--annotation-color-text-muted)');
+    expect(body).toContain('text-align: center');
+    expect(body).toMatch(/padding: var\(--annotation-space-/);
+    expect(body).toContain('font-size: var(--annotation-font-size-caption)');
+  });
 });
+
+function ruleBody(selectorLine: string): string {
+  const start = OVERLAY_STYLES.indexOf(`\n${selectorLine}`);
+  expect(start, selectorLine).toBeGreaterThanOrEqual(0);
+  return OVERLAY_STYLES.slice(start, OVERLAY_STYLES.indexOf('}', start));
+}

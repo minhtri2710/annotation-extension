@@ -7,7 +7,7 @@ ${ANNOTATION_TOKENS}
   box-sizing: border-box;
   color: var(--annotation-color-text);
   font-family: var(--annotation-font-family);
-  font-size: var(--annotation-font-size);
+  font-size: var(--annotation-font-size-body);
   line-height: var(--annotation-line-height);
 }
 
@@ -62,6 +62,33 @@ ${ANNOTATION_DARK_TOKENS}
   display: none;
 }
 
+[data-annotation-shell] [data-annotation-mount="panel"]:not(:empty) {
+  animation: annotation-panel-enter 160ms ease-out;
+}
+
+@keyframes annotation-panel-enter {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: none; }
+}
+
+[data-annotation-shell] [data-annotation-badge] {
+  font-weight: var(--annotation-font-weight-medium);
+  animation: annotation-badge-pop 150ms ease-out;
+}
+
+@keyframes annotation-badge-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+
+[data-annotation-shell] [data-annotation-empty-state] {
+  margin: 0;
+  padding: var(--annotation-space-4);
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+  text-align: center;
+}
+
 [data-annotation-shell] [data-annotation-mount="panel"] > * + * {
   margin-top: var(--annotation-space-3);
 }
@@ -75,8 +102,24 @@ ${ANNOTATION_DARK_TOKENS}
   align-items: center;
   justify-content: center;
   font-family: inherit;
-  font-size: 0.6875rem;
-  font-weight: 700;
+  font-size: var(--annotation-font-size-caption);
+  font-weight: var(--annotation-font-weight-bold);
+  transition: opacity 120ms ease-out;
+}
+
+[data-annotation-shell] .annotation-pin:hover {
+  opacity: 1;
+  outline: 2px solid var(--annotation-color-accent);
+  outline-offset: 2px;
+}
+
+[data-annotation-shell] .annotation-pin:focus-visible {
+  outline: 2px solid var(--annotation-color-text);
+  outline-offset: 2px;
+}
+
+[data-annotation-shell] .annotation-pin:active {
+  opacity: 0.8;
 }
 
 [data-annotation-shell] .annotation-pin-tooltip {
@@ -89,7 +132,7 @@ ${ANNOTATION_DARK_TOKENS}
   background: var(--annotation-color-surface);
   color: var(--annotation-color-text);
   box-shadow: 0 0.25rem 1rem rgba(23, 32, 51, 0.2);
-  font-size: 0.75rem;
+  font-size: var(--annotation-font-size-caption);
   line-height: 1.3;
   pointer-events: none;
   animation: annotation-tooltip-fade-in 120ms ease-out;
@@ -111,8 +154,19 @@ ${ANNOTATION_DARK_TOKENS}
 
 @media (prefers-reduced-motion: reduce) {
   [data-annotation-shell] .annotation-pin-tooltip,
-  [data-annotation-shell] .locate-pulse {
+  [data-annotation-shell] .locate-pulse,
+  [data-annotation-shell] [data-annotation-mount="panel"],
+  [data-annotation-shell] [data-annotation-badge] {
     animation: none;
+  }
+
+  [data-annotation-shell] [data-annotation-mount] button,
+  [data-annotation-shell] .annotation-pin {
+    transition: none;
+  }
+
+  [data-annotation-shell] [data-annotation-mount] button:active {
+    transform: none;
   }
 }
 
@@ -121,5 +175,23 @@ ${ANNOTATION_DARK_TOKENS}
 [data-annotation-shell] [data-annotation-mount] textarea,
 [data-annotation-shell] [data-annotation-mount] select {
   max-width: 100%;
+}
+
+[data-annotation-shell] [data-annotation-mount] button {
+  transition: color 120ms ease-out, background 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
+}
+
+[data-annotation-shell] [data-annotation-mount] button:hover {
+  border-color: var(--annotation-color-accent);
+  background: var(--annotation-color-surface-raised);
+}
+
+[data-annotation-shell] [data-annotation-mount] button:focus-visible {
+  outline: 2px solid var(--annotation-color-accent);
+  outline-offset: 2px;
+}
+
+[data-annotation-shell] [data-annotation-mount] button:active {
+  transform: translateY(1px);
 }
 `;
