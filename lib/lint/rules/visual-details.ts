@@ -1,6 +1,6 @@
 import { hasChroma, isNeutralColor, parseColor } from '../color';
 import { cssColorAlpha, parsePx, roundTo } from '../css';
-import type { Checkpoint, ElementRule, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
 
 const SIDE_TAB_MIN_RECT_WIDTH_PX = 20;
 const SIDE_TAB_MIN_RECT_HEIGHT_PX = 20;
@@ -483,13 +483,14 @@ function insetStripeHits(el: Element, ctx: ScanContext): RuleHit[] {
   return hits;
 }
 
-async function repeatingGradientTest(ctx: ScanContext, checkpoint: Checkpoint): Promise<RuleHit[]> {
+async function repeatingGradientTest(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const repeating = /repeating-(?:linear|radial|conic)-gradient\s*\(/i;
-  for (const source of stylesheetSources(ctx)) {
+  const hits: PageHit[] = [];
+  for (const el of Array.from(ctx.doc.querySelectorAll('*'))) {
     await checkpoint();
-    if (repeating.test(source)) return [{ detail: 'repeating-gradient decorative stripes' }];
+    if (repeating.test(styleValue(ctx, el, 'background-image'))) hits.push({ detail: 'repeating-gradient decorative stripes', el });
   }
-  return [];
+  return hits;
 }
 
 function hasGridBackground(block: string): boolean {
@@ -542,6 +543,7 @@ function designRadiusTest(el: Element, ctx: ScanContext): RuleHit[] {
 const sideTabRule: ElementRule = {
   id: 'side-tab',
   category: 'slop',
+  severity: 'advisory',
   name: 'Side-tab accent border',
   description: 'Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.',
   skillSection: 'Visual Details',

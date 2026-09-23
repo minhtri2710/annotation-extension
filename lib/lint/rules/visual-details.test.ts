@@ -234,7 +234,7 @@ describe('visual-details lint rules through the real engine', () => {
 
   it('detects repeating gradient stripes and rejects a non-repeating gradient', async () => {
     const positive = await ruleFindings(
-      '<div></div>',
+      '<div class="stripe"></div>',
       'repeating-stripes-gradient',
       {},
       '.stripe { background-image: repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 2px); }',
@@ -245,9 +245,10 @@ describe('visual-details lint rules through the real engine', () => {
       severity: 'advisory',
       detail: 'repeating-gradient decorative stripes',
     });
+    expect(first(positive).el).toBe(document.querySelector('.stripe'));
 
     const negative = await ruleFindings(
-      '<div></div>',
+      '<div class="stripe"></div>',
       'repeating-stripes-gradient',
       {},
       '.stripe { background-image: linear-gradient(45deg, #fff, transparent); }',
@@ -299,5 +300,26 @@ describe('visual-details lint rules through the real engine', () => {
     );
     expect(negative).toHaveLength(0);
     expect(await ruleFindings('<div style="border-radius: 10px"></div>', 'design-system-radius')).toHaveLength(0);
+  });
+
+  it('anchors one repeating-stripes hit to each striped element and ignores a stripe rule that matches nothing', async () => {
+    const stripe = '.stripe { background-image: repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 2px); }';
+    const hits = await ruleFindings(
+      '<div class="stripe" id="a"></div><div id="plain"></div><div class="stripe" id="b"></div><div id="inline" style="background: repeating-radial-gradient(circle, #000 0 2px, transparent 2px 4px)"></div>',
+      'repeating-stripes-gradient',
+      {},
+      stripe,
+    );
+    expect(hits.map((hit) => hit.el?.id)).toEqual(['a', 'b', 'inline']);
+    for (const hit of hits) expect(hit).toMatchObject({ severity: 'advisory', detail: 'repeating-gradient decorative stripes' });
+
+    expect(await ruleFindings('<div class="other"></div>', 'repeating-stripes-gradient', {}, stripe)).toHaveLength(0);
+  });
+
+  it('reports side-tab at advisory severity', async () => {
+    const hits = await ruleFindings('<div class="card"></div>', 'side-tab', {}, '.card { width: 200px; box-shadow: inset 4px 0 0 0 rgb(0, 128, 255); }');
+    expect(hits).toHaveLength(1);
+    expect(first(hits)).toMatchObject({ severity: 'advisory', advisory: true });
+    expect(visualDetailsRules.find((rule) => rule.id === 'side-tab')).toMatchObject({ severity: 'advisory' });
   });
 });

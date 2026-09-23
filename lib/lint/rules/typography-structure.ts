@@ -514,6 +514,7 @@ export const typographyStructureRules: Rule[] = [
     'A tiny tracked uppercase or small-caps label sitting as its own block directly above a heading is banned outright, repeated or not. Generated kickers never earn their place: the heading carries its own weight. Delete the label and let the heading speak; if the words matter, work them into the heading or the body.',
     (el, ctx) => kickerAboveHeading(el, ctx),
     'Typography',
+    'advisory',
   ),
   elementRule(
     'design-system-font',

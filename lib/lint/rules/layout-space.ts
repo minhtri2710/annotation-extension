@@ -798,6 +798,7 @@ const numberedSectionLabelsRule: PageRule = {
 const lineLengthRule: ElementRule = {
   id: 'line-length',
   category: 'quality',
+  severity: 'advisory',
   name: 'Line length too long',
   description: 'Text lines wider than ~80 characters are hard to read. The eye loses its place tracking back to the start of the next line, so it is measured on the lines that rendered and charged when more than one of them runs long. Add a max-width (65ch to 75ch) to text containers.',
   skillSection: 'Layout & Space',

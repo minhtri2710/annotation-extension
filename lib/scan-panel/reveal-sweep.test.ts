@@ -70,14 +70,23 @@ describe('revealSweep', () => {
     expect(tops()).toEqual([0, 200, 400, 1234]);
   });
 
-  it('caps a very tall page at 50 steps', async () => {
+  it('sweeps a very tall page all the way to its bottom', async () => {
     stubPage(1_000_000, 1000);
     const done = revealSweep(window, new AbortController().signal);
     await vi.runAllTimersAsync();
     await done;
-    expect(tops()).toHaveLength(51);
-    expect(tops()[49]).toBe(49 * 700);
+    expect(tops()).toHaveLength(1430);
+    expect(tops().at(-2)).toBe(1428 * 700);
     expect(position).toEqual({ x: 30, y: 1234 });
+  });
+
+  it('bounds the sweep by the scroll height measured at the start when the page grows', async () => {
+    stubPage(2000, 1000);
+    vi.spyOn(document.documentElement, 'scrollHeight', 'get').mockImplementation(() => 2000 + scrollTo.mock.calls.length * 5000);
+    const done = revealSweep(window, new AbortController().signal);
+    await vi.runAllTimersAsync();
+    await done;
+    expect(tops()).toEqual([0, 700, 1400, 1234]);
   });
 
   it('rejects with the reason on abort mid-settle, restores the position, and leaves no timer pending', async () => {

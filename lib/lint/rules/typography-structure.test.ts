@@ -228,4 +228,12 @@ describe('typography-structure lint rules through the real engine', () => {
       severity: 'advisory',
     });
   });
+
+  it('reports kicker-above-heading at advisory severity', async () => {
+    document.body.innerHTML = `
+      <p style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase">Features</p>
+      <h2 style="font-size: 32px">Everything you need</h2>
+    `;
+    expect(await firstRuleFinding('kicker-above-heading')).toMatchObject({ severity: 'advisory', advisory: true });
+  });
 });

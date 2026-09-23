@@ -2,8 +2,6 @@ const MIN_STEP_PX = 200;
 const STEP_VIEWPORT_RATIO = 0.7;
 const STEP_SETTLE_MS = 40;
 const FINAL_SETTLE_MS = 700;
-// impeccable has no step cap; this bounds the sweep on endless or very tall pages.
-const MAX_STEPS = 50;
 
 // Scrolls top to bottom so on-scroll reveal handlers run, then restores the user's position and settles.
 export async function revealSweep(win: Window, signal: AbortSignal): Promise<void> {
@@ -11,8 +9,9 @@ export async function revealSweep(win: Window, signal: AbortSignal): Promise<voi
   const { scrollX, scrollY } = win;
   try {
     const step = Math.max(MIN_STEP_PX, Math.floor(win.innerHeight * STEP_VIEWPORT_RATIO));
+    // Measured once, so a page that grows during the sweep (infinite scroll) cannot extend it.
     const max = Math.max(win.document.documentElement.scrollHeight || 0, win.document.body?.scrollHeight || 0);
-    for (let y = 0, steps = 0; y <= max && steps < MAX_STEPS; y += step, steps += 1) {
+    for (let y = 0; y <= max; y += step) {
       win.scrollTo({ top: y, left: 0, behavior: 'instant' });
       await settle(win, STEP_SETTLE_MS, signal, true);
     }

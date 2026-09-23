@@ -11,6 +11,9 @@ const CURSOR_MIN_BACKGROUND_ALPHA = 0.2;
 const CURSOR_MIN_BORDER_PX = 1;
 const CURSOR_MAX_RADIUS_RATIO = 0.4;
 const MARQUEE_MIN_TRAVEL_PERCENT = 20;
+const REDUCE_MOTION_RE = /prefers-reduced-motion\s*:\s*reduce/i;
+const NOT_REDUCE_MOTION_RE = /not\s*\(\s*prefers-reduced-motion\s*:\s*reduce/i;
+const NO_PREFERENCE_MOTION_RE = /prefers-reduced-motion\s*:\s*no-preference/i;
 const LAYOUT_TRANSITION_PROPS = new Set([
   'width',
   'height',
@@ -143,6 +146,56 @@ function allRules(doc: Document): CSSRule[] {
   return result;
 }
 
+interface MediaScopedRule {
+  rule: CssRuleWithName;
+  media: string;
+}
+
+function mediaScopedRules(doc: Document): MediaScopedRule[] {
+  const result: MediaScopedRule[] = [];
+  for (const sheet of Array.from(doc.styleSheets)) {
+    const rules = readableRules(sheet);
+    if (!rules) continue;
+    const pending = Array.from(rules, (rule) => ({ rule: rule as CssRuleWithName, media: sheet.media.mediaText }));
+    while (pending.length > 0) {
+      const scoped = pending.shift()!;
+      result.push(scoped);
+      const nested = childRules(scoped.rule);
+      if (!nested) continue;
+      const media = scoped.rule.type === 4 ? `${scoped.media} ${(scoped.rule as CSSMediaRule).media.mediaText}` : scoped.media;
+      pending.push(...Array.from(nested, (rule) => ({ rule: rule as CssRuleWithName, media })));
+    }
+  }
+  return result;
+}
+
+function matchesSelector(el: Element, selectorText: string): boolean {
+  try {
+    return el.matches(selectorText);
+  } catch {
+    return false;
+  }
+}
+
+// A reduced-motion guard means a reduce rule switches the element's animation off, or every rule that sets it only applies under no-preference.
+function reducedMotionGuarded(el: Element, ctx: ScanContext, name: string | undefined): boolean {
+  const inline = (el as Partial<ElementCSSInlineStyle>).style?.getPropertyValue('animation-name') ?? '';
+  if (name && splitCssList(inline).includes(name)) return false;
+  let setters = 0;
+  let unguardedSetter = false;
+  for (const { rule, media } of mediaScopedRules(ctx.doc)) {
+    if (rule.type !== 1 || !rule.style || !matchesSelector(el, rule.selectorText ?? '')) continue;
+    const names = splitCssList(rule.style.getPropertyValue('animation-name'));
+    const count = rule.style.getPropertyValue('animation-iteration-count').trim().toLowerCase();
+    if (REDUCE_MOTION_RE.test(media) && !NOT_REDUCE_MOTION_RE.test(media)
+      && (names.some((candidate) => candidate.toLowerCase() === 'none') || (count !== '' && count !== 'infinite'))) return true;
+    if (!name || !names.includes(name)) continue;
+    setters += 1;
+    if (!NO_PREFERENCE_MOTION_RE.test(media) && !NOT_REDUCE_MOTION_RE.test(media)) unguardedSetter = true;
+  }
+  return setters > 0 && !unguardedSetter;
+}
+
 function keyframes(doc: Document, name: string): KeyframeInfo | undefined {
   if (!name) return undefined;
   for (const rule of allRules(doc)) {
@@ -269,6 +322,7 @@ function pulsingDotHit(el: Element, ctx: ScanContext): RuleHit[] {
     && (/pulse|blink|ping/i.test(candidate) || keyframeHasPulseBody(keyframes(ctx.doc, candidate)))
   ));
   if (!name && !tailwindPulse) return [];
+  if (reducedMotionGuarded(el, ctx, name)) return [];
 
   if (tailwindPulse) {
     return [{ detail: `${tailwindPulse} on tiny rounded-full element` }];

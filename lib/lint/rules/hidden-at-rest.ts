@@ -55,11 +55,7 @@ async function measureHiddenText(ctx: ScanContext, checkpoint: Checkpoint): Prom
         style.getPropertyValue('content-visibility').toLowerCase() === 'hidden'
       ) {
         state = 'excluded';
-      } else if (
-        parent === 'invisible' ||
-        opacityOrZero(style.getPropertyValue('opacity')) <= MAX_HIDDEN_OPACITY ||
-        HIDDEN_VISIBILITY_RE.test(style.getPropertyValue('visibility'))
-      ) {
+      } else if (parent === 'invisible' || opacityOrZero(style.getPropertyValue('opacity')) <= MAX_HIDDEN_OPACITY) {
         state = 'invisible';
       } else {
         state = 'visible';
@@ -79,6 +75,8 @@ async function measureHiddenText(ctx: ScanContext, checkpoint: Checkpoint): Prom
       if (node.nodeType === node.TEXT_NODE) length += collapse(node.textContent ?? '').length;
     }
     if (length === 0) continue;
+    // Visibility inherits and a descendant can override it, so it is judged on the text's own element.
+    if (HIDDEN_VISIBILITY_RE.test(ctx.style(el).getPropertyValue('visibility'))) continue;
     const state = stateOf(el);
     if (state === 'excluded') continue;
     total += length;
@@ -96,7 +94,7 @@ const contentHiddenAtRest: PageRule = {
   severity: 'error',
   name: 'Content invisible at rest',
   description:
-    'A large share of the page text sits at opacity 0 or visibility hidden even after every reveal handler had a chance to run. This is the failed-reveal signature: the content shipped but never becomes visible. Make content visible by default and let JavaScript enhance its entrance instead of gating its existence.',
+    'A large share of the page text sits at opacity 0 even after every reveal handler had a chance to run. This is the failed-reveal signature: the content shipped but never becomes visible. Make content visible by default and let JavaScript enhance its entrance instead of gating its existence.',
   scope: 'page',
   async test(ctx, checkpoint): Promise<PageHit[]> {
     const { total, hidden, sample } = await measureHiddenText(ctx, checkpoint);
@@ -106,7 +104,7 @@ const contentHiddenAtRest: PageRule = {
     const example = sample === undefined ? '' : ` (e.g. "${sample}")`;
     return [
       {
-        detail: `${Math.round(share * 100)}% of page text (${hidden} of ${total} chars) stays at opacity 0 / visibility hidden after reveal handlers ran${example}`,
+        detail: `${Math.round(share * 100)}% of page text (${hidden} of ${total} chars) stays at opacity 0 after reveal handlers ran${example}`,
       },
     ];
   },

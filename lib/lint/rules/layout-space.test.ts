@@ -463,4 +463,16 @@ describe('layout and space lint rules through the real engine', () => {
     );
     expect(negative).toHaveLength(0);
   });
+
+  it('reports line-length at advisory severity', async () => {
+    document.body.innerHTML = `<p id="positive">${'w'.repeat(300)}</p>`;
+    vi.spyOn(document.querySelector('#positive')!, 'getBoundingClientRect').mockReturnValue(rect(0, 100, 1000, 72));
+    vi.spyOn(Range.prototype, 'getClientRects').mockImplementation(() => domRectList([
+      rect(0, 100, 1000, 19), rect(0, 124, 1000, 19), rect(0, 148, 1000, 19),
+    ]));
+    const findings = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal))
+      .filter((finding) => finding.ruleId === 'line-length');
+    expect(findings).toHaveLength(1);
+    expect(first(findings)).toMatchObject({ severity: 'advisory', advisory: true });
+  });
 });

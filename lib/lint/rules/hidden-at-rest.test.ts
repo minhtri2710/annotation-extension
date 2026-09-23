@@ -36,7 +36,7 @@ describe('content-hidden-at-rest', () => {
       name: 'Content invisible at rest',
     });
     expect(rule?.description).toBe(
-      'A large share of the page text sits at opacity 0 or visibility hidden even after every reveal handler had a chance to run. This is the failed-reveal signature: the content shipped but never becomes visible. Make content visible by default and let JavaScript enhance its entrance instead of gating its existence.',
+      'A large share of the page text sits at opacity 0 even after every reveal handler had a chance to run. This is the failed-reveal signature: the content shipped but never becomes visible. Make content visible by default and let JavaScript enhance its entrance instead of gating its existence.',
     );
     expect(rule?.skillSection).toBeUndefined();
   });
@@ -46,7 +46,7 @@ describe('content-hidden-at-rest', () => {
     const details = await detailsFor();
     expect(details).toHaveLength(1);
     expect(details[0]).toBe(
-      `63% of page text (167 of 267 chars) stays at opacity 0 / visibility hidden after reveal handlers ran (e.g. "Hidden hero copy ${text(23)}")`,
+      `63% of page text (167 of 267 chars) stays at opacity 0 after reveal handlers ran (e.g. "Hidden hero copy ${text(23)}")`,
     );
   });
 
@@ -77,10 +77,17 @@ describe('content-hidden-at-rest', () => {
     expect(await detailsFor()).toEqual([]);
   });
 
-  it('counts visibility hidden and collapse as hidden', async () => {
+  it('excludes visibility hidden and collapse from both counts', async () => {
     load(`<p>${text(50)}</p><p style="visibility: hidden">${text(150)}</p>`);
+    expect(await detailsFor()).toEqual([]);
+    load(`<p>${text(50)}</p><p style="opacity: 0">${text(150)}</p><div style="visibility: hidden"><p style="opacity: 0">${text(500)}</p></div>`);
     expect((await detailsFor())[0]).toContain('(150 of 200 chars)');
-    load(`<p>${text(50)}</p><p style="visibility: collapse">${text(150)}</p>`);
+    load(`<p>${text(50)}</p><p style="opacity: 0">${text(150)}</p><p style="visibility: collapse">${text(500)}</p>`);
+    expect((await detailsFor())[0]).toContain('(150 of 200 chars)');
+  });
+
+  it('counts a visibility visible child of a visibility hidden parent', async () => {
+    load(`<p style="opacity: 0">${text(150)}</p><div style="visibility: hidden">${text(500)}<p style="visibility: visible">${text(50)}</p></div>`);
     expect((await detailsFor())[0]).toContain('(150 of 200 chars)');
   });
 

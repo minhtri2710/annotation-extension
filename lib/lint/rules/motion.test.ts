@@ -239,4 +239,45 @@ describe('motion lint rules through the real engine', () => {
     const negative = await ruleFindings('<img id="negative" src="photo.png">', 'image-hover-transform', 'img:hover { opacity: 0.8; }');
     expect(negative).toHaveLength(0);
   });
+
+  it('fires on an unguarded stylesheet pulsing dot, even when another element is guarded', async () => {
+    const dot = '<span class="dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%"></span>';
+    const positive = await ruleFindings(
+      dot,
+      'pulsing-dot',
+      '@keyframes pulse { 50% { opacity: 0.4; } } .dot { animation-name: pulse; animation-iteration-count: infinite; } @media (prefers-reduced-motion: reduce) { .other { animation: none; } }',
+    );
+    expect(positive).toHaveLength(1);
+    expect(first(positive)).toMatchObject({ detail: 'span.dot — 8x8px dot with infinite "pulse" animation' });
+  });
+
+  it.each([
+    ['animation-name: none', '.dot { animation-name: none; }'],
+    ['a finite iteration count reset', '*, *::before { animation-iteration-count: 1 !important; }'],
+  ])('skips a pulsing dot switched off by a prefers-reduced-motion reduce rule (%s)', async (_label, reduce) => {
+    const findings = await ruleFindings(
+      '<span class="dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%"></span>',
+      'pulsing-dot',
+      `@keyframes pulse { 50% { opacity: 0.4; } } .dot { animation-name: pulse; animation-iteration-count: infinite; } @media (prefers-reduced-motion: reduce) { ${reduce} }`,
+    );
+    expect(findings).toHaveLength(0);
+  });
+
+  it('skips a pulsing dot whose animation is only set under prefers-reduced-motion no-preference', async () => {
+    const findings = await ruleFindings(
+      '<span class="dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%"></span>',
+      'pulsing-dot',
+      '@keyframes pulse { 50% { opacity: 0.4; } } @media (prefers-reduced-motion:no-preference) { .dot { animation-name: pulse; animation-iteration-count: infinite; } }',
+    );
+    expect(findings).toHaveLength(0);
+  });
+
+  it('fires when a guarded rule is joined by an unguarded inline animation', async () => {
+    const findings = await ruleFindings(
+      '<span class="dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; animation-name: pulse; animation-iteration-count: infinite"></span>',
+      'pulsing-dot',
+      '@keyframes pulse { 50% { opacity: 0.4; } } @media (prefers-reduced-motion: no-preference) { .dot { animation-name: pulse; animation-iteration-count: infinite; } }',
+    );
+    expect(findings).toHaveLength(1);
+  });
 });
