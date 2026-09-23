@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { buildSelector } from '../capture/selector';
@@ -44,6 +44,18 @@ function setup() {
   const overlay = document.querySelector('#overlay') as HTMLDivElement;
   return { toolbar, overlay, target: document.querySelector('#target') as HTMLElement };
 }
+
+// The resolve slicer reads performance.now(); a still clock keeps every pass in one slice regardless of load.
+let now = 0;
+
+beforeEach(() => {
+  now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('pins controller', () => {
   it('renders one marker for each annotation with a resolvable selector', () => {
@@ -436,9 +448,9 @@ describe('pins controller', () => {
       vi.restoreAllMocks();
     });
 
+    // Every clock read advances one slice budget, so each pass yields after exactly one track().
     function slowClock() {
-      let now = 0;
-      vi.spyOn(performance, 'now').mockImplementation(() => (now += RESOLVE_SLICE_MS));
+      vi.mocked(performance.now).mockImplementation(() => (now += RESOLVE_SLICE_MS));
     }
 
     function targets(count: number) {

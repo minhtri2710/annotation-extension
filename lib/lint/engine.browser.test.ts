@@ -64,9 +64,14 @@ function yieldStretches(): () => number {
 async function scanStretches(rules: Rule[]): Promise<{ stretch: number; gap: number }> {
   const stopHeartbeat = heartbeat();
   const stopStretches = yieldStretches();
-  await collectFindings(rules, createScanContext(window), new AbortController().signal);
-  const stretch = stopStretches();
-  const gap = stopHeartbeat();
+  let stretch: number;
+  let gap: number;
+  try {
+    await collectFindings(rules, createScanContext(window), new AbortController().signal);
+  } finally {
+    stretch = stopStretches();
+    gap = stopHeartbeat();
+  }
   console.info(`longest stretch ${stretch.toFixed(1)} ms, longest heartbeat gap ${gap.toFixed(1)} ms`);
   return { stretch, gap };
 }
