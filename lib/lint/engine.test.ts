@@ -313,6 +313,28 @@ describe('lint engine', () => {
     expect(nextTest).not.toHaveBeenCalled();
   });
 
+  it('drops a page hit whose element is removed before the page phase finishes', async () => {
+    document.body.innerHTML = '<p id="kept"></p><p id="removed"></p>';
+    const kept = document.getElementById('kept')!;
+    const removed = document.getElementById('removed')!;
+    const early: Rule = {
+      id: 'early', scope: 'page', category: 'quality', name: 'early', description: 'early',
+      test: async () => [{ detail: 'kept', el: kept }, { detail: 'removed', el: removed }, { detail: 'page' }],
+    };
+    const remover: Rule = {
+      id: 'remover', scope: 'page', category: 'quality', name: 'remover', description: 'remover',
+      test: async () => {
+        removed.remove();
+        return [];
+      },
+    };
+
+    const findings = await collectFindings([early, remover], createScanContext(window), new AbortController().signal);
+
+    expect(findings.map((f) => [f.detail, f.el])).toEqual([['kept', kept], ['page', undefined]]);
+    expect(findings[0]?.el).toBe(kept);
+  });
+
   it('runs last on the real setTimeout after earlier tests spied on a fake one', async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }, 1000);

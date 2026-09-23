@@ -485,12 +485,19 @@ function insetStripeHits(el: Element, ctx: ScanContext): RuleHit[] {
 
 async function repeatingGradientTest(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const repeating = /repeating-(?:linear|radial|conic)-gradient\s*\(/i;
-  const hits: PageHit[] = [];
+  const groups = new Map<string, { el: Element; count: number }>();
   for (const el of Array.from(ctx.doc.querySelectorAll('*'))) {
     await checkpoint();
-    if (repeating.test(styleValue(ctx, el, 'background-image'))) hits.push({ detail: 'repeating-gradient decorative stripes', el });
+    const image = styleValue(ctx, el, 'background-image');
+    if (!repeating.test(image)) continue;
+    const group = groups.get(image);
+    if (group) group.count += 1;
+    else groups.set(image, { el, count: 1 });
   }
-  return hits;
+  return Array.from(groups.values(), ({ el, count }) => ({
+    detail: `repeating-gradient decorative stripes${count > 1 ? ` (${count} elements)` : ''}`,
+    el,
+  }));
 }
 
 function hasGridBackground(block: string): boolean {

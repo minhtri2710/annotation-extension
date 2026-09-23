@@ -335,6 +335,8 @@ function isLargeText(ctx: ScanContext, el: Element): boolean {
 // variant is intentionally not part of this content-script rule pack.
 function lowContrastHit(ctx: ScanContext, el: Element): RuleHit[] {
   if (!hasDirectText(el)) return [];
+  // WCAG 1.4.3 exempts inactive components.
+  if (el.closest(':disabled, [aria-disabled="true"]')) return [];
   const text = parseColor(styleValue(ctx, el, 'color'));
   if (!text) return [];
   const clip = styleValue(ctx, el, 'backgroundClip') || styleValue(ctx, el, 'webkitBackgroundClip');

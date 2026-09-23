@@ -62,6 +62,20 @@ describe('revealSweep', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('reports the swept fraction after each settled step, ending at 1 before the restore', async () => {
+    stubPage(2000, 1000);
+    const progress: number[] = [];
+    const topsAtProgress: number[][] = [];
+    const done = revealSweep(window, new AbortController().signal, (fraction) => {
+      progress.push(fraction);
+      topsAtProgress.push(tops());
+    });
+    await vi.runAllTimersAsync();
+    await done;
+    expect(progress).toEqual([1 / 3, 2 / 3, 1]);
+    expect(topsAtProgress).toEqual([[0], [0, 700], [0, 700, 1400]]);
+  });
+
   it('never steps less than 200px on a short viewport', async () => {
     stubPage(500, 100);
     const done = revealSweep(window, new AbortController().signal);

@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Finding, Rule, Severity } from '../lint/engine';
 import { hiddenAtRestRules } from '../lint/rules/hidden-at-rest';
-import { createScanPanel, deepScanPage, scanPage } from './scan-panel';
+import { createScanPanel, deepScanPage, scanPage, type ScanPanelOptions } from './scan-panel';
 
 function finding(ruleId: string, name: string, severity: Severity, detail: string, el?: Element): Finding {
   return {
@@ -15,7 +15,7 @@ function finding(ruleId: string, name: string, severity: Severity, detail: strin
 type DeepScan = (signal: AbortSignal) => Promise<Finding[]>;
 type Scan = (signal: AbortSignal) => Promise<Finding[]>;
 
-function setup(scan: Scan, deepScan: DeepScan = () => new Promise<Finding[]>(() => {})) {
+function setup(scan: Scan, deepScan: ScanPanelOptions['deepScan'] = () => new Promise<Finding[]>(() => {})) {
   const panel = document.createElement('div');
   const highlightRoot = document.createElement('div');
   document.body.append(panel, highlightRoot);
@@ -289,6 +289,19 @@ describe('deepScanPage', () => {
     expect(scrollTo).toHaveBeenLastCalledWith({ top: window.scrollY, left: window.scrollX, behavior: 'instant' });
     expect(ruleTest.mock.invocationCallOrder[0]).toBeGreaterThan(scrollTo.mock.invocationCallOrder.at(-1)!);
   });
+
+  it('forwards sweep progress to the caller', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1000);
+    vi.spyOn(document.documentElement, 'scrollHeight', 'get').mockReturnValue(2000);
+    vi.spyOn(document.body, 'scrollHeight', 'get').mockReturnValue(0);
+    window.scrollTo = vi.fn();
+    const progress: number[] = [];
+    const pending = deepScanPage(window, document.createElement('div'), new AbortController().signal, (fraction) => progress.push(fraction));
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(progress).toEqual([1 / 3, 2 / 3, 1]);
+  });
 });
 
 describe('scan panel deep scan', () => {
@@ -347,6 +360,56 @@ describe('scan panel deep scan', () => {
     expect(panel.querySelector('[data-annotation-scan-locate]')?.textContent).toBe('Locate');
     expect(deepButton(panel)?.previousElementSibling?.hasAttribute('data-annotation-scan-summary')).toBe(true);
     expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows sweep progress at most once a second and announces only 25% steps', async () => {
+    vi.useFakeTimers();
+    let report: (fraction: number) => void = () => {};
+    const { panel, scanPanel } = setup(async () => [], (_signal, onProgress) => {
+      report = onProgress;
+      return new Promise<Finding[]>(() => {});
+    });
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    const status = () => panel.querySelector('[data-annotation-status]')?.textContent;
+    const live = () => scanPanel.live.textContent;
+
+    report(0.1);
+    expect(status()).toBe('Deep scan running… 10%');
+    expect(live()).toBe('Deep scan running…');
+    vi.advanceTimersByTime(500);
+    report(0.26);
+    expect(status()).toBe('Deep scan running… 10%');
+    expect(live()).toBe('Deep scan running… 25%');
+    vi.advanceTimersByTime(500);
+    report(0.3);
+    expect(status()).toBe('Deep scan running… 30%');
+    expect(live()).toBe('Deep scan running… 25%');
+    vi.advanceTimersByTime(100);
+    report(0.74);
+    expect(status()).toBe('Deep scan running… 30%');
+    expect(live()).toBe('Deep scan running… 50%');
+    vi.advanceTimersByTime(1000);
+    report(1);
+    expect(status()).toBe('Deep scan running… 100%');
+    expect(live()).toBe('Deep scan running… 100%');
+    expect(panel.querySelector('[data-annotation-deep-scan-cancel]')).not.toBeNull();
+  });
+
+  it('ignores progress from a deep scan that was cancelled', async () => {
+    vi.useFakeTimers();
+    let report: (fraction: number) => void = () => {};
+    const { panel, scanPanel } = setup(async () => [], (signal, onProgress) => {
+      report = onProgress;
+      return new Promise<Finding[]>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+    });
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]')?.click();
+    await flush();
+    report(0.5);
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Deep scan cancelled');
+    expect(scanPanel.live.textContent).toBe('Deep scan cancelled');
   });
 
   it('shows the prefixed empty state for a deep scan with no findings', async () => {

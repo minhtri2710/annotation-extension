@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { collectFindings, createScanContext, type PageRule, type Rule } from './engine';
+import { collectFindings, createScanContext, type ElementRule, type PageRule, type Rule } from './engine';
 import { ALL_RULES } from './rules';
 
 const FIXTURE_ELEMENTS = 20_000;
@@ -91,5 +91,56 @@ describe('lint engine on a large page (real browser)', () => {
     expect(occlusionCompleted).toBe(false);
     expect(laterPageRules).toEqual([]);
     expect(rejectedAfter).toBeLessThan(MAX_STRETCH_MS);
+  }, 60_000);
+
+  it('reads innerText only from p and li elements during the element phase', async () => {
+    await buildFixture(2_000);
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'innerText')!;
+    const readers = new Set<string>();
+    Object.defineProperty(HTMLElement.prototype, 'innerText', {
+      ...descriptor,
+      get(this: HTMLElement) {
+        readers.add(this.tagName.toLowerCase());
+        return descriptor.get!.call(this);
+      },
+    });
+    try {
+      const elementRules = ALL_RULES.filter((rule): rule is ElementRule => rule.scope === 'element');
+      await collectFindings(elementRules, createScanContext(window), new AbortController().signal);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'innerText', descriptor);
+    }
+
+    expect([...readers].filter((tag) => tag !== 'p' && tag !== 'li')).toEqual([]);
+    expect(readers.size).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('checkpoints between style-attribute reads while building the CSS sources on a large page', async () => {
+    await buildFixture(FIXTURE_ELEMENTS);
+    const styled = document.querySelectorAll('[style]').length;
+    const rule = ALL_RULES.find((candidate): candidate is PageRule => candidate.id === 'organic-clip-path' && candidate.scope === 'page')!;
+    const getAttribute = Element.prototype.getAttribute;
+    let readsSinceCheckpoint = 0;
+    let longestRun = 0;
+    let reads = 0;
+    Element.prototype.getAttribute = function (this: Element, name: string) {
+      if (name === 'style') {
+        reads += 1;
+        readsSinceCheckpoint += 1;
+        longestRun = Math.max(longestRun, readsSinceCheckpoint);
+      }
+      return getAttribute.call(this, name);
+    };
+    try {
+      await rule.test(createScanContext(window), async () => {
+        readsSinceCheckpoint = 0;
+      });
+    } finally {
+      Element.prototype.getAttribute = getAttribute;
+    }
+
+    expect(styled).toBeGreaterThan(4_000);
+    expect(reads).toBe(styled);
+    expect(longestRun).toBe(1);
   }, 60_000);
 });

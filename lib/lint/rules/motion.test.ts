@@ -184,8 +184,8 @@ describe('motion lint rules through the real engine', () => {
     expect(first(positive)).toMatchObject({
       ruleId: 'marquee',
       detail: '<marquee> element',
-      el: document.querySelector('#positive'),
     });
+    expect(first(positive).el).toBe(document.querySelector('#positive'));
 
     const horizontal = await ruleFindings(
       '<div id="horizontal" style="animation-name: slide-loop; animation-iteration-count: infinite"></div>',
@@ -196,8 +196,8 @@ describe('motion lint rules through the real engine', () => {
     expect(first(horizontal)).toMatchObject({
       ruleId: 'marquee',
       detail: 'div — infinite horizontal loop animation "slide-loop"',
-      el: document.querySelector('#horizontal'),
     });
+    expect(first(horizontal).el).toBe(document.querySelector('#horizontal'));
 
     const negative = await ruleFindings(
       '<div id="negative" style="animation-name: slide-loop; animation-iteration-count: 2"></div>',

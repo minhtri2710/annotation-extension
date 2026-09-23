@@ -4,16 +4,19 @@ const STEP_SETTLE_MS = 40;
 const FINAL_SETTLE_MS = 700;
 
 // Scrolls top to bottom so on-scroll reveal handlers run, then restores the user's position and settles.
-export async function revealSweep(win: Window, signal: AbortSignal): Promise<void> {
+// onProgress receives the fraction of steps swept after each step settles.
+export async function revealSweep(win: Window, signal: AbortSignal, onProgress?: (fraction: number) => void): Promise<void> {
   signal.throwIfAborted();
   const { scrollX, scrollY } = win;
   try {
     const step = Math.max(MIN_STEP_PX, Math.floor(win.innerHeight * STEP_VIEWPORT_RATIO));
     // Measured once, so a page that grows during the sweep (infinite scroll) cannot extend it.
     const max = Math.max(win.document.documentElement.scrollHeight || 0, win.document.body?.scrollHeight || 0);
-    for (let y = 0; y <= max; y += step) {
-      win.scrollTo({ top: y, left: 0, behavior: 'instant' });
+    const steps = Math.floor(max / step) + 1;
+    for (let index = 0; index < steps; index += 1) {
+      win.scrollTo({ top: index * step, left: 0, behavior: 'instant' });
       await settle(win, STEP_SETTLE_MS, signal, true);
+      onProgress?.((index + 1) / steps);
     }
   } finally {
     win.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });

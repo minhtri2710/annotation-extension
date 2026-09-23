@@ -5,7 +5,7 @@ import { createLocateHighlight } from '../ui/locate-highlight';
 
 export interface ScanPanelOptions {
   scan: (signal: AbortSignal) => Promise<Finding[]>;
-  deepScan: (signal: AbortSignal) => Promise<Finding[]>;
+  deepScan: (signal: AbortSignal, onProgress: (fraction: number) => void) => Promise<Finding[]>;
   onUpdate: () => void;
   highlightRoot: HTMLElement;
 }
@@ -20,6 +20,8 @@ export interface ScanPanel {
 const SEVERITY_ORDER: Severity[] = ['error', 'warning', 'advisory'];
 const SEVERITY_LABEL: Record<Severity, string> = { error: 'Error', warning: 'Warning', advisory: 'Advisory' };
 const MAX_ROWS = 10;
+const PROGRESS_TEXT_INTERVAL_MS = 1000;
+const PROGRESS_ANNOUNCE_STEPS = 4;
 
 export async function scanPage(
   win: Window,
@@ -32,8 +34,13 @@ export async function scanPage(
   );
 }
 
-export async function deepScanPage(win: Window, host: Element, signal: AbortSignal): Promise<Finding[]> {
-  await revealSweep(win, signal);
+export async function deepScanPage(
+  win: Window,
+  host: Element,
+  signal: AbortSignal,
+  onProgress?: (fraction: number) => void,
+): Promise<Finding[]> {
+  await revealSweep(win, signal, onProgress);
   return scanPage(win, host, signal, [...ALL_RULES, ...DEEP_SCAN_RULES]);
 }
 
@@ -131,9 +138,27 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     panel.append(cancel);
     cancel.focus();
 
+    // The visible text updates at most once a second and the live region only at 25% steps.
+    let shownAt = Number.NEGATIVE_INFINITY;
+    let announcedStep = 0;
+    const onProgress = (fraction: number) => {
+      if (version !== renderVersion || controller.signal.aborted) return;
+      const text = `Deep scan running… ${Math.floor(fraction * 100)}%`;
+      const now = Date.now();
+      if (now - shownAt >= PROGRESS_TEXT_INTERVAL_MS) {
+        shownAt = now;
+        status.textContent = text;
+      }
+      const step = Math.floor(fraction * PROGRESS_ANNOUNCE_STEPS);
+      if (step > announcedStep) {
+        announcedStep = step;
+        announce(`Deep scan running… ${step * (100 / PROGRESS_ANNOUNCE_STEPS)}%`);
+      }
+    };
+
     let findings: Finding[];
     try {
-      findings = await options.deepScan(controller.signal);
+      findings = await options.deepScan(controller.signal, onProgress);
     } catch (error) {
       if (version !== renderVersion) return;
       finish();

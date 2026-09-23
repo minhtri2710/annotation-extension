@@ -256,6 +256,21 @@ describe('visual-details lint rules through the real engine', () => {
     expect(negative).toHaveLength(0);
   });
 
+  it('groups repeating stripes by background-image value, anchored to the first element with a count', async () => {
+    const hits = await ruleFindings(
+      '<div id="a1" class="a"></div><div id="b1" class="b"></div><div class="a"></div><div class="a"></div>',
+      'repeating-stripes-gradient',
+      {},
+      '.a { background-image: repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 2px); } .b { background-image: repeating-linear-gradient(90deg, #000 0 1px, transparent 1px 4px); }',
+    );
+    expect(hits.map((hit) => hit.detail)).toEqual([
+      'repeating-gradient decorative stripes (3 elements)',
+      'repeating-gradient decorative stripes',
+    ]);
+    expect(first(hits).el).toBe(document.querySelector('#a1'));
+    expect(hits[1]!.el).toBe(document.querySelector('#b1'));
+  });
+
   it('detects a two-axis hairline grid and rejects a single hairline', async () => {
     const positive = await ruleFindings(
       '<div></div>',
@@ -302,7 +317,7 @@ describe('visual-details lint rules through the real engine', () => {
     expect(await ruleFindings('<div style="border-radius: 10px"></div>', 'design-system-radius')).toHaveLength(0);
   });
 
-  it('anchors one repeating-stripes hit to each striped element and ignores a stripe rule that matches nothing', async () => {
+  it('anchors one repeating-stripes hit to the first element of each distinct stripe value and ignores a stripe rule that matches nothing', async () => {
     const stripe = '.stripe { background-image: repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 2px); }';
     const hits = await ruleFindings(
       '<div class="stripe" id="a"></div><div id="plain"></div><div class="stripe" id="b"></div><div id="inline" style="background: repeating-radial-gradient(circle, #000 0 2px, transparent 2px 4px)"></div>',
@@ -310,8 +325,11 @@ describe('visual-details lint rules through the real engine', () => {
       {},
       stripe,
     );
-    expect(hits.map((hit) => hit.el?.id)).toEqual(['a', 'b', 'inline']);
-    for (const hit of hits) expect(hit).toMatchObject({ severity: 'advisory', detail: 'repeating-gradient decorative stripes' });
+    expect(hits.map((hit) => hit.el?.id)).toEqual(['a', 'inline']);
+    expect(hits[0]!.el).toBe(document.querySelector('#a'));
+    expect(hits[1]!.el).toBe(document.querySelector('#inline'));
+    expect(hits.map((hit) => hit.detail)).toEqual(['repeating-gradient decorative stripes (2 elements)', 'repeating-gradient decorative stripes']);
+    for (const hit of hits) expect(hit).toMatchObject({ severity: 'advisory' });
 
     expect(await ruleFindings('<div class="other"></div>', 'repeating-stripes-gradient', {}, stripe)).toHaveLength(0);
   });

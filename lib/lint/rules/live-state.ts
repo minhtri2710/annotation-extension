@@ -363,6 +363,9 @@ async function edgeFlushCards(ctx: ScanContext, checkpoint: Checkpoint): Promise
   for (const scroller of Array.from(ctx.doc.querySelectorAll('*'))) {
     await checkpoint();
     if (!isScroller(ctx, scroller)) continue;
+    // A snap rail start-aligns its first card by design.
+    const snap = styleValue(ctx, scroller, 'scroll-snap-type');
+    if (snap && snap !== 'none') continue;
     if (scroller.scrollWidth <= scroller.clientWidth + EDGE_SCROLL_EXTRA_PX) continue;
     if (scroller.scrollLeft > EDGE_SCROLL_LEFT_MAX_PX) continue;
     const scrollerRect = scroller.getBoundingClientRect();
@@ -613,6 +616,9 @@ function textOverflow(el: Element, ctx: ScanContext): RuleHit[] {
   const tag = el.tagName.toLowerCase();
   if (TEXT_OVERFLOW_SKIP_TAGS.has(tag) || el.namespaceURI === 'http://www.w3.org/2000/svg') return [];
   if (!isRendered(ctx, el) || !hasDirectText(el) || isScreenReaderOnly(ctx, el)) return [];
+  const clipsX = (value: string): boolean => value === 'hidden' || value === 'clip';
+  if (styleValue(ctx, el, 'text-overflow') === 'ellipsis'
+    && (clipsX(styleValue(ctx, el, 'overflow-x')) || clipsX(styleValue(ctx, el, 'overflow')))) return [];
   let ancestor = el.parentElement;
   while (ancestor) {
     if (isScroller(ctx, ancestor)) return [];

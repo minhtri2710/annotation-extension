@@ -638,10 +638,12 @@ function crampedPaddingHit(el: Element, ctx: ScanContext): RuleHit[] {
 
 function bodyEdgeHit(el: Element, ctx: ScanContext): RuleHit[] {
   const tag = el.tagName.toLowerCase();
+  // Tag first: innerText on a large container (html, body, main) is a long synchronous layout read.
+  if (!['p', 'li'].includes(tag)) return [];
   const text = innerText(el);
   const box = boxFromRect(el.getBoundingClientRect());
   const viewport = ctx.innerWidth;
-  if (!text || text.length <= BODY_EDGE_MIN_TEXT_LENGTH || !['p', 'li'].includes(tag) || !hasDirectTextLongerThan(el, 10) || viewport <= 0) return [];
+  if (!text || text.length <= BODY_EDGE_MIN_TEXT_LENGTH || !hasDirectTextLongerThan(el, 10) || viewport <= 0) return [];
   const ownBackground = styleValue(ctx, el, 'background-color');
   if (el.closest('nav, header') || (ownBackground !== '' && cssColorAlpha(ownBackground) > 0.05)) return [];
   const position = styleValue(ctx, el, 'position');

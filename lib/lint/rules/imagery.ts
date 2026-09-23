@@ -1,4 +1,4 @@
-import type { ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
 
 const SHAPE_MAX_TEXT_NODES = 2;
 const SHAPE_MIN_PRIMITIVES = 8;
@@ -46,26 +46,34 @@ interface CssSource {
 const cssSourceCache = new WeakMap<ScanContext, CssSource[]>();
 
 // Same-document CSS text, read once per scan: <style> blocks, style attributes, same-origin CSSOM.
-function cssSources(ctx: ScanContext): CssSource[] {
+async function cssSources(ctx: ScanContext, checkpoint: Checkpoint): Promise<CssSource[]> {
   const cached = cssSourceCache.get(ctx);
   if (cached) return cached;
 
   const sources: CssSource[] = [];
   const inlineSheets = new Set<CSSStyleSheet>();
   for (const style of Array.from(ctx.doc.querySelectorAll('style'))) {
+    await checkpoint();
     if (style.textContent) sources.push({ text: style.textContent });
     if (style.sheet) inlineSheets.add(style.sheet);
   }
   for (const el of Array.from(ctx.doc.querySelectorAll('[style]'))) {
+    await checkpoint();
     const value = el.getAttribute('style');
     if (value) sources.push({ text: value, el });
   }
   for (const sheet of Array.from(ctx.doc.styleSheets)) {
     if (inlineSheets.has(sheet)) continue;
+    let rules: CSSRule[];
     try {
-      for (const rule of Array.from(sheet.cssRules)) sources.push({ text: rule.cssText });
+      rules = Array.from(sheet.cssRules);
     } catch {
       // Cross-origin stylesheets intentionally provide no readable same-document CSS.
+      continue;
+    }
+    for (const rule of rules) {
+      await checkpoint();
+      sources.push({ text: rule.cssText });
     }
   }
   cssSourceCache.set(ctx, sources);
@@ -143,7 +151,7 @@ const organicClipPath: PageRule = {
   scope: 'page',
   async test(ctx, checkpoint): Promise<PageHit[]> {
     const hits: PageHit[] = [];
-    for (const source of cssSources(ctx)) {
+    for (const source of await cssSources(ctx, checkpoint)) {
       await checkpoint();
       for (const match of source.text.matchAll(ORGANIC_CLIP_RE)) {
         const detail = organicClipDetail((match[1] ?? '').toLowerCase(), match[2] ?? '');
@@ -217,7 +225,7 @@ const buriedRaster: PageRule = {
       const detail = transparentRasterDetail(el, ctx);
       if (detail) hits.push({ detail, el });
     }
-    for (const source of cssSources(ctx)) {
+    for (const source of await cssSources(ctx, checkpoint)) {
       await checkpoint();
       for (const match of source.text.matchAll(BURIED_DECL_RE)) {
         const detail = washedRasterDetail(source.text, match[1] ?? '', match.index);

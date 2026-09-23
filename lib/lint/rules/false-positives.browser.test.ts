@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { collectFindings, createScanContext, type Finding, type Rule } from '../engine';
 import { revealSweep } from '../../scan-panel/reveal-sweep';
+import { colorRules } from './color';
 import { hiddenAtRestRules } from './hidden-at-rest';
+import { liveStateRules } from './live-state';
 import { motionRules } from './motion';
 import { visualDetailsRules } from './visual-details';
 
@@ -98,8 +100,49 @@ describe('repeating-stripes-gradient in a real browser', () => {
     expect(hits[0]).toMatchObject({ severity: 'advisory', detail: 'repeating-gradient decorative stripes' });
   });
 
+  it('reports one hit with a count for rows sharing one stripe value', async () => {
+    const win = await load(page(stripes, Array.from({ length: 3 }, () => '<div role="progressbar" aria-label="Upload progress"><div class="fill"></div></div>').join('')));
+    const hits = await findings(win, visualDetailsRules, 'repeating-stripes-gradient');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.el).toBe(win.document.querySelector('.fill'));
+    expect(hits[0]!.detail).toBe('repeating-gradient decorative stripes (3 elements)');
+  });
+
   it('does not fire for a stripe rule that matches no element', async () => {
     const win = await load(page(stripes, '<div role="progressbar" aria-label="Upload progress"><div class="bar"></div></div>'));
     expect(await findings(win, visualDetailsRules, 'repeating-stripes-gradient')).toEqual([]);
+  });
+});
+
+describe('inactive, truncated and snapping UI in a real browser', () => {
+  it('skips low-contrast on a disabled button and still flags the same colors when enabled', async () => {
+    const css = 'button{font:16px system-ui;padding:8px 16px;border:0;color:#a0a0a0;background:#f0f0f0}';
+    const win = await load(page(css, '<button id="off" disabled>Save</button><div aria-disabled="true"><button>Aria</button></div><button id="on">Send</button>'));
+    const hits = await findings(win, colorRules, 'low-contrast');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.el).toBe(win.document.querySelector('#on'));
+  });
+
+  it('skips text-overflow on ellipsis truncation and still flags an unclipped overflow', async () => {
+    const long = 'A very long list item title that cannot fit in the narrow column at all';
+    const win = await load(page(
+      'ul{width:200px;padding:0}li{white-space:nowrap}.cut{overflow:hidden;text-overflow:ellipsis}',
+      `<ul><li class="cut" title="${long}">${long}</li><li class="cut">${long}</li><li id="spill">${long}</li></ul>`,
+    ));
+    const hits = await findings(win, liveStateRules, 'text-overflow');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.el).toBe(win.document.querySelector('#spill'));
+  });
+
+  it('skips edge-flush-cards on a scroll-snap carousel rail and still flags the same rail without snapping', async () => {
+    const cards = Array.from({ length: 8 }, (_, i) => `<article>Card ${i + 1}</article>`).join('');
+    const css = (snap: string) => `.rail{display:flex;gap:16px;overflow-x:auto;scroll-snap-type:${snap};width:900px;height:240px}article{flex:0 0 300px;height:200px;background:#fff;border:1px solid #ccc;scroll-snap-align:start}`;
+    const snapped = await load(page(css('x mandatory'), `<div class="rail">${cards}</div>`));
+    expect(await findings(snapped, liveStateRules, 'edge-flush-cards')).toEqual([]);
+    frame!.remove();
+    const plain = await load(page(css('none'), `<div class="rail">${cards}</div>`));
+    const hits = await findings(plain, liveStateRules, 'edge-flush-cards');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.el).toBe(plain.document.querySelector('.rail'));
   });
 });

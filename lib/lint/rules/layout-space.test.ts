@@ -172,7 +172,8 @@ describe('layout and space lint rules through the real engine', () => {
       (finding) => finding.ruleId === 'nested-cards',
     );
     expect(positive).toHaveLength(1);
-    expect(first(positive)).toMatchObject({ ruleId: 'nested-cards', detail: 'Card inside card', el: inner });
+    expect(first(positive)).toMatchObject({ ruleId: 'nested-cards', detail: 'Card inside card' });
+    expect(first(positive).el).toBe(inner);
 
     const negative = await ruleFindings(
       '<div id="negative" class="border rounded" style="background-color: white">A single card only</div>',
@@ -240,8 +241,8 @@ describe('layout and space lint rules through the real engine', () => {
     expect(first(positive)).toMatchObject({
       ruleId: 'line-length',
       detail: '~100 chars on 3 of 3 rendered lines (aim for <80)',
-      el: document.querySelector('#positive'),
     });
+    expect(first(positive).el).toBe(document.querySelector('#positive'));
     expect(findings.some((finding) => finding.ruleId === 'line-length' && finding.el?.id === 'negative')).toBe(false);
 
     document.body.innerHTML = `<p id="box">${'x'.repeat(158)}</p>`;
@@ -295,8 +296,8 @@ describe('layout and space lint rules through the real engine', () => {
     expect(first(positive)).toMatchObject({
       ruleId: 'cramped-padding',
       detail: '<section> "frame": children flush against border on right/left (no inset)',
-      el: positiveFrame,
     });
+    expect(first(positive).el).toBe(positiveFrame);
 
     document.body.innerHTML = '<section id="negative" class="frame" style="position:static;border:1px solid black;padding:28px 8px 0"><p id="negative-child" style="margin:0">Wrapper text content</p></section>';
     const negativeFrame = document.querySelector('#negative')!;
@@ -359,8 +360,8 @@ describe('layout and space lint rules through the real engine', () => {
     expect(first(findings)).toMatchObject({
       ruleId: 'cramped-padding',
       detail: '<section> "outline-frame": children flush against outline on top/right/left (no inset)',
-      el: frame,
     });
+    expect(first(findings).el).toBe(frame);
   });
 
   it('reports only the first class token in the cramped-padding wrapper detail', async () => {
@@ -397,8 +398,8 @@ describe('layout and space lint rules through the real engine', () => {
     expect(first(findings)).toMatchObject({
       ruleId: 'cramped-padding',
       detail: '2px of space above and below the text (need ≥4.8px for 16px text)',
-      el: document.querySelector('#positive'),
     });
+    expect(first(findings).el).toBe(document.querySelector('#positive'));
     expect(findings.some((finding) => finding.el?.id === 'negative')).toBe(false);
   });
 
@@ -445,8 +446,8 @@ describe('layout and space lint rules through the real engine', () => {
     expect(first(positive)).toMatchObject({
       ruleId: 'heading-rhythm',
       detail: 'h2 "First section" has 10px above vs 30px below — it reads as bound to the block above (2 headings on page)',
-      el: document.querySelector('#h1'),
     });
+    expect(first(positive).el).toBe(document.querySelector('#h1'));
 
     document.body.innerHTML = `
       <div id="before1">${'Previous block '.repeat(7)}</div><h2 id="h1">First section</h2><div id="after1">First content</div>

@@ -86,6 +86,23 @@ describe('color lint rules through the real engine', () => {
     expect(await hasRule('low-contrast')).toBe(false);
   });
 
+  it('skips low contrast on disabled and aria-disabled controls and their subtrees', async () => {
+    const low = 'color: rgb(160, 160, 160); background-color: rgb(240, 240, 240); font-size: 16px';
+    document.body.innerHTML = `
+      <button id="enabled" style="${low}">Enabled</button>
+      <button id="disabled" disabled style="${low}">Disabled</button>
+      <button disabled style="${low}"><span id="inside-disabled" style="${low}">Inner</span></button>
+      <fieldset disabled><button id="fieldset-disabled" style="${low}">In fieldset</button></fieldset>
+      <div aria-disabled="true" style="${low}"><span id="aria-disabled" style="${low}">Aria</span></div>
+      <div id="aria-enabled" aria-disabled="false" style="${low}">Aria false</div>
+    `;
+
+    const hits = await ruleFindings('low-contrast');
+    expect(hits.map((hit) => hit.el)).toEqual([document.querySelector('#enabled'), document.querySelector('#aria-enabled')]);
+    expect(first(hits).el).toBe(document.querySelector('#enabled'));
+    expect(hits[1]!.el).toBe(document.querySelector('#aria-enabled'));
+  });
+
   it('flags gray ink on a chromatic background but not below the chroma boundary', async () => {
     document.body.innerHTML = `
       <p id="positive" style="color: rgb(119, 119, 119)">Positive</p>

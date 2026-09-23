@@ -133,12 +133,15 @@ export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: A
     }
     if (sliceDue()) await yieldSlice();
   }
+  const pageFindings: Finding[] = [];
   for (const rule of pageRules) {
     await checkpoint();
     for (const hit of await rule.test(ctx, checkpoint)) {
-      findings.push(toFinding(rule, hit, hit.el));
+      pageFindings.push(toFinding(rule, hit, hit.el));
     }
   }
+  // Page rules iterate arrays captured before a yield; drop hits on elements the page removed meanwhile.
+  findings.push(...pageFindings.filter((finding) => !finding.el || finding.el.isConnected));
 
   const disabledRules = new Set(ctx.config.disabledRules ?? []);
   const disabledValues = ctx.config.disabledValues ?? [];

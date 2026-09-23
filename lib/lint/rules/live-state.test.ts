@@ -265,6 +265,51 @@ describe('live-state lint rules through the real engine', () => {
     )).toHaveLength(0);
   });
 
+  it('skips deliberate ellipsis truncation but keeps ellipsis without a clip and a clip without ellipsis', async () => {
+    const cases = [
+      ['hidden', 'white-space: nowrap; overflow: hidden; text-overflow: ellipsis', false],
+      ['clip', 'white-space: nowrap; overflow-x: clip; text-overflow: ellipsis', false],
+      ['visible', 'white-space: nowrap; text-overflow: ellipsis', true],
+      ['plain-clip', 'white-space: nowrap; overflow: hidden', true],
+    ] as const;
+    document.body.innerHTML = cases.map(([id, style]) => `<div id="${id}" style="${style}">A long direct text run</div>`).join('');
+    for (const [id] of cases) {
+      const el = document.getElementById(id)!;
+      stubRect(el, { left: 0, top: 0, width: 100, height: 24 });
+      stubMetric(el, 'clientWidth', 100);
+      stubMetric(el, 'scrollWidth', 300);
+    }
+    const findings = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
+      (finding) => finding.ruleId === 'text-overflow',
+    );
+    expect(findings).toHaveLength(2);
+    expect(findings[0]!.el).toBe(document.getElementById('visible'));
+    expect(findings[1]!.el).toBe(document.getElementById('plain-clip'));
+  });
+
+  it('skips a scroll-snap rail for edge-flush-cards and still flags the same rail without snapping', async () => {
+    const markup = (snap: string) => `<div class="rail" style="display: flex; overflow-x: auto; scroll-snap-type: ${snap}"><article class="card" style="background: rgb(255, 255, 255)"></article></div>`;
+    const edgeFindings = async (snap: string) => {
+      document.body.innerHTML = markup(snap);
+      const rail = document.querySelector('.rail')!;
+      stubRect(rail, { left: 0, top: 0, width: 600, height: 180 });
+      stubRect(document.querySelector('.card')!, { left: 0, top: 20, width: 300, height: 120 });
+      stubMetric(rail, 'scrollWidth', 2400);
+      stubMetric(rail, 'clientWidth', 600);
+      stubMetric(rail, 'scrollLeft', 0);
+      stubMetric(rail, 'clientLeft', 0);
+      return (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
+        (finding) => finding.ruleId === 'edge-flush-cards',
+      );
+    };
+
+    expect(await edgeFindings('x mandatory')).toHaveLength(0);
+    expect(await edgeFindings('x proximity')).toHaveLength(0);
+    const unsnapped = await edgeFindings('none');
+    expect(unsnapped).toHaveLength(1);
+    expect(first(unsnapped).el).toBe(document.querySelector('.rail'));
+  });
+
   it('keeps a partially clipped element eligible for text-overflow findings', async () => {
     document.body.innerHTML = '<div class="peek" style="clip-path: inset(50% 0 0 0)">A long direct text run</div>';
     const peek = document.querySelector('.peek')!;
