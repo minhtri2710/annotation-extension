@@ -171,6 +171,20 @@ describe('processScreenshot', () => {
     expectColor(image.pixel(1500, 200), BLUE);
   });
 
+  it('downscales a fractional devicePixelRatio crop from its unrounded device size', async () => {
+    const capture = await splitImage(3100, 1300);
+
+    // At dpr 1.25 box 2400.4 x 1000.36 is 3000.5 x 1250.45 device pixels; scale 1600 / 3000.5 gives 1600 x 666.81, so 1600 x 667.
+    // Rounding the device size first (3001 x 1250) would give 1600 x 666.
+    const result = await processScreenshot(capture, { x: 0, y: 0, width: 2400.4, height: 1000.36 }, 1.25);
+
+    expect([result.width, result.height]).toEqual([1600, 667]);
+    const image = await decode(result.blob);
+    expect([image.width, image.height]).toEqual([1600, 667]);
+    expectColor(image.pixel(100, 333), RED);
+    expectColor(image.pixel(1500, 333), BLUE);
+  });
+
   it('downscales a tall crop so its height is 1600px', async () => {
     const capture = await splitImage(1000, 3200);
 
