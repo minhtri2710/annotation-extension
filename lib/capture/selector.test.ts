@@ -54,6 +54,16 @@ function shadowHost(tag: string, html: string, parent: ParentNode = document.bod
 }
 
 describe('shadow selectors', () => {
+  it('keeps the light-DOM path for the same ambiguity unanchored', () => {
+    document.body.innerHTML = '<section><div><span>a</span></div></section><div><span>b</span></div>';
+    const element = document.querySelectorAll('span')[1] as HTMLElement;
+
+    const selector = buildSelector(element);
+
+    expect(selector).toBe('body > div > span');
+    expect(resolveSelector(document, selector)).toBe(element);
+  });
+
   it('keeps a light-DOM selector free of the delimiter and round-trips it', () => {
     document.body.innerHTML = '<main><p>One</p><p>Two</p></main>';
     const element = document.querySelectorAll('p')[1] as HTMLElement;
