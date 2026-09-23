@@ -1,5 +1,5 @@
 import { playwright } from '@vitest/browser-playwright';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { WxtVitest } from 'wxt/testing/vitest-plugin';
 
 export default defineConfig({
@@ -11,7 +11,7 @@ export default defineConfig({
           name: 'unit',
           environment: 'node',
           setupFiles: ['./vitest.setup.ts'],
-          exclude: ['**/node_modules/**', '**/*.browser.test.ts'],
+          exclude: [...configDefaults.exclude, '**/*.browser.test.ts'],
         },
       },
       {
