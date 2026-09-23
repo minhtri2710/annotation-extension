@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
-import type { AnnotationWriteMessage } from '../annotation-messages';
+import { MAX_TEXT_LENGTH, type AnnotationWriteMessage } from '../annotation-messages';
 import type { ElementContext } from '../capture/context';
 import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from './note-panel';
 import type { NotePanelPersistence } from './persistence';
@@ -947,5 +947,72 @@ describe('note panel screenshot outcome, fresh status, labels, announcements and
       expect(name).not.toContain(second.id);
       expect(name).toMatch(/annotation 2$/);
     }
+  });
+});
+
+describe('note panel text caps', () => {
+  it('caps the note and repro fields at the shared text cap', async () => {
+    const panel = document.createElement('div');
+    await render(panel, [annotation('Existing note')]);
+    for (const selector of [
+      '[data-annotation-new-note]',
+      '[data-annotation-edit-note]',
+      '[data-annotation-repro-steps]',
+      '[data-annotation-repro-expected]',
+      '[data-annotation-repro-actual]',
+    ]) {
+      expect(panel.querySelector<HTMLTextAreaElement>(selector)?.maxLength, selector).toBe(MAX_TEXT_LENGTH);
+    }
+  });
+
+  it('refuses a save the write guard would refuse, says what was too long, and keeps the typed note', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const long = 'x'.repeat(MAX_TEXT_LENGTH + 1);
+    const notePanel = createNotePanel(panel, {
+      listAnnotations: vi.fn().mockResolvedValue([]),
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+      readBlob: vi.fn(),
+      addAttachment: vi.fn(),
+      deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(),
+      revertCssEdits: vi.fn(),
+      revertAllCssEdits: vi.fn(),
+    });
+    await notePanel.render({ ...context, selector: long });
+
+    const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+    note.value = 'Keep me';
+    (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() =>
+      expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe(
+        `The selector is longer than ${MAX_TEXT_LENGTH} characters.`,
+      ),
+    );
+    expect(notePanel.live.textContent).toBe(`The selector is longer than ${MAX_TEXT_LENGTH} characters.`);
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    expect((panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement).value).toBe('Keep me');
+  });
+
+  it('refuses a CSS save whose value is over the cap without writing it', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const long = 'x'.repeat(MAX_TEXT_LENGTH + 1);
+    await render(panel, [annotation('Existing note')], {
+      sendAnnotationWrite,
+      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: long, original: 'blue' }]),
+    });
+
+    const css = panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement;
+    css.value = `color: ${long}`;
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() =>
+      expect(panel.querySelector('[data-annotation-status]')?.textContent).toContain('The CSS edits are not valid'),
+    );
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    expect((panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value).toBe(`color: ${long}`);
   });
 });

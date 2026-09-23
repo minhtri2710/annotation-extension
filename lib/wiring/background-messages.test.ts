@@ -2,7 +2,7 @@ import { browser } from 'wxt/browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { registerBackgroundMessageHandlers } from './background-messages';
-import { isAnnotationWriteMessage } from '../annotation-messages';
+import { isAnnotationWriteMessage, MAX_TEXT_LENGTH } from '../annotation-messages';
 import { listAnnotations } from '../annotation-storage';
 import type { BlobStore } from '../blob-store';
 
@@ -89,6 +89,26 @@ describe('background message routing', () => {
     );
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'storage unavailable' }));
+  });
+
+  it('answers an over-cap or malformed annotation write with an error response and writes nothing', async () => {
+    const store = new MemoryBlobStore();
+    start(store);
+    const cases: [unknown, string][] = [
+      [
+        { type: 'annotation.add', pageUrl, input: { note: 'n'.repeat(MAX_TEXT_LENGTH + 1), selector: '#target', elementContext } },
+        `The note is longer than ${MAX_TEXT_LENGTH} characters.`,
+      ],
+      [{ type: 'annotation.add', pageUrl }, 'The annotation change is not valid.'],
+      [{ type: 'annotation.delete', pageUrl, id: 7 }, 'The annotation id is not valid.'],
+    ];
+    for (const [message, error] of cases) {
+      const sendResponse = vi.fn();
+      const handled = await fakeBrowser.runtime.onMessage.trigger(message, {}, sendResponse);
+      expect(handled).toContain(true);
+      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error });
+    }
+    await expect(listAnnotations(pageUrl)).resolves.toEqual([]);
   });
 
   it('routes successful writes without changing their response type', async () => {

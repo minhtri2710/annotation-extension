@@ -5,7 +5,10 @@ import { listAnnotations } from './annotation-storage';
 import { registerBackgroundMessageHandlers } from './wiring/background-messages';
 import type { BlobStore } from './blob-store';
 import {
+  annotationWriteError,
   isAnnotationWriteMessage,
+  MAX_LIST_LENGTH,
+  MAX_TEXT_LENGTH,
   isAttachmentMetadata,
   isCssEdit,
   isCssEdits,
@@ -251,5 +254,67 @@ describe('annotation write messages', () => {
   it('rejects when the background returns a write error response', async () => {
     vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'storage unavailable' } as never);
     await expect(sendAnnotationWrite({ type: 'annotation.clear', pageUrl })).rejects.toThrow('storage unavailable');
+  });
+});
+
+describe('shared caps on write messages', () => {
+  const cap = 'x'.repeat(MAX_TEXT_LENGTH);
+  const over = 'x'.repeat(MAX_TEXT_LENGTH + 1);
+  const list = (length: number) => Array.from({ length }, () => 'x');
+  const add = (input: Record<string, unknown>, url = pageUrl) => ({
+    type: 'annotation.add', pageUrl: url, input: { note: 'n', selector: '#target', elementContext, ...input },
+  });
+  const update = (changes: Record<string, unknown>) => ({ type: 'annotation.update', pageUrl, id: 'annotation-1', changes });
+
+  it('accepts every text field at the text cap and every list at the list cap', () => {
+    for (const message of [
+      add({ note: cap }),
+      add({ selector: cap }),
+      add({}, cap),
+      add({ elementContext: { ...elementContext, text: cap, classList: list(MAX_LIST_LENGTH) } }),
+      add({ repro: { steps: list(MAX_LIST_LENGTH), expected: cap, actual: cap } }),
+      add({ cssEdits: Array.from({ length: MAX_LIST_LENGTH }, () => ({ property: cap, value: cap, original: cap })) }),
+      update({ note: cap }),
+    ]) {
+      expect(annotationWriteError(message)).toBeUndefined();
+      expect(isAnnotationWriteMessage(message)).toBe(true);
+    }
+  });
+
+  it('refuses one past any cap and says which field was too long', () => {
+    const limits = `each text is at most ${MAX_TEXT_LENGTH} characters and each list at most ${MAX_LIST_LENGTH} items`;
+    const cases: [unknown, string][] = [
+      [add({ note: over }), `The note is longer than ${MAX_TEXT_LENGTH} characters.`],
+      [update({ note: over }), `The note is longer than ${MAX_TEXT_LENGTH} characters.`],
+      [add({ selector: over }), `The selector is longer than ${MAX_TEXT_LENGTH} characters.`],
+      [add({}, over), `The page URL is longer than ${MAX_TEXT_LENGTH} characters.`],
+      [{ type: 'annotation.clear', pageUrl: over }, `The page URL is longer than ${MAX_TEXT_LENGTH} characters.`],
+      [add({ elementContext: { ...elementContext, url: over } }), `The element details are not valid: ${limits}.`],
+      [add({ elementContext: { ...elementContext, classList: list(MAX_LIST_LENGTH + 1) } }), `The element details are not valid: ${limits}.`],
+      [add({ elementContext: { ...elementContext, sourcePath: { fileName: over } } }), `The element details are not valid: ${limits}.`],
+      [update({ repro: { steps: [], expected: over, actual: '' } }), `The reproduction steps are not valid: ${limits}.`],
+      [update({ repro: { steps: list(MAX_LIST_LENGTH + 1), expected: '', actual: '' } }), `The reproduction steps are not valid: ${limits}.`],
+      [update({ cssEdits: [{ property: 'color', value: over, original: '' }] }), `The CSS edits are not valid: ${limits}.`],
+      [update({ cssEdits: Array.from({ length: MAX_LIST_LENGTH + 1 }, () => ({ property: 'a', value: 'b', original: 'c' })) }), `The CSS edits are not valid: ${limits}.`],
+    ];
+    for (const [message, reason] of cases) {
+      expect(annotationWriteError(message)).toBe(reason);
+      expect(isAnnotationWriteMessage(message)).toBe(false);
+    }
+  });
+
+  it('holds ids to the shared id grammar and names malformed messages', () => {
+    expect(isAnnotationWriteMessage({ type: 'annotation.delete', pageUrl, id: 'a'.repeat(64) })).toBe(true);
+    expect(annotationWriteError({ type: 'annotation.delete', pageUrl, id: 'a'.repeat(65) })).toBe('The annotation id is not valid.');
+    expect(annotationWriteError({ type: 'annotation.update', pageUrl, id: 'a b', changes: {} })).toBe('The annotation id is not valid.');
+    expect(annotationWriteError({ type: 'annotation.add', pageUrl })).toBe('The annotation change is not valid.');
+    expect(annotationWriteError({ type: 'annotation.add', pageUrl: 3, input: {} })).toBe('The page URL is missing.');
+  });
+
+  it('answers an over-cap write with an error response and stores nothing', async () => {
+    await expect(sendAnnotationWrite(add({ note: over }) as never)).rejects.toThrow(
+      `The note is longer than ${MAX_TEXT_LENGTH} characters.`,
+    );
+    await expect(listAnnotations(pageUrl)).resolves.toEqual([]);
   });
 });

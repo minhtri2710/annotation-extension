@@ -9,8 +9,10 @@ import {
   updateAnnotationScreenshot,
 } from '../annotation-storage';
 import {
+  annotationWriteError,
   createAnnotationErrorResponse,
   isAnnotationWriteMessage,
+  isAnnotationWriteType,
 } from '../annotation-messages';
 import {
   isAttachmentAddMessage,
@@ -56,6 +58,12 @@ export function registerBackgroundMessageHandlers(
       })();
 
       void mutation.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
+      return true;
+    }
+
+    // A refused write still gets an answer, so the sender never resolves to undefined.
+    if (isAnnotationWriteType(message)) {
+      sendResponse(createAnnotationErrorResponse(new Error(annotationWriteError(message))));
       return true;
     }
 

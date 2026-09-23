@@ -45,23 +45,73 @@ export function createAnnotationErrorResponse(error: unknown): AnnotationErrorRe
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
+// One definition for the write guards and the JSON import: ids fit the minted UUIDs with room to spare; any other text field and any list is bounded.
+export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+/** In UTF-16 code units. */
+export const MAX_TEXT_LENGTH = 10_000;
+export const MAX_LIST_LENGTH = 1_000;
+const LIMITS = `each text is at most ${MAX_TEXT_LENGTH} characters and each list at most ${MAX_LIST_LENGTH} items`;
+const INVALID_CHANGE = 'The annotation change is not valid.';
+
+export function isText(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_TEXT_LENGTH;
+}
+
+function isTextList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= MAX_LIST_LENGTH && value.every(isText);
+}
+
 export function isAnnotationWriteMessage(value: unknown): value is AnnotationWriteMessage {
-  if (!isRecord(value) || typeof value.pageUrl !== 'string' || typeof value.type !== 'string') {
-    return false;
-  }
+  return annotationWriteError(value) === undefined;
+}
+
+export function isAnnotationWriteType(value: unknown): boolean {
+  return isRecord(value) && typeof value.type === 'string' &&
+    ['annotation.add', 'annotation.update', 'annotation.delete', 'annotation.clear'].includes(value.type);
+}
+
+/** Why a write message is refused, in words for the user; undefined when it is valid. */
+export function annotationWriteError(value: unknown): string | undefined {
+  if (!isRecord(value) || !isAnnotationWriteType(value)) return INVALID_CHANGE;
+  const pageUrlError = textError(value.pageUrl, 'The page URL');
+  if (pageUrlError) return pageUrlError;
 
   switch (value.type) {
     case 'annotation.add':
-      return isAnnotationInput(value.input);
+      return annotationFieldsError(value.input, true);
     case 'annotation.update':
-      return typeof value.id === 'string' && isAnnotationUpdate(value.changes);
+      return idError(value.id) ?? annotationFieldsError(value.changes, false);
     case 'annotation.delete':
-      return typeof value.id === 'string';
-    case 'annotation.clear':
-      return true;
+      return idError(value.id);
     default:
-      return false;
+      return undefined;
   }
+}
+
+function textError(value: unknown, label: string): string | undefined {
+  if (typeof value !== 'string') return `${label} is missing.`;
+  return value.length > MAX_TEXT_LENGTH ? `${label} is longer than ${MAX_TEXT_LENGTH} characters.` : undefined;
+}
+
+function idError(value: unknown): string | undefined {
+  return typeof value === 'string' && ID_PATTERN.test(value) ? undefined : 'The annotation id is not valid.';
+}
+
+// An add requires note, selector and element details; an update may leave any field out.
+function annotationFieldsError(value: unknown, required: boolean): string | undefined {
+  if (!isRecord(value) || 'screenshot' in value || 'attachments' in value) return INVALID_CHANGE;
+  if (value.status !== undefined && !isAnnotationStatus(value.status)) return INVALID_CHANGE;
+  const check = (field: unknown, error: () => string | undefined) =>
+    field === undefined && !required ? undefined : error();
+  const shape = (field: unknown, valid: (field: unknown) => boolean, label: string) =>
+    field === undefined || valid(field) ? undefined : `${label} are not valid: ${LIMITS}.`;
+  return (
+    check(value.note, () => textError(value.note, 'The note')) ??
+    check(value.selector, () => textError(value.selector, 'The selector')) ??
+    check(value.elementContext, () => isElementContext(value.elementContext) ? undefined : `The element details are not valid: ${LIMITS}.`) ??
+    shape(value.repro, isRepro, 'The reproduction steps') ??
+    shape(value.cssEdits, isCssEdits, 'The CSS edits')
+  );
 }
 
 export function sendAnnotationWrite<T extends AnnotationWriteMessage>(
@@ -76,54 +126,23 @@ export function sendAnnotationWrite<T extends AnnotationWriteMessage>(
 }
 
 export function isCssEdit(value: unknown): value is CssEdit {
-  return isRecord(value) && typeof value.property === 'string' &&
-    typeof value.value === 'string' &&
-    typeof value.original === 'string';
+  return isRecord(value) && isText(value.property) && isText(value.value) && isText(value.original);
 }
 
 export function isCssEdits(value: unknown): value is CssEdit[] {
-  return Array.isArray(value) && value.every(isCssEdit);
+  return Array.isArray(value) && value.length <= MAX_LIST_LENGTH && value.every(isCssEdit);
 }
 
 export function isAnnotationStatus(value: unknown): value is AnnotationStatus {
   return value === 'open' || value === 'resolved';
 }
 
-function isAnnotationInput(value: unknown): value is AnnotationInput {
-  return (
-    isRecord(value) &&
-    typeof value.note === 'string' &&
-    typeof value.selector === 'string' &&
-    isElementContext(value.elementContext) &&
-    !('screenshot' in value) &&
-    !('attachments' in value) &&
-    (value.status === undefined || isAnnotationStatus(value.status)) &&
-    (value.repro === undefined || isRepro(value.repro)) &&
-    (value.cssEdits === undefined || isCssEdits(value.cssEdits))
-  );
-}
-
-function isAnnotationUpdate(value: unknown): value is AnnotationUpdate {
-  if (!isRecord(value)) return false;
-  return (
-    (value.note === undefined || typeof value.note === 'string') &&
-    (value.selector === undefined || typeof value.selector === 'string') &&
-    (value.elementContext === undefined || isElementContext(value.elementContext)) &&
-    !('screenshot' in value) &&
-    !('attachments' in value) &&
-    (value.status === undefined || isAnnotationStatus(value.status)) &&
-    (value.repro === undefined || isRepro(value.repro)) &&
-    (value.cssEdits === undefined || isCssEdits(value.cssEdits))
-  );
-}
-
 export function isRepro(value: unknown): value is Repro {
   return (
     isRecord(value) &&
-    Array.isArray(value.steps) &&
-    value.steps.every((step) => typeof step === 'string') &&
-    typeof value.expected === 'string' &&
-    typeof value.actual === 'string'
+    isTextList(value.steps) &&
+    isText(value.expected) &&
+    isText(value.actual)
   );
 }
 
@@ -174,16 +193,16 @@ export function isElementContext(value: unknown): value is ElementContext {
   if (
     !isRecord(boundingBox) ||
     !isRecord(viewport) ||
-    typeof value.selector !== 'string' ||
-    typeof value.tagName !== 'string' ||
-    typeof value.id !== 'string' ||
-    !isStringArray(value.classList) ||
-    typeof value.text !== 'string' ||
+    !isText(value.selector) ||
+    !isText(value.tagName) ||
+    !isText(value.id) ||
+    !isTextList(value.classList) ||
+    !isText(value.text) ||
     !isFiniteNumber(boundingBox.x) ||
     !isFiniteNumber(boundingBox.y) ||
     !isFiniteNumber(boundingBox.width) ||
     !isFiniteNumber(boundingBox.height) ||
-    typeof value.url !== 'string' ||
+    !isText(value.url) ||
     !isFiniteNumber(viewport.width) ||
     !isFiniteNumber(viewport.height)
   ) {
@@ -196,14 +215,10 @@ export function isElementContext(value: unknown): value is ElementContext {
 function isSourcePath(value: unknown): boolean {
   return (
     isRecord(value) &&
-    typeof value.fileName === 'string' &&
+    isText(value.fileName) &&
     value.fileName.length > 0 &&
     (value.lineNumber === undefined || isFiniteNumber(value.lineNumber))
   );
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
 function isFiniteNumber(value: unknown): value is number {

@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
-import { collectAllAnnotations, exportJson, importJson } from '../../lib/json-io';
+import { collectAllAnnotations, exportJson, importFileSizeError, importJson } from '../../lib/json-io';
 import { createBlobStore } from '../../lib/blob-store';
 import { exportAllPages } from '../../lib/export/all-pages';
 import { productionExportDelivery } from '../../lib/export/delivery';
@@ -59,7 +59,7 @@ importFile?.addEventListener('change', async () => {
   if (!file) return;
 
   try {
-    setStatus(await importJson(await file.text(), blobStore));
+    setStatus(importFileSizeError(file) ?? (await importJson(await file.text(), blobStore)));
   } catch {
     setStatus('Import failed: the file could not be read. Nothing was imported.');
   } finally {

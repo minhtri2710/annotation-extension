@@ -1,5 +1,5 @@
 import type { Annotation, CssDeclaration } from '../annotation';
-import type { AnnotationWriteMessage } from '../annotation-messages';
+import { annotationWriteError, MAX_TEXT_LENGTH, type AnnotationWriteMessage } from '../annotation-messages';
 import {
   isSupportedImageMimeType,
   normalizeAttachmentName,
@@ -31,6 +31,8 @@ export function createNotePanel(
 ): NotePanel {
   let selectedContext: ElementContext | undefined;
   let statusMessage: string | undefined;
+  // Shows statusMessage in the current render without re-rendering, so typed text survives.
+  let showCurrentStatus = () => {};
   const previewUrls = new Set<string>();
   const live = panel.ownerDocument.createElement('p');
   live.dataset.annotationLive = '';
@@ -90,6 +92,7 @@ export function createNotePanel(
       if (!status.isConnected) panel.insertBefore(status, panel.children[2] ?? null);
     };
     showStatus();
+    showCurrentStatus = showStatus;
 
     for (const annotation of annotations) {
       try {
@@ -108,6 +111,7 @@ export function createNotePanel(
     const form = document.createElement('form');
     const note = document.createElement('textarea');
     note.dataset.annotationNewNote = '';
+    note.maxLength = MAX_TEXT_LENGTH;
     note.setAttribute('aria-label', 'New note');
     const save = document.createElement('button');
     save.type = 'submit';
@@ -146,6 +150,12 @@ export function createNotePanel(
     context: ElementContext,
     successMessage?: string,
   ): Promise<void> {
+    const refusal = annotationWriteError(message);
+    if (refusal) {
+      statusMessage = refusal;
+      showCurrentStatus();
+      return;
+    }
     try {
       await persistence.sendAnnotationWrite(message);
       statusMessage = successMessage;
@@ -207,6 +217,7 @@ export function createNotePanel(
     }
     const note = document.createElement('textarea');
     note.dataset.annotationEditNote = '';
+    note.maxLength = MAX_TEXT_LENGTH;
     note.value = annotation.note;
     note.setAttribute('aria-label', `Edit note, annotation ${position}`);
     const edit = document.createElement('button');
@@ -324,6 +335,7 @@ export function createNotePanel(
       annotation.repro?.actual ?? '',
     );
     reproActual.dataset.annotationReproActual = '';
+    for (const field of [reproSteps, reproExpected, reproActual]) field.maxLength = MAX_TEXT_LENGTH;
     const { field: cssDecls, label: cssDeclsLabel } = labelledField(
       'CSS declarations',
       annotation.cssEdits?.map(({ property, value }) => `${property}: ${value}`).join('\n') ?? '',

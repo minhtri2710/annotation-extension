@@ -1,9 +1,16 @@
 import { browser } from 'wxt/browser';
 import { isRecord } from '../guards';
 import { deleteAnnotation, restoreAnnotation } from '../annotation-storage';
-import { isAnnotationStatus } from '../annotation-messages';
-import type { Annotation, AttachmentMetadata, CssEdit, Repro } from '../annotation';
-import type { ElementContext } from '../capture/context';
+import {
+  ID_PATTERN,
+  isAnnotationStatus,
+  isCssEdits,
+  isElementContext,
+  isRepro,
+  isText,
+  MAX_TEXT_LENGTH,
+} from '../annotation-messages';
+import type { Annotation, AttachmentMetadata } from '../annotation';
 import { attachmentKey, createBlobStore, screenshotKey, type BlobStore } from '../blob-store';
 import { pageKey } from '../../utils/page-key';
 import { clipboardFailure } from '../export/delivery';
@@ -36,12 +43,9 @@ export interface JsonExportDependencies {
   copy(json: string): Promise<void>;
 }
 
-// Import caps: ids fit the minted UUIDs with room to spare; any other text field and any list is bounded.
-const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-const MAX_TEXT_LENGTH = 10_000;
-const MAX_LIST_LENGTH = 1_000;
 /** In UTF-16 code units of the file text, so a file over it is also over it in bytes. */
 export const MAX_IMPORT_LENGTH = 200 * 1024 * 1024;
+const TOO_LARGE = 'Import failed: the file is larger than 200 MB. Nothing was imported.';
 const PAGE_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
 
 export async function serialize(
@@ -51,8 +55,8 @@ export async function serialize(
   let missing = 0;
   const entries = [];
   for (const annotation of annotations) {
-    const { screenshot, attachments, ...fields } = annotation;
-    const entry: Record<string, unknown> = { ...fields };
+    const { screenshot, attachments } = annotation;
+    const entry: Record<string, unknown> = { ...knownFields(annotation) };
     if (screenshot) {
       const blob = await blobStore.get(screenshotKey(annotation.id));
       if (blob) entry.screenshot = { mimeType: blob.type, base64: await blobToBase64(blob) };
@@ -91,14 +95,17 @@ export async function exportJson({ collect, blobStore, download, copy }: JsonExp
   }
 }
 
+/** Refuses a file over the size cap by its byte size, before it is read into memory. */
+export function importFileSizeError(file: Blob): string | undefined {
+  return file.size > MAX_IMPORT_LENGTH ? TOO_LARGE : undefined;
+}
+
 /** Validates every entry before returning; any invalid entry rejects the whole file. */
 export async function parseImport(
   json: string,
   dimensions: ImageDimensions = imageDimensions,
 ): Promise<JsonImportEntry[]> {
-  if (json.length > MAX_IMPORT_LENGTH) {
-    throw new JsonImportError('Import failed: the file is larger than 200 MB. Nothing was imported.');
-  }
+  if (json.length > MAX_IMPORT_LENGTH) throw new JsonImportError(TOO_LARGE);
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -199,19 +206,19 @@ async function parseEntry(
   if (typeof entry.note !== 'string') fail('has no note');
   const note = entry.note as string;
   if (!note.trim()) fail('has an empty note');
-  if (note.length > MAX_TEXT_LENGTH) fail(`has a note longer than ${MAX_TEXT_LENGTH} characters`);
+  if (!isText(note)) fail(`has a note longer than ${MAX_TEXT_LENGTH} characters`);
   if (typeof entry.selector !== 'string') fail('has no selector');
   const selector = entry.selector as string;
-  if (selector.length > MAX_TEXT_LENGTH) fail(`has a selector longer than ${MAX_TEXT_LENGTH} characters`);
-  const elementContext = readElementContext(entry.elementContext) ?? fail('has invalid element details');
+  if (!isText(selector)) fail(`has a selector longer than ${MAX_TEXT_LENGTH} characters`);
+  const elementContext = isElementContext(entry.elementContext) ? entry.elementContext : fail('has invalid element details');
   if (!isAnnotationStatus(entry.status)) fail('has an invalid status');
   if (!isTimestamp(entry.createdAt)) fail('has an invalid creation date');
   if (!isTimestamp(entry.updatedAt)) fail('has an invalid update date');
-  const repro = entry.repro === undefined ? undefined : readRepro(entry.repro) ?? fail('has invalid reproduction steps');
-  const cssEdits = entry.cssEdits === undefined ? undefined : readCssEdits(entry.cssEdits) ?? fail('has invalid CSS edits');
+  const repro = entry.repro === undefined || isRepro(entry.repro) ? entry.repro : fail('has invalid reproduction steps');
+  const cssEdits = entry.cssEdits === undefined || isCssEdits(entry.cssEdits) ? entry.cssEdits : fail('has invalid CSS edits');
 
   // Rebuilt from known fields only: unknown keys, including an own `__proto__`, are never stored or re-exported.
-  const annotation: Annotation = {
+  const annotation: Annotation = knownFields({
     id,
     pageUrl: entry.pageUrl as string,
     note,
@@ -222,7 +229,7 @@ async function parseEntry(
     status: entry.status as Annotation['status'],
     ...(repro === undefined ? {} : { repro }),
     ...(cssEdits === undefined ? {} : { cssEdits }),
-  };
+  });
   const blobs: [string, Blob][] = [];
 
   if (entry.screenshot !== undefined) {
@@ -300,7 +307,7 @@ function hasImageSignature(bytes: Uint8Array, mimeType: string): boolean {
 }
 
 function isPageUrl(value: string): boolean {
-  if (value.length > MAX_TEXT_LENGTH) return false;
+  if (!isText(value)) return false;
   try {
     pageKey(value);
     return PAGE_PROTOCOLS.has(new URL(value).protocol);
@@ -309,66 +316,39 @@ function isPageUrl(value: string): boolean {
   }
 }
 
-function isText(value: unknown): value is string {
-  return typeof value === 'string' && value.length <= MAX_TEXT_LENGTH;
-}
-
-function isTextList(value: unknown): value is string[] {
-  return Array.isArray(value) && value.length <= MAX_LIST_LENGTH && value.every(isText);
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
-function readElementContext(value: unknown): ElementContext | undefined {
-  if (!isRecord(value)) return undefined;
-  const { boundingBox, viewport, sourcePath } = value;
-  if (
-    !isRecord(boundingBox) || !isRecord(viewport) ||
-    !isText(value.selector) || !isText(value.tagName) || !isText(value.id) || !isTextList(value.classList) ||
-    !isText(value.text) || !isText(value.url) ||
-    !isFiniteNumber(boundingBox.x) || !isFiniteNumber(boundingBox.y) ||
-    !isFiniteNumber(boundingBox.width) || !isFiniteNumber(boundingBox.height) ||
-    !isFiniteNumber(viewport.width) || !isFiniteNumber(viewport.height)
-  ) {
-    return undefined;
-  }
-  if (sourcePath !== null) {
-    if (!isRecord(sourcePath) || !isText(sourcePath.fileName) || !sourcePath.fileName) return undefined;
-    if (sourcePath.lineNumber !== undefined && !isFiniteNumber(sourcePath.lineNumber)) return undefined;
-  }
+/**
+ * A copy of the annotation's text fields from known keys only, in one key order, so export, import and re-export agree
+ * byte for byte whichever writer stored the annotation. The caller has already checked every field.
+ */
+function knownFields(annotation: Annotation): Annotation {
+  const { elementContext: context, repro, cssEdits } = annotation;
+  const { boundingBox, viewport, sourcePath } = context;
   return {
-    selector: value.selector,
-    tagName: value.tagName,
-    id: value.id,
-    classList: [...value.classList],
-    text: value.text,
-    boundingBox: { x: boundingBox.x, y: boundingBox.y, width: boundingBox.width, height: boundingBox.height },
-    url: value.url,
-    viewport: { width: viewport.width, height: viewport.height },
-    sourcePath: sourcePath === null
-      ? null
-      : {
-          fileName: sourcePath.fileName as string,
-          ...(sourcePath.lineNumber === undefined ? {} : { lineNumber: sourcePath.lineNumber as number }),
-        },
+    id: annotation.id,
+    pageUrl: annotation.pageUrl,
+    note: annotation.note,
+    selector: annotation.selector,
+    elementContext: {
+      selector: context.selector,
+      tagName: context.tagName,
+      id: context.id,
+      classList: [...context.classList],
+      text: context.text,
+      boundingBox: { x: boundingBox.x, y: boundingBox.y, width: boundingBox.width, height: boundingBox.height },
+      url: context.url,
+      viewport: { width: viewport.width, height: viewport.height },
+      sourcePath: sourcePath === null
+        ? null
+        : { fileName: sourcePath.fileName, ...(sourcePath.lineNumber === undefined ? {} : { lineNumber: sourcePath.lineNumber }) },
+    },
+    createdAt: annotation.createdAt,
+    updatedAt: annotation.updatedAt,
+    status: annotation.status,
+    ...(repro === undefined ? {} : { repro: { steps: [...repro.steps], expected: repro.expected, actual: repro.actual } }),
+    ...(cssEdits === undefined
+      ? {}
+      : { cssEdits: cssEdits.map(({ property, value, original }) => ({ property, value, original })) }),
   };
-}
-
-function readRepro(value: unknown): Repro | undefined {
-  if (!isRecord(value) || !isTextList(value.steps) || !isText(value.expected) || !isText(value.actual)) return undefined;
-  return { steps: [...value.steps], expected: value.expected, actual: value.actual };
-}
-
-function readCssEdits(value: unknown): CssEdit[] | undefined {
-  if (!Array.isArray(value) || value.length > MAX_LIST_LENGTH) return undefined;
-  const edits: CssEdit[] = [];
-  for (const edit of value) {
-    if (!isRecord(edit) || !isText(edit.property) || !isText(edit.value) || !isText(edit.original)) return undefined;
-    edits.push({ property: edit.property, value: edit.value, original: edit.original });
-  }
-  return edits;
 }
 
 function isTimestamp(value: unknown): value is string {

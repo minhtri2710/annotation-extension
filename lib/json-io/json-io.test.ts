@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { Annotation } from '../annotation';
-import { exportJson, importAll, importJson, JsonImportError, MAX_IMPORT_LENGTH, parseImport, serialize } from './index';
+import { exportJson, importAll, importFileSizeError, importJson, JsonImportError, MAX_IMPORT_LENGTH, parseImport, serialize } from './index';
+import { annotationWriteError, MAX_LIST_LENGTH, MAX_TEXT_LENGTH, sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
+import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
 import { attachmentKey, screenshotKey, type BlobStore } from '../blob-store';
 import { attachmentAssetFilename, screenshotAssetFilename } from '../export/format';
 
@@ -531,5 +533,55 @@ describe('strict JSON import', () => {
       'Import failed: the file is larger than 200 MB. Nothing was imported.',
     );
     expect(await fakeBrowser.storage.local.get(null)).toEqual({});
+  });
+});
+
+describe('write path and import share one set of caps', () => {
+  const at = (length: number) => 'x'.repeat(length);
+  const items = (length: number) => Array.from({ length }, () => 's');
+  const edits = (length: number) => Array.from({ length }, () => ({ property: 'color', value: 'red', original: 'blue' }));
+  const pageAt = (length: number) => 'https://example.com/' + 'a'.repeat(length - 'https://example.com/'.length);
+  const input = (overrides: Record<string, unknown>) => ({ note: 'n', selector: '#x', elementContext: secondElementContext, ...overrides });
+  // Each variant puts one field or list at the given length.
+  const variants: [string, (length: number, list: number) => AnnotationWriteMessage][] = [
+    ['note', (length) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ note: at(length) }) })],
+    ['repro field', (length) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ repro: { steps: [], expected: at(length), actual: '' } }) })],
+    ['CSS value', (length) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ cssEdits: [{ property: 'color', value: at(length), original: '' }] }) })],
+    ['selector', (length) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ selector: at(length), elementContext: { ...secondElementContext, selector: at(length) } }) })],
+    ['pageUrl', (length) => ({ type: 'annotation.add', pageUrl: pageAt(length), input: input({ elementContext: { ...secondElementContext, url: pageAt(length) } }) })],
+    ['repro steps list', (_, list) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ repro: { steps: items(list), expected: '', actual: '' } }) })],
+    ['CSS edits list', (_, list) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ cssEdits: edits(list) }) })],
+    ['classList', (_, list) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ elementContext: { ...secondElementContext, classList: items(list) } }) })],
+  ];
+
+  beforeEach(() => registerBackgroundMessageHandlers({ blobStore: new MemoryBlobStore() }));
+
+  it('imports and byte-identically re-exports anything the write path accepts at every cap', async () => {
+    for (const [name, variant] of variants) {
+      fakeBrowser.reset();
+      registerBackgroundMessageHandlers({ blobStore: new MemoryBlobStore() });
+      const message = variant(MAX_TEXT_LENGTH, MAX_LIST_LENGTH);
+      const written = await sendAnnotationWrite(message);
+      const first = await serialize([written as Annotation], new MemoryBlobStore());
+      const plan = await parseImport(first.json, dimensions);
+      const second = await serialize(plan.map((entry) => entry.annotation), new MemoryBlobStore());
+      expect(second.json, name).toBe(first.json);
+    }
+  });
+
+  it('refuses one past every cap at the write guard, before import could see it', async () => {
+    for (const [name, variant] of variants) {
+      const message = variant(MAX_TEXT_LENGTH + 1, MAX_LIST_LENGTH + 1);
+      expect(annotationWriteError(message), name).toBeDefined();
+      await expect(sendAnnotationWrite(message), name).rejects.toThrow(/longer than|not valid/);
+    }
+    expect(await storedAnnotations()).toEqual([]);
+  });
+
+  it('refuses a file over the size cap by its size, before reading it', () => {
+    const file = { size: MAX_IMPORT_LENGTH + 1 } as Blob;
+    expect(importFileSizeError(file)).toBe('Import failed: the file is larger than 200 MB. Nothing was imported.');
+    expect(importFileSizeError(new Blob(['[]']))).toBeUndefined();
+    expect(importFileSizeError({ size: MAX_IMPORT_LENGTH } as Blob)).toBeUndefined();
   });
 });
