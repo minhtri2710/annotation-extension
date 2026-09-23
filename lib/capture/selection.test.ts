@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ElementContext } from './context';
-import { createCaptureController, type CaptureController } from './selection';
+import { createCaptureController, interceptPageEvents, type CaptureController } from './selection';
 import { createEventBus } from '../ui/event-bus';
 import type { CaptureEvents } from './selection';
 
@@ -713,5 +713,142 @@ describe('highlight follows scroll and resize', () => {
     document.dispatchEvent(new Event('scroll'));
     window.dispatchEvent(new Event('resize'));
     expect(frames).toHaveLength(0);
+  });
+});
+
+describe('capture target announcements', () => {
+  beforeEach(() => {
+    for (const element of document.querySelectorAll('*')) stubRect(element, 100);
+  });
+
+  it('owns one polite live region', () => {
+    expect(controller.live.getAttribute('role')).toBe('status');
+    expect(controller.live.hasAttribute('data-annotation-live')).toBe(true);
+  });
+
+  it('announces each new pointer target with the highlight label text, once per change', () => {
+    controller.activate();
+    const target = document.querySelector('#target')!;
+    pointer('pointermove', target);
+    expect(controller.live.textContent).toBe('button#target.primary.big');
+    expect(controller.live.textContent).toBe(label().textContent);
+
+    controller.live.textContent = '';
+    pointer('pointermove', target);
+    expect(controller.live.textContent).toBe('');
+
+    pointer('pointermove', document.querySelector('#mid')!);
+    expect(controller.live.textContent).toBe('section#mid');
+  });
+
+  it('announces ArrowUp and ArrowDown moves', () => {
+    controller.activate();
+    pointer('pointermove', document.querySelector('#target')!);
+    key('ArrowUp');
+    expect(controller.live.textContent).toBe('section#mid');
+    key('ArrowDown');
+    expect(controller.live.textContent).toBe('button#target.primary.big');
+  });
+
+  it('clears the announcement on deactivate', () => {
+    controller.activate();
+    pointer('pointermove', document.querySelector('#target')!);
+    controller.deactivate();
+    expect(controller.live.textContent).toBe('');
+  });
+});
+
+describe('clicks inside frames', () => {
+  const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const FRAME_MESSAGE = "Content inside frames can't be annotated.";
+
+  it('says frame content cannot be annotated when focus moves into an iframe, and stays active', async () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    controller.activate();
+    vi.spyOn(document, 'activeElement', 'get').mockReturnValue(frame);
+
+    window.dispatchEvent(new Event('blur'));
+    await nextTask();
+
+    expect(controller.live.textContent).toBe(FRAME_MESSAGE);
+    expect(controller.active).toBe(true);
+    expect(selected).toEqual([]);
+  });
+
+  it('says nothing when the window loses focus to anything but a frame, or while inactive', async () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    controller.activate();
+    window.dispatchEvent(new Event('blur'));
+    await nextTask();
+    expect(controller.live.textContent).toBe('');
+
+    controller.deactivate();
+    vi.spyOn(document, 'activeElement', 'get').mockReturnValue(frame);
+    window.dispatchEvent(new Event('blur'));
+    await nextTask();
+    expect(controller.live.textContent).toBe('');
+  });
+});
+
+describe('window capture listeners that precede the page', () => {
+  const stop = (event: Event) => event.stopPropagation();
+  const HOSTILE = ['pointerdown', 'pointermove', 'click', 'keydown'];
+
+  beforeEach(() => {
+    for (const element of document.querySelectorAll('*')) stubRect(element, 100);
+    for (const type of HOSTILE) window.addEventListener(type, stop, true);
+  });
+
+  afterEach(() => {
+    for (const type of HOSTILE) window.removeEventListener(type, stop, true);
+  });
+
+  it('installs one hub per window', () => {
+    expect(interceptPageEvents(window)).toBe(interceptPageEvents(window));
+  });
+
+  it('highlights and commits although the page stops pointer events at window capture', () => {
+    controller.activate();
+    const target = document.querySelector('#target')!;
+    pointer('pointermove', target);
+    expect(label().textContent).toBe('button#target.primary.big');
+    pointer('pointerdown', target);
+    expect(selected.map((context) => context.id)).toEqual(['target']);
+  });
+
+  it('delivers overlay clicks the page stops at window capture while capture is active', () => {
+    const button = document.createElement('button');
+    host.shadowRoot!.append(button);
+    const clicks: boolean[] = [];
+    button.addEventListener('click', (event) => clicks.push(event.composed));
+    controller.activate();
+
+    const original = mouse('click', button);
+
+    expect(clicks).toEqual([false]);
+    expect(original.defaultPrevented).toBe(true);
+    expect(controller.active).toBe(true);
+  });
+
+  it('does nothing while capture is idle', () => {
+    for (const type of HOSTILE) window.removeEventListener(type, stop, true);
+    const seen: string[] = [];
+    const record = (event: Event) => seen.push(`${event.type}:${event.defaultPrevented}`);
+    for (const type of HOSTILE) window.addEventListener(type, record, true);
+    const target = document.querySelector('#target')!;
+    try {
+      pointer('pointermove', target);
+      pointer('pointerdown', target);
+      mouse('click', target);
+      key('ArrowUp');
+    } finally {
+      for (const type of HOSTILE) window.removeEventListener(type, record, true);
+    }
+
+    expect(seen).toEqual(['pointermove:false', 'pointerdown:false', 'click:false', 'keydown:false']);
+    expect(pageEvents).toEqual(['pointerdown', 'click']);
+    expect(selected).toEqual([]);
   });
 });

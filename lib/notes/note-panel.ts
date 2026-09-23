@@ -17,6 +17,8 @@ export interface NotePanel {
   render(context: ElementContext): Promise<void>;
   clear(): void;
   teardown(): void;
+  /** Re-reads the page's annotations after a storage change; typed text is never overwritten. */
+  syncWithStorage(): Promise<void>;
   live: HTMLElement;
 }
 
@@ -24,6 +26,8 @@ export interface NotePanel {
 export const NOTE_PANEL_CLOSE_EVENT = 'annotation-note-close';
 const EMPTY_NOTE_MESSAGE = 'Write a note before saving.';
 const NOTE_SAVED_MESSAGE = 'Note saved.';
+const DELETED_ELSEWHERE_MESSAGE = 'This annotation was deleted in another tab.';
+const CHANGED_ELSEWHERE_MESSAGE = 'This annotation changed in another tab.';
 
 export function createNotePanel(
   panel: HTMLElement,
@@ -33,6 +37,9 @@ export function createNotePanel(
   let statusMessage: string | undefined;
   // Shows statusMessage in the current render without re-rendering, so typed text survives.
   let showCurrentStatus = () => {};
+  // What the current render shows (ids and update times), and how many of this panel's writes are in flight.
+  let shownVersion = '';
+  let pendingWrites = 0;
   const previewUrls = new Set<string>();
   const live = panel.ownerDocument.createElement('p');
   live.dataset.annotationLive = '';
@@ -66,6 +73,7 @@ export function createNotePanel(
     }
     if (selectedContext !== context) return;
 
+    shownVersion = versionOf(annotations);
     revokePreviewUrls();
     const restoreFocus = keepPanelFocus(panel);
     panel.replaceChildren();
@@ -156,14 +164,51 @@ export function createNotePanel(
       showCurrentStatus();
       return;
     }
+    await whileWriting(async () => {
+      try {
+        const result = await persistence.sendAnnotationWrite(message);
+        // The background answers null (update) or false (delete) when the id is no longer stored.
+        const missing = (message.type === 'annotation.update' && result === null)
+          || (message.type === 'annotation.delete' && result === false);
+        statusMessage = missing ? DELETED_ELSEWHERE_MESSAGE : successMessage;
+        await refresh(context);
+      } catch (error) {
+        statusMessage = errorMessage(error);
+        await refresh(context);
+      }
+    });
+  }
+
+  async function whileWriting(operation: () => Promise<void>): Promise<void> {
+    pendingWrites += 1;
     try {
-      await persistence.sendAnnotationWrite(message);
-      statusMessage = successMessage;
-      await refresh(context);
+      await operation();
+    } finally {
+      pendingWrites -= 1;
+    }
+  }
+
+  // This panel's own writes re-render when they finish, so only changes made elsewhere reach here.
+  async function syncWithStorage(): Promise<void> {
+    const context = selectedContext;
+    if (!context || pendingWrites > 0) return;
+    let annotations: Annotation[];
+    try {
+      annotations = await persistence.listAnnotations(context.url);
     } catch (error) {
       statusMessage = errorMessage(error);
-      await refresh(context);
+      showCurrentStatus();
+      return;
     }
+    if (selectedContext !== context || pendingWrites > 0) return;
+    if (versionOf(annotations.filter((annotation) => annotation.selector === context.selector)) === shownVersion) return;
+    const typing = Array.from(panel.querySelectorAll('textarea')).some((field) => field.value !== field.defaultValue);
+    if (typing) {
+      statusMessage = CHANGED_ELSEWHERE_MESSAGE;
+      showCurrentStatus();
+      return;
+    }
+    await refresh(context);
   }
 
   async function addFiles(
@@ -220,7 +265,7 @@ export function createNotePanel(
     const note = document.createElement('textarea');
     note.dataset.annotationEditNote = '';
     note.maxLength = MAX_TEXT_LENGTH;
-    note.value = annotation.note;
+    note.defaultValue = annotation.note;
     note.setAttribute('aria-label', `Edit note, annotation ${position}`);
     const edit = document.createElement('button');
     edit.type = 'button';
@@ -243,10 +288,10 @@ export function createNotePanel(
       const files = Array.from(event.clipboardData?.files ?? []);
       if (files.length === 0) return;
       event.preventDefault();
-      void addFiles(annotation, context, files).then(
+      void whileWriting(() => addFiles(annotation, context, files).then(
         () => reportFileSuccess(context),
         (error) => reportFileError(error, context),
-      );
+      ));
     });
     const statusToggle = document.createElement('button');
     statusToggle.type = 'button';
@@ -265,7 +310,7 @@ export function createNotePanel(
     capture.dataset.annotationCaptureScreenshot = '';
     capture.textContent = 'Capture screenshot';
     capture.addEventListener('click', () => {
-      void (async () => {
+      void whileWriting(async () => {
         try {
           await persistence.captureScreenshot(annotation, context);
           statusMessage = undefined;
@@ -274,7 +319,7 @@ export function createNotePanel(
           statusMessage = screenshotFailureMessage(error);
           await refresh(context);
         }
-      })();
+      });
     });
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -294,20 +339,20 @@ export function createNotePanel(
     attachmentInput.addEventListener('change', () => {
       const files = Array.from(attachmentInput.files ?? []);
       if (files.length === 0) return;
-      void addFiles(annotation, context, files).then(
+      void whileWriting(() => addFiles(annotation, context, files).then(
         () => reportFileSuccess(context),
         (error) => reportFileError(error, context),
-      );
+      ));
       attachmentInput.value = '';
     });
     item.addEventListener('drop', (event) => {
       const files = Array.from(event.dataTransfer?.files ?? []);
       if (files.length === 0) return;
       event.preventDefault();
-      void addFiles(annotation, context, files).then(
+      void whileWriting(() => addFiles(annotation, context, files).then(
         () => reportFileSuccess(context),
         (error) => reportFileError(error, context),
-      );
+      ));
     });
     item.addEventListener('dragover', (event) => event.preventDefault());
     const attachmentLabel = document.createElement('label');
@@ -316,7 +361,7 @@ export function createNotePanel(
     // Each field sits in a visible label; its accessible name starts with that label text.
     const labelledField = (text: string, value: string) => {
       const field = document.createElement('textarea');
-      field.value = value;
+      field.defaultValue = value;
       field.setAttribute('aria-label', `${text}, annotation ${position}`);
       const label = document.createElement('label');
       label.append(text, field);
@@ -465,11 +510,11 @@ export function createNotePanel(
         removeAttachment.dataset.annotationAttachmentDelete = attachment.id;
         removeAttachment.textContent = 'Remove';
         removeAttachment.addEventListener('click', () => {
-          void persistence.deleteAttachment({
+          void whileWriting(() => persistence.deleteAttachment({
             pageUrl: context.url,
             annotationId: annotation.id,
             attachmentId: attachment.id,
-          }).then(() => reportFileSuccess(context), (error) => reportFileError(error, context));
+          }).then(() => reportFileSuccess(context), (error) => reportFileError(error, context)));
         });
         wrapper.append(caption, removeAttachment);
         item.append(wrapper);
@@ -514,7 +559,11 @@ export function createNotePanel(
     persistence.revertAllCssEdits();
   }
 
-  return { render, clear, teardown, live };
+  return { render, clear, teardown, syncWithStorage, live };
+}
+
+function versionOf(annotations: Annotation[]): string {
+  return annotations.map(({ id, updatedAt }) => `${id}@${updatedAt}`).join(' ');
 }
 
 function errorMessage(error: unknown): string {

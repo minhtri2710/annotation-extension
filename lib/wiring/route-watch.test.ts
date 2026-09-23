@@ -109,3 +109,47 @@ describe('watchRoute', () => {
     stop();
   });
 });
+
+describe('watchRoute interval re-check', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('reports a pushState that changes nothing in the head within 500 ms, once', () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const stop = watchRoute(window, onChange);
+
+    window.history.pushState(null, '', '/silent');
+    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(2000);
+
+    expect(onChange.mock.calls).toEqual([[`${origin}/silent`]]);
+    stop();
+  });
+
+  it('reports a replaceState route change the same way', () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const stop = watchRoute(window, onChange);
+
+    window.history.replaceState(null, '', '/replaced');
+    vi.advanceTimersByTime(500);
+
+    expect(onChange.mock.calls).toEqual([[`${origin}/replaced`]]);
+    stop();
+  });
+
+  it('stops the interval on teardown', () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn();
+    const stop = watchRoute(window, onChange);
+    stop();
+
+    window.history.pushState(null, '', '/after-stop');
+    vi.advanceTimersByTime(2000);
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});

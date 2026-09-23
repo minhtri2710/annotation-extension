@@ -13,6 +13,8 @@ export interface CaptureController {
   activate(): void;
   deactivate(): void;
   destroy(): void;
+  /** Polite live region announcing each capture target change and frame refusals. */
+  live: HTMLElement;
 }
 
 export interface CaptureControllerOptions {
@@ -51,6 +53,45 @@ const GESTURE_TIMEOUT_MS = 1000;
 const GESTURE_EVENTS = ['mousedown', 'pointerup', 'mouseup', 'click'] as const;
 const KEYBOARD_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter']);
 const NON_RENDERED_TAGS = new Set(['script', 'style', 'template', 'noscript', 'link', 'meta']);
+const FRAME_MESSAGE = "Content inside frames can't be annotated.";
+const INTERCEPTED_EVENTS = ['pointermove', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'keydown'] as const;
+
+type PageEventRoute = (event: Event) => void;
+const hubs = new WeakMap<Window, Set<PageEventRoute>>();
+
+/**
+ * Registers, once per window, the capture-phase listeners that must run before the page's own, so a page
+ * that stops propagation at window capture cannot disable capture. The content script calls this first at
+ * document_start; controllers route through the same set. With no route (capture idle) a listener does
+ * nothing beyond one size check.
+ */
+export function interceptPageEvents(win: Window): Set<PageEventRoute> {
+  const existing = hubs.get(win);
+  if (existing) return existing;
+  const routes = new Set<PageEventRoute>();
+  hubs.set(win, routes);
+  const listener = (event: Event) => {
+    if (routes.size === 0) return;
+    for (const route of routes) route(event);
+  };
+  for (const type of INTERCEPTED_EVENTS) win.addEventListener(type, listener, true);
+  return routes;
+}
+
+/** The CSS zoom an element inherits (from the page's html or body); 1 where the engine has no CSS zoom. */
+export function cssZoom(element: Element): number {
+  return element.currentCSSZoom ?? 1;
+}
+
+/**
+ * Writes client-rect px into a fixed overlay box. The top-layer host inherits the page's zoom, which scales
+ * every px written to the box, while client rects are already zoomed; dividing by the box's zoom cancels it.
+ * The box must be rendered (not hidden) when this runs, or its zoom reads as 1.
+ */
+export function placeFixed(element: HTMLElement, box: Partial<Record<'left' | 'top' | 'width' | 'height', number>>): void {
+  const zoom = cssZoom(element);
+  for (const [property, value] of Object.entries(box)) element.style.setProperty(property, `${value / zoom}px`);
+}
 
 export function createCaptureController(options: CaptureControllerOptions): CaptureController {
   const bus = options.bus ?? createEventBus<CaptureEvents>();
@@ -63,7 +104,13 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   label.style.cssText = LABEL_STYLE;
   label.hidden = true;
   options.shadowHost.shadowRoot?.append(highlight, label);
+  const live = options.document.createElement('p');
+  live.dataset.annotationLive = '';
+  live.setAttribute('role', 'status');
+  const view = options.document.defaultView;
+  const routes = view ? interceptPageEvents(view) : undefined;
   let active = false;
+  let swallowing = false;
   let hoveredElement: Element | null = null;
   let retrace: Element[] = [];
   let gestureTimer: ReturnType<typeof setTimeout> | undefined;
@@ -94,9 +141,68 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     if (event.type === 'click') stopGestureSwallow();
   };
 
-  const handleNextPointerDown = () => {
-    if (!active) stopGestureSwallow();
+  // Every intercepted event while capture is active or a committed gesture is being swallowed.
+  const route = (event: Event) => {
+    switch (event.type) {
+      case 'pointermove':
+        handlePointerMove(event as PointerEvent);
+        return;
+      case 'pointerdown':
+        if (swallowing && !active) stopGestureSwallow();
+        handlePointerDown(event as PointerEvent);
+        return;
+      case 'keydown':
+        handleKeyDown(event as KeyboardEvent);
+        return;
+      case 'click':
+        if (active && isExtensionEvent(event, options.shadowHost)) {
+          redirectOverlayClick(event as MouseEvent);
+          return;
+        }
+    }
+    if (swallowing) handleGestureEvent(event);
   };
+
+  // A page can stop a click at window capture before it reaches the overlay. The click is taken here and
+  // re-sent inside the shadow root, uncomposed, so the page never sees it and the overlay control still acts.
+  function redirectOverlayClick(event: MouseEvent) {
+    const target = event.composedPath()[0];
+    if (!isElement(target)) return;
+    swallow(event);
+    target.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      composed: false,
+      detail: event.detail,
+      screenX: event.screenX,
+      screenY: event.screenY,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      button: event.button,
+      buttons: event.buttons,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      metaKey: event.metaKey,
+    }));
+  }
+
+  function syncRoute() {
+    if (active || swallowing) routes?.add(route);
+    else routes?.delete(route);
+  }
+
+  // A click inside a frame reaches the frame's document, not this one; the top window only sees its blur.
+  // Firefox moves activeElement to the frame after blur, so it is read in the next task on every engine.
+  const handleWindowBlur = () => {
+    view?.setTimeout(() => {
+      if (active && options.document.activeElement?.localName === 'iframe') announce(FRAME_MESSAGE);
+    }, 0);
+  };
+
+  function announce(text: string) {
+    live.textContent = text;
+  }
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (!active) return;
@@ -190,14 +296,14 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
 
   function startGestureSwallow() {
     stopGestureSwallow();
-    for (const type of GESTURE_EVENTS) options.document.addEventListener(type, handleGestureEvent, true);
-    options.document.addEventListener('pointerdown', handleNextPointerDown, true);
+    swallowing = true;
+    syncRoute();
     gestureTimer = setTimeout(stopGestureSwallow, GESTURE_TIMEOUT_MS);
   }
 
   function stopGestureSwallow() {
-    for (const type of GESTURE_EVENTS) options.document.removeEventListener(type, handleGestureEvent, true);
-    options.document.removeEventListener('pointerdown', handleNextPointerDown, true);
+    swallowing = false;
+    syncRoute();
     clearTimeout(gestureTimer);
     gestureTimer = undefined;
   }
@@ -206,11 +312,9 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     if (active) return;
     active = true;
     stopGestureSwallow();
-    options.document.addEventListener('pointermove', handlePointerMove, true);
-    options.document.addEventListener('pointerdown', handlePointerDown, true);
-    options.document.addEventListener('keydown', handleKeyDown, true);
     options.document.addEventListener('scroll', scheduleFollow, { capture: true, passive: true });
-    options.document.defaultView?.addEventListener('resize', scheduleFollow, { passive: true });
+    view?.addEventListener('resize', scheduleFollow, { passive: true });
+    view?.addEventListener('blur', handleWindowBlur);
     bus.emit('capture:active', true);
   };
 
@@ -221,11 +325,11 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     retrace = [];
     highlight.hidden = true;
     label.hidden = true;
-    options.document.removeEventListener('pointermove', handlePointerMove, true);
-    options.document.removeEventListener('pointerdown', handlePointerDown, true);
-    options.document.removeEventListener('keydown', handleKeyDown, true);
+    announce('');
+    syncRoute();
     options.document.removeEventListener('scroll', scheduleFollow, true);
-    options.document.defaultView?.removeEventListener('resize', scheduleFollow);
+    view?.removeEventListener('resize', scheduleFollow);
+    view?.removeEventListener('blur', handleWindowBlur);
     if (followFrame !== undefined) options.document.defaultView?.cancelAnimationFrame(followFrame);
     followFrame = undefined;
     bus.emit('capture:active', false);
@@ -236,6 +340,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     stopGestureSwallow();
     highlight.remove();
     label.remove();
+    live.remove();
   };
 
   // Keeps the highlight on the element through smooth scrolls, nested scrollers and resizes.
@@ -258,17 +363,16 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
       return;
     }
 
+    const changed = element !== hoveredElement;
     hoveredElement = element;
     const rect = element.getBoundingClientRect();
     highlight.hidden = false;
-    highlight.style.left = `${rect.left}px`;
-    highlight.style.top = `${rect.top}px`;
-    highlight.style.width = `${rect.width}px`;
-    highlight.style.height = `${rect.height}px`;
+    placeFixed(highlight, { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
     label.hidden = false;
     label.textContent = describeElement(element);
-    label.style.left = `${rect.left}px`;
-    label.style.top = `${rect.top < LABEL_HEIGHT ? rect.top : rect.top - LABEL_HEIGHT}px`;
+    const labelHeight = LABEL_HEIGHT * cssZoom(label);
+    placeFixed(label, { left: rect.left, top: rect.top < labelHeight ? rect.top : rect.top - labelHeight });
+    if (changed) announce(label.textContent);
   }
 
   return {
@@ -282,6 +386,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     activate,
     deactivate,
     destroy,
+    live,
   };
 }
 

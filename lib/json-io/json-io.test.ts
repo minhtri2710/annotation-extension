@@ -4,7 +4,7 @@ import type { Annotation } from '../annotation';
 import { exportJson, importAll, importFileSizeError, importJson, JsonImportError, MAX_IMPORT_LENGTH, parseImport, serialize } from './index';
 import { annotationWriteError, MAX_LIST_LENGTH, MAX_TEXT_LENGTH, sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
-import { addAnnotationWithScreenshot, addAttachment } from '../annotation-storage';
+import { addAttachment, restoreAnnotation } from '../annotation-storage';
 import { attachmentKey, screenshotKey, type BlobStore } from '../blob-store';
 import { attachmentAssetFilename, screenshotAssetFilename } from '../export/format';
 
@@ -573,7 +573,9 @@ describe('write path and import share one set of caps', () => {
   it('imports and byte-identically re-exports an annotation whose screenshot and attachments the storage functions wrote', async () => {
     fakeBrowser.reset();
     const store = new MemoryBlobStore();
-    const written = await addAnnotationWithScreenshot(firstPage, annotation(), imageBlob('shot', 'image/webp'), { width: 10, height: 20 }, store);
+    const shot = imageBlob('shot', 'image/webp');
+    const written = annotation({ screenshot: { mimeType: 'image/webp', width: 10, height: 20, byteLength: shot.size } });
+    await restoreAnnotation(written, [[screenshotKey(written.id), shot]], store);
     await addAttachment(firstPage, written.id, { id: 'att-png', name: 'a.png', mimeType: 'image/png', byteLength: imageBlob('a', 'image/png').size }, imageBlob('a', 'image/png'), store);
     // A JPEG saved as .png: the picker stores it as image/jpeg under its own name.
     await addAttachment(firstPage, written.id, { id: 'att-jpeg', name: 'photo.png', mimeType: 'image/jpeg', byteLength: imageBlob('j', 'image/jpeg').size }, imageBlob('j', 'image/jpeg'), store);

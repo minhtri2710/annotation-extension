@@ -3,7 +3,6 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { pageKey } from '../utils/page-key';
 import {
   addAnnotation,
-  addAnnotationWithScreenshot,
   clearAnnotations,
   deleteAnnotation,
   listAnnotations,
@@ -18,7 +17,6 @@ import { attachmentKey, screenshotKey } from './blob-store';
 
 /** Bytes behind a real signature, so the storage image gate accepts them. */
 const png = (tail: string) => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), tail], { type: 'image/png' });
-const webp = (tail: string) => new Blob(['RIFF\0\0\0\0WEBP', tail], { type: 'image/webp' });
 
 const firstPage = 'https://example.com/docs?mode=full#intro';
 const secondPage = 'https://example.com/other';
@@ -56,6 +54,28 @@ class MemoryBlobStore implements BlobStore {
   }
 }
 
+/** Stores an annotation with a screenshot through restoreAnnotation, as a fresh write would store it. */
+async function restoreWithScreenshot(
+  pageUrl: string,
+  input: AnnotationInput,
+  blob: Blob,
+  dimensions: { width: number; height: number },
+  store: BlobStore,
+): Promise<Annotation> {
+  const now = new Date().toISOString();
+  const annotation: Annotation = {
+    id: crypto.randomUUID(),
+    pageUrl,
+    ...input,
+    status: 'open',
+    createdAt: now,
+    updatedAt: now,
+    screenshot: { mimeType: blob.type, ...dimensions, byteLength: blob.size },
+  };
+  await restoreAnnotation(annotation, [[screenshotKey(annotation.id), blob]], store);
+  return annotation;
+}
+
 beforeEach(() => {
   fakeBrowser.reset();
 });
@@ -78,24 +98,6 @@ describe('annotation storage', () => {
     expect(stored[pageKey(firstPage)]).toEqual([created]);
     expect(JSON.stringify(stored)).not.toContain('data:');
     expect(JSON.stringify(stored)).not.toContain('blob:');
-  });
-
-  it('stores screenshot bytes separately and writes metadata only to storage.local', async () => {
-    const store = new MemoryBlobStore();
-    const blob = webp('webp-bytes');
-    const created = await addAnnotationWithScreenshot(firstPage, firstInput, blob, { width: 800, height: 400 }, store);
-
-    expect(created.screenshot).toEqual({
-      mimeType: 'image/webp',
-      width: 800,
-      height: 400,
-      byteLength: blob.size,
-    });
-    await expect(store.get(`screenshot:${created.id}`)).resolves.toBe(blob);
-    const stored = await fakeBrowser.storage.local.get(pageKey(firstPage));
-    expect(stored[pageKey(firstPage)]).toEqual([created]);
-    expect(JSON.stringify(stored)).not.toContain('webp-bytes');
-    expect(JSON.stringify(stored)).not.toContain('data:');
   });
 
   it('returns an empty list for an unseen page', async () => {
@@ -122,13 +124,7 @@ describe('annotation storage', () => {
 
   it('preserves screenshot metadata through ordinary updates', async () => {
     const store = new MemoryBlobStore();
-    const created = await addAnnotationWithScreenshot(
-      firstPage,
-      firstInput,
-      png('shot'),
-      { width: 10, height: 20 },
-      store,
-    );
+    const created = await restoreWithScreenshot(firstPage, firstInput, png('shot'), { width: 10, height: 20 }, store);
     const updated = await updateAnnotation(firstPage, created.id, { note: 'Updated' });
     expect(updated?.screenshot).toEqual(created.screenshot);
   });
@@ -184,8 +180,8 @@ describe('annotation storage', () => {
 
   it('deletes only the requested annotation', async () => {
     const store = new MemoryBlobStore();
-    const first = await addAnnotationWithScreenshot(firstPage, firstInput, png('one'), { width: 1, height: 1 }, store);
-    const second = await addAnnotationWithScreenshot(firstPage, { ...firstInput, note: 'Keep this one' }, png('two'), { width: 1, height: 1 }, store);
+    const first = await restoreWithScreenshot(firstPage, firstInput, png('one'), { width: 1, height: 1 }, store);
+    const second = await restoreWithScreenshot(firstPage, { ...firstInput, note: 'Keep this one' }, png('two'), { width: 1, height: 1 }, store);
 
     await expect(deleteAnnotation(firstPage, first.id, store)).resolves.toBe(true);
     await expect(listAnnotations(firstPage)).resolves.toEqual([second]);
@@ -196,8 +192,8 @@ describe('annotation storage', () => {
 
   it('clears one page without affecting another page', async () => {
     const store = new MemoryBlobStore();
-    const first = await addAnnotationWithScreenshot(firstPage, firstInput, png('one'), { width: 1, height: 1 }, store);
-    const other = await addAnnotationWithScreenshot(secondPage, firstInput, png('two'), { width: 1, height: 1 }, store);
+    const first = await restoreWithScreenshot(firstPage, firstInput, png('one'), { width: 1, height: 1 }, store);
+    const other = await restoreWithScreenshot(secondPage, firstInput, png('two'), { width: 1, height: 1 }, store);
 
     await clearAnnotations(firstPage, store);
 
@@ -209,7 +205,7 @@ describe('annotation storage', () => {
 
   it('surfaces a blob deletion failure after metadata deletion', async () => {
     const store = new MemoryBlobStore();
-    const created = await addAnnotationWithScreenshot(firstPage, firstInput, png('one'), { width: 1, height: 1 }, store);
+    const created = await restoreWithScreenshot(firstPage, firstInput, png('one'), { width: 1, height: 1 }, store);
     store.failDelete = true;
 
     await expect(deleteAnnotation(firstPage, created.id, store)).rejects.toThrow('screenshot delete failed');
@@ -343,13 +339,6 @@ describe('the image gate at every blob write', () => {
   // JPEG bytes declared as PNG: what a .jpg renamed to .png looks like.
   const jpegAsPng = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])], { type: 'image/png' });
 
-  it('addAnnotationWithScreenshot refuses bytes that are not the declared type and stores nothing', async () => {
-    const store = new MemoryBlobStore();
-    await expect(addAnnotationWithScreenshot(firstPage, firstInput, jpegAsPng(), { width: 1, height: 1 }, store))
-      .rejects.toThrow('Image bytes are not image/png.');
-    expect(store.blobs.size).toBe(0);
-    await expect(listAnnotations(firstPage)).resolves.toEqual([]);
-  });
 
   it('addAttachment refuses bytes that are not the declared type and stores nothing', async () => {
     const store = new MemoryBlobStore();

@@ -21,31 +21,6 @@ export async function addAnnotation(pageUrl: string, input: AnnotationInput): Pr
   });
 }
 
-export async function addAnnotationWithScreenshot(
-  pageUrl: string,
-  input: AnnotationInput,
-  blob: Blob,
-  dimensions: Pick<ScreenshotMetadata, 'width' | 'height'>,
-  blobStore: BlobStore,
-): Promise<Annotation> {
-  await validateImageBlob(blob);
-  return withPageWrite(pageUrl, async (key) => {
-    const annotation = {
-      ...createAnnotation(pageUrl, input),
-      screenshot: screenshotMetadata(blob, dimensions),
-    };
-    const annotations = await readPage(key);
-    await blobStore.put(screenshotKey(annotation.id), blob);
-    try {
-      await browser.storage.local.set({ [key]: [...annotations, annotation] });
-    } catch (error) {
-      await blobStore.delete([screenshotKey(annotation.id)]);
-      throw error;
-    }
-    return annotation;
-  });
-}
-
 /** Stores an annotation exactly as given; returns false, writing nothing, when its id is already on the page. */
 export async function restoreAnnotation(
   annotation: Annotation,
@@ -238,18 +213,6 @@ function createAnnotation(pageUrl: string, input: AnnotationInput): Annotation {
     status: input.status ?? 'open',
     createdAt: now,
     updatedAt: now,
-  };
-}
-
-function screenshotMetadata(
-  blob: Blob,
-  dimensions: Pick<ScreenshotMetadata, 'width' | 'height'>,
-): ScreenshotMetadata {
-  return {
-    mimeType: blob.type,
-    width: dimensions.width,
-    height: dimensions.height,
-    byteLength: blob.size,
   };
 }
 

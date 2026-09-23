@@ -613,3 +613,12 @@ describe('pin tooltip dismissal', () => {
     expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
   });
 });
+
+describe('pinCenter under page zoom', () => {
+  it('keeps the whole zoomed pin inside the viewport', () => {
+    const viewport = { width: 800, height: 600 };
+    // An 18 px pin under zoom 1.5 measures 27 px, so its centre stays 13.5 px from each edge.
+    expect(pinCenter({ left: 2, top: 3, right: 100, bottom: 50 }, viewport, 1.5)).toEqual({ x: 13.5, y: 13.5 });
+    expect(pinCenter({ left: 799, top: 599, right: 900, bottom: 700 }, viewport, 1.5)).toEqual({ x: 786.5, y: 586.5 });
+  });
+});

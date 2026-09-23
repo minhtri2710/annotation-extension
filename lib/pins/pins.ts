@@ -1,5 +1,6 @@
 import type { Annotation } from '../annotation';
 import { resolveSelector } from '../capture/selector';
+import { cssZoom, placeFixed } from '../capture/selection';
 
 export interface PinsController {
   setAnnotations(annotations: Annotation[]): void;
@@ -64,14 +65,16 @@ interface Viewport {
 }
 
 // The pin is centred on the element's top-left corner, pulled fully inside the viewport while the
-// element intersects it; an element outside the viewport keeps its pin off-screen with it.
+// element intersects it; an element outside the viewport keeps its pin off-screen with it. A pin under
+// page zoom measures PIN_SIZE * zoom.
 export function pinCenter(
   rect: { left: number; top: number; right: number; bottom: number },
   viewport: Viewport,
+  zoom = 1,
 ): { x: number; y: number } {
   const intersects = rect.right > 0 && rect.bottom > 0 && rect.left < viewport.width && rect.top < viewport.height;
   if (!intersects) return { x: rect.left, y: rect.top };
-  const half = PIN_SIZE / 2;
+  const half = (PIN_SIZE * zoom) / 2;
   return { x: clamp(rect.left, half, viewport.width - half), y: clamp(rect.top, half, viewport.height - half) };
 }
 
@@ -126,10 +129,9 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
         continue;
       }
 
-      const { x, y } = pinCenter(pin.element.getBoundingClientRect(), viewport());
       pin.marker.hidden = false;
-      pin.marker.style.left = `${x}px`;
-      pin.marker.style.top = `${y}px`;
+      const { x, y } = pinCenter(pin.element.getBoundingClientRect(), viewport(), cssZoom(pin.marker));
+      placeFixed(pin.marker, { left: x, top: y });
     }
   };
 
@@ -341,8 +343,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     tooltip.hidden = false;
     const { width, height } = tooltip.getBoundingClientRect();
     const { left, top } = placeTooltip(pin.marker.getBoundingClientRect(), { width, height }, viewport());
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${top}px`;
+    placeFixed(tooltip, { left, top });
   }
 
   function viewport(): Viewport {

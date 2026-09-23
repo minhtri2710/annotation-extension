@@ -1051,3 +1051,101 @@ describe('note panel text caps', () => {
     expect((panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value).toBe(`color: ${long}`);
   });
 });
+
+describe('note panel across tabs', () => {
+  const DELETED = 'This annotation was deleted in another tab.';
+  const CHANGED = 'This annotation changed in another tab.';
+
+  function status(panel: HTMLElement) {
+    return panel.querySelector('[data-annotation-status]')?.textContent;
+  }
+
+  it('reports an update to a deleted annotation instead of resolving silently', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Stale')], {
+      sendAnnotationWrite: vi.fn().mockResolvedValue(null),
+    });
+
+    (panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement).value = 'Edited';
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(status(panel)).toBe(DELETED));
+    expect(notePanel.live.textContent).toBe(DELETED);
+  });
+
+  it('reports a delete of a deleted annotation instead of resolving silently', async () => {
+    const panel = document.createElement('div');
+    await render(panel, [annotation('Stale')], { sendAnnotationWrite: vi.fn().mockResolvedValue(false) });
+
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(status(panel)).toBe(DELETED));
+  });
+
+  it('re-renders when another tab changed its annotations and nothing is being typed', async () => {
+    const panel = document.createElement('div');
+    const listAnnotations = vi.fn().mockResolvedValue([annotation('From A')]);
+    const { notePanel } = await render(panel, [], { listAnnotations });
+
+    listAnnotations.mockResolvedValue([{ ...annotation('A edit'), updatedAt: '2024-01-02T00:00:00.000Z' }]);
+    await notePanel.syncWithStorage();
+
+    expect((panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement).value).toBe('A edit');
+    expect(status(panel)).toBeUndefined();
+  });
+
+  it('keeps a note being typed and says the annotation changed in another tab', async () => {
+    const panel = document.createElement('div');
+    const listAnnotations = vi.fn().mockResolvedValue([annotation('From A')]);
+    const { notePanel } = await render(panel, [], { listAnnotations });
+    const editor = panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
+    editor.value = 'B typing';
+
+    listAnnotations.mockResolvedValue([{ ...annotation('A edit'), updatedAt: '2024-01-02T00:00:00.000Z' }]);
+    await notePanel.syncWithStorage();
+
+    expect(panel.querySelector('[data-annotation-edit-note]')).toBe(editor);
+    expect(editor.value).toBe('B typing');
+    expect(status(panel)).toBe(CHANGED);
+    expect(notePanel.live.textContent).toBe(CHANGED);
+  });
+
+  it('keeps a half-typed new note when another tab adds an annotation', async () => {
+    const panel = document.createElement('div');
+    const listAnnotations = vi.fn().mockResolvedValue([]);
+    const { notePanel } = await render(panel, [], { listAnnotations });
+    const draft = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+    draft.value = 'Draft';
+
+    listAnnotations.mockResolvedValue([annotation('From A')]);
+    await notePanel.syncWithStorage();
+
+    expect(panel.querySelector('[data-annotation-new-note]')).toBe(draft);
+    expect(draft.value).toBe('Draft');
+    expect(status(panel)).toBe(CHANGED);
+  });
+
+  it('leaves the panel alone when storage matches what it shows', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Same')]);
+    const item = panel.querySelector('[data-annotation-id]');
+
+    await notePanel.syncWithStorage();
+
+    expect(panel.querySelector('[data-annotation-id]')).toBe(item);
+    expect(status(panel)).toBeUndefined();
+  });
+
+  it('does nothing when the panel is closed', async () => {
+    const panel = document.createElement('div');
+    const listAnnotations = vi.fn().mockResolvedValue([annotation('A')]);
+    const { notePanel } = await render(panel, [], { listAnnotations });
+    notePanel.clear();
+    listAnnotations.mockClear();
+
+    await notePanel.syncWithStorage();
+
+    expect(listAnnotations).not.toHaveBeenCalled();
+    expect(panel.childElementCount).toBe(0);
+  });
+});

@@ -14,18 +14,21 @@ import { createToolbarControls } from '../lib/ui/toolbar-controls';
 import { readToolbarPrefs, writeToolbarPrefs } from '../lib/ui/ui-prefs';
 import { pageKey } from '../utils/page-key';
 import { isEnabledForUrl } from '../lib/options/policy';
-import { readPolicy } from '../lib/options/storage';
+import { readPolicy, SITE_POLICY_STORAGE_KEY } from '../lib/options/storage';
 import {
   createCaptureController,
+  interceptPageEvents,
   isCaptureToggleMessage,
   type CaptureEvents,
 } from '../lib/capture';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
+  runAt: 'document_start',
   async main(ctx) {
-    const policy = await readPolicy();
-    if (!isEnabledForUrl(location.href, policy)) return;
+    // The only work before the DOM exists: capture listeners that must precede the page's own.
+    interceptPageEvents(window);
+    await domReady();
 
     const bus = createEventBus<CaptureEvents>();
     let controller: ReturnType<typeof createCaptureController> | undefined;
@@ -33,7 +36,8 @@ export default defineContentScript({
     let pins: PinsController | undefined;
     let unsubscribeSelection: (() => void) | undefined;
     let unsubscribeCaptureState: (() => void) | undefined;
-    let storageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] | undefined;
+    type StorageListener = Parameters<typeof browser.storage.onChanged.addListener>[0];
+    let storageChanged: StorageListener | undefined;
     let runtimeMessageListener: ((message: unknown) => void) | undefined;
     let annotationListToggle: HTMLButtonElement | undefined;
     let scanToggleButton: HTMLButtonElement | undefined;
@@ -199,7 +203,9 @@ export default defineContentScript({
           pins?.setAnnotations(annotations);
         };
         storageChanged = (changes, areaName) => {
-          if (areaName === 'local' && pageKey(url) in changes) void refreshPins();
+          if (areaName !== 'local' || !(pageKey(url) in changes)) return;
+          void refreshPins();
+          void activeNotePanel.syncWithStorage();
         };
         browser.storage.onChanged.addListener(storageChanged);
         void refreshPins();
@@ -211,10 +217,22 @@ export default defineContentScript({
           annotationList = nextList;
           void refreshPins();
         });
-        controller = createCaptureController({
+        const activeController = createCaptureController({
           document,
           shadowHost,
           bus,
+        });
+        controller = activeController;
+        shell.root.append(activeController.live);
+        runtimeMessageListener = (message) => {
+          if (isCaptureToggleMessage(message)) controller?.toggle();
+        };
+        browser.runtime.onMessage.addListener(runtimeMessageListener);
+        unsubscribeCaptureState = bus.on('capture:active', (active) => {
+          shadowHost.toggleAttribute('data-annotation-active', active);
+          annotateToggle.setAttribute('aria-pressed', String(active));
+          annotateToggle.toggleAttribute('data-active', active);
+          annotateToggle.textContent = active ? 'Stop annotating' : 'Annotate';
         });
         return shell;
       },
@@ -254,17 +272,31 @@ export default defineContentScript({
       },
     });
 
-    ui.mount();
-    raiseOverlay(ui.shadowHost);
-    runtimeMessageListener = (message) => {
-      if (isCaptureToggleMessage(message)) controller?.toggle();
+    // An open tab follows the site policy: disallowing the page tears the overlay down as leaving does,
+    // allowing it mounts the overlay without a reload. The latest read wins.
+    let policySequence = 0;
+    const applyPolicy = async () => {
+      const sequence = ++policySequence;
+      const policy = await readPolicy();
+      if (sequence !== policySequence || ctx.isInvalid) return;
+      const enabled = isEnabledForUrl(location.href, policy);
+      if (enabled && !ui.mounted) {
+        ui.mount();
+        raiseOverlay(ui.shadowHost);
+      } else if (!enabled && ui.mounted) {
+        ui.remove();
+      }
     };
-    browser.runtime.onMessage.addListener(runtimeMessageListener);
-    unsubscribeCaptureState = bus.on('capture:active', (active) => {
-      ui.shadowHost.toggleAttribute('data-annotation-active', active);
-      annotationToggle?.setAttribute('aria-pressed', String(active));
-      annotationToggle?.toggleAttribute('data-active', active);
-      if (annotationToggle) annotationToggle.textContent = active ? 'Stop annotating' : 'Annotate';
-    });
+    const policyChanged: StorageListener = (changes, areaName) => {
+      if (areaName === 'local' && SITE_POLICY_STORAGE_KEY in changes) void applyPolicy();
+    };
+    browser.storage.onChanged.addListener(policyChanged);
+    ctx.onInvalidated(() => browser.storage.onChanged.removeListener(policyChanged));
+    await applyPolicy();
   },
 });
+
+function domReady(): Promise<void> {
+  if (document.readyState !== 'loading') return Promise.resolve();
+  return new Promise((resolve) => document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }));
+}
