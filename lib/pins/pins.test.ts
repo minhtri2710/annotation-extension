@@ -5,7 +5,9 @@ import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { buildSelector } from '../capture/selector';
 import {
-  createPinsController,
+  createPinsController as createController,
+  type PinsController,
+  type PinsControllerOptions,
   RERESOLVE_BACKOFF_CAP_MS,
   RERESOLVE_DEBOUNCE_MS,
   RERESOLVE_MAX_WAIT_MS,
@@ -48,12 +50,22 @@ function setup() {
 // The resolve slicer reads performance.now(); a still clock keeps every pass in one slice regardless of load.
 let now = 0;
 
+// Every controller a test creates is destroyed after it, even when the test fails.
+const controllers: PinsController[] = [];
+
+function createPinsController(options: PinsControllerOptions): PinsController {
+  const controller = createController(options);
+  controllers.push(controller);
+  return controller;
+}
+
 beforeEach(() => {
   now = 0;
   vi.spyOn(performance, 'now').mockImplementation(() => now);
 });
 
 afterEach(() => {
+  for (const controller of controllers.splice(0)) controller.destroy();
   vi.restoreAllMocks();
 });
 
@@ -496,11 +508,23 @@ describe('pins controller', () => {
       slowClock();
       const controller = createPinsController({ document, container: overlay, toolbar });
       controller.setAnnotations([annotation('a1', '#t1'), annotation('a2', '#t2'), annotation('a3', '#t3')]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(markerTexts(overlay)).toEqual(['1', '2']);
+      expect(vi.getTimerCount()).toBe(1);
 
       controller.setAnnotations([annotation('b1', '#t3')]);
       await vi.advanceTimersByTimeAsync(10);
 
       expect(Array.from(overlay.querySelectorAll('[data-annotation-id]')).map((marker) => marker.getAttribute('data-annotation-id'))).toEqual(['b1']);
+      controller.setAnnotations([annotation('a1', '#t1'), annotation('a2', '#t2'), annotation('a3', '#t3')]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(markerTexts(overlay)).toEqual(['1', '2']);
+      controller.setAnnotations([annotation('c1', '#t3'), annotation('c2', '#t1')]);
+      await vi.runAllTimersAsync();
+      const markers = Array.from(overlay.querySelectorAll('[data-annotation-id]'));
+      expect(markers.map((marker) => marker.getAttribute('data-annotation-id'))).toEqual(['c1', 'c2']);
+      expect(markerTexts(overlay)).toEqual(['1', '2']);
+      expect(vi.getTimerCount()).toBe(0);
       controller.destroy();
     });
 
@@ -511,12 +535,18 @@ describe('pins controller', () => {
       slowClock();
       const controller = createPinsController({ document, container: overlay, toolbar });
       controller.setAnnotations([annotation('a1', '#t1'), annotation('a2', '#t2'), annotation('a3', '#t3')]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(markerTexts(overlay)).toEqual(['1', '2']);
+      expect(vi.getTimerCount()).toBe(1);
 
       controller.destroy();
 
       expect(vi.getTimerCount()).toBe(0);
       await vi.advanceTimersByTimeAsync(10);
       expect(overlay.querySelector('[data-annotation-id]')).toBeNull();
+      await vi.runAllTimersAsync();
+      expect(overlay.querySelector('[data-annotation-id]')).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
     });
   });
 });
