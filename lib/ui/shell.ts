@@ -58,9 +58,31 @@ export function buildOverlayShell(
   root.dataset.annotationShell = '';
   toolbar.dataset.annotationMount = TOOLBAR_MOUNT;
   panel.dataset.annotationMount = PANEL_MOUNT;
+  panel.setAttribute('role', 'region');
   applyThemeMode(root, resolveThemeMode(options.theme ?? 'system', options.prefersDark));
   root.append(toolbar, panel);
   container.replaceChildren(style, root);
 
   return { root, toolbar, panel };
+}
+
+// Call before a panel re-render; the returned function refocuses the equivalent control
+// (same data-annotation-* attributes, same annotation) or the panel heading, so focus never
+// drops to <body>. It does nothing when focus was outside the panel.
+export function keepPanelFocus(panel: HTMLElement): () => void {
+  const root = panel.getRootNode() as Document | ShadowRoot;
+  const active = root.activeElement;
+  if (!active || !panel.contains(active)) return () => undefined;
+
+  const selector = Array.from(active.attributes)
+    .filter((attribute) => attribute.name.startsWith('data-annotation-'))
+    .map((attribute) => `[${attribute.name}="${CSS.escape(attribute.value)}"]`)
+    .join('');
+  const owner = active.parentElement?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id');
+  const scope = owner ? `[data-annotation-id="${CSS.escape(owner)}"] ` : '';
+  return () => {
+    if (panel.contains(root.activeElement)) return;
+    const target = selector ? panel.querySelector<HTMLElement>(`${scope}${selector}`) : null;
+    (target ?? panel.querySelector<HTMLElement>('h2'))?.focus();
+  };
 }

@@ -239,6 +239,30 @@ ${ANNOTATION_DARK_TOKENS}
   pointer-events: none;
 }
 
+[data-annotation-shell] [data-annotation-live] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+[data-annotation-shell] [data-annotation-locate-missing] {
+  margin: 0;
+  color: var(--annotation-color-danger);
+  font-size: var(--annotation-font-size-caption);
+}
+
+[data-annotation-shell] [data-annotation-clear-prompt] {
+  padding: var(--annotation-space-2) var(--annotation-space-3);
+  border: 1px solid var(--annotation-color-danger);
+  border-radius: var(--annotation-radius-md);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   [data-annotation-shell] [data-annotation-mount="panel"]:not(:empty) {
     animation: annotation-panel-enter 160ms ease-out;

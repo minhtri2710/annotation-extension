@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { AnnotationWriteMessage } from '../annotation-messages';
 import { format } from '../export/format';
-import { createAnnotationList } from './annotation-list';
+import { ANNOTATION_EDIT_EVENT, createAnnotationList } from './annotation-list';
+import { buildOverlayShell } from '../ui/shell';
 import type { AnnotationListPersistence } from './annotation-list';
 import type { AnnotationExportDelivery } from '../export/delivery';
 import type { ElementContext } from '../capture/context';
@@ -143,6 +144,7 @@ describe('annotation list', () => {
     const list = createAnnotationList(panel, pageUrl, store);
     await list.render();
     (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-clear-confirm]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1));
     expect(store.sendAnnotationWrite).toHaveBeenCalledWith({
@@ -176,6 +178,7 @@ describe('annotation list', () => {
     const list = createAnnotationList(panel, pageUrl, store);
     await list.render();
     (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-clear-confirm]') as HTMLButtonElement).click();
 
     await list.render();
     rejectWrite(new Error('late failure'));
@@ -191,6 +194,7 @@ describe('annotation list', () => {
     const list = createAnnotationList(panel, pageUrl, store);
     await list.render();
     (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-clear-confirm]') as HTMLButtonElement).click();
 
     list.clear();
     rejectWrite(new Error('stale failure'));
@@ -322,5 +326,188 @@ describe('annotation list', () => {
     expect(panel.querySelector<HTMLDetailsElement>('[data-annotation-onboarding]')?.open).toBe(true);
     expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(1);
     expect(panel.querySelector('[data-annotation-status=""]')).toBeNull();
+  });
+});
+
+describe('annotation list confirmation, row actions, focus and live status', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    document.body.replaceChildren();
+  });
+
+  function mounted() {
+    const container = document.createElement('div');
+    document.body.append(container);
+    return buildOverlayShell(container);
+  }
+
+  function anchor(id: string): HTMLElement {
+    const target = document.createElement('p');
+    target.id = `target-${id}`;
+    target.scrollIntoView = vi.fn();
+    document.body.append(target);
+    return target;
+  }
+
+  it('does not render Clear all when the list is empty', async () => {
+    const panel = document.createElement('div');
+    await createAnnotationList(panel, pageUrl, persistence([])).render();
+    expect(panel.querySelector('[data-annotation-empty-state]')).not.toBeNull();
+    expect(panel.querySelector('[data-annotation-clear]')).toBeNull();
+  });
+
+  it('asks inline before clearing, focuses Cancel, and only Delete all sends annotation.clear', async () => {
+    const { panel } = mounted();
+    const store = persistence([annotation('annotation-1', 'One'), annotation('annotation-2', 'Two')]);
+    const confirm = vi.fn();
+    vi.stubGlobal('confirm', confirm);
+    await createAnnotationList(panel, pageUrl, store).render();
+    (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+    await Promise.resolve();
+
+    expect(store.sendAnnotationWrite).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(panel.querySelector('[data-annotation-clear]')).toBeNull();
+    expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(2);
+    const prompt = panel.querySelector('[data-annotation-clear-prompt]');
+    expect(prompt?.querySelector('p')?.textContent).toBe('Delete all 2 annotations on this page? This cannot be undone.');
+    const deleteAll = prompt?.querySelector<HTMLButtonElement>('[data-annotation-clear-confirm]');
+    const cancel = prompt?.querySelector<HTMLButtonElement>('[data-annotation-clear-cancel]');
+    expect([deleteAll?.textContent, deleteAll?.type, cancel?.textContent, cancel?.type]).toEqual(['Delete all', 'button', 'Cancel', 'button']);
+    expect(document.activeElement).toBe(cancel);
+
+    deleteAll?.click();
+    await vi.waitFor(() => expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(store.sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.clear', pageUrl } satisfies AnnotationWriteMessage);
+  });
+
+  it('Cancel and Escape restore Clear all with focus, send nothing, and keep Escape inside the prompt', async () => {
+    const { panel } = mounted();
+    const store = persistence([annotation('annotation-1', 'One')]);
+    const panelKeydown = vi.fn();
+    panel.addEventListener('keydown', panelKeydown);
+    await createAnnotationList(panel, pageUrl, store).render();
+
+    (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-clear-cancel]') as HTMLButtonElement).click();
+    expect(panel.querySelector('[data-annotation-clear-prompt]')).toBeNull();
+    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-clear]'));
+
+    (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    panel.querySelector('[data-annotation-clear-cancel]')!.dispatchEvent(escape);
+    expect(panel.querySelector('[data-annotation-clear-prompt]')).toBeNull();
+    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-clear]'));
+    expect(panelKeydown).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(store.sendAnnotationWrite).not.toHaveBeenCalled();
+  });
+
+  it('keeps focus inside the panel on the heading after Delete all re-renders', async () => {
+    const { panel } = mounted();
+    const store = persistence([]);
+    vi.mocked(store.listAnnotations).mockResolvedValueOnce([annotation('annotation-1', 'One')]).mockResolvedValue([]);
+    await createAnnotationList(panel, pageUrl, store).render();
+    (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-clear-confirm]') as HTMLButtonElement).focus();
+    (panel.querySelector('[data-annotation-clear-confirm]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-empty-state]')).not.toBeNull());
+    expect(document.activeElement).toBe(panel.querySelector('h2'));
+  });
+
+  it('keeps focus on the same row control after a failed delete re-renders', async () => {
+    const { panel } = mounted();
+    const store = persistence([annotation('annotation-1', 'One'), annotation('annotation-2', 'Two')]);
+    vi.mocked(store.sendAnnotationWrite).mockRejectedValue(new Error('delete failed'));
+    await createAnnotationList(panel, pageUrl, store).render();
+    const second = () => panel.querySelector<HTMLButtonElement>('[data-annotation-id="annotation-2"] [data-annotation-delete]')!;
+    const before = second();
+    before.focus();
+    before.click();
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('delete failed'));
+    expect(document.activeElement).toBe(second());
+    expect(document.activeElement).not.toBe(before);
+  });
+
+  it('announces list errors through one persistent role=status node and clears it on close', async () => {
+    const { panel, root } = mounted();
+    const store = persistence([annotation('annotation-1', 'One')]);
+    vi.mocked(store.sendAnnotationWrite).mockRejectedValueOnce(new Error('delete failed'));
+    const list = createAnnotationList(panel, pageUrl, store);
+    root.append(list.live);
+    expect(list.live.getAttribute('role')).toBe('status');
+    await list.render();
+    expect(list.live.textContent).toBe('');
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('delete failed'));
+    expect(list.live.isConnected).toBe(true);
+    list.clear();
+    expect(list.live.textContent).toBe('');
+  });
+
+  it('gives each row Locate and Edit next to Delete, named by row number', async () => {
+    const panel = document.createElement('div');
+    await createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'One'), annotation('annotation-2', 'Two')])).render();
+    const rows = [...panel.querySelectorAll('[data-annotation-row]')];
+    expect(rows.map((row) => [...row.querySelectorAll('button')].map((button) => button.textContent))).toEqual([
+      ['Locate', 'Edit', 'Delete'],
+      ['Locate', 'Edit', 'Delete'],
+    ]);
+    expect(rows[1]?.querySelector('[data-annotation-locate]')?.getAttribute('aria-label')).toBe('Locate annotation 2');
+    expect(rows[1]?.querySelector('[data-annotation-row-edit]')?.getAttribute('aria-label')).toBe('Edit annotation 2');
+    expect(rows[0]?.querySelector('[data-annotation-locate]')?.getAttribute('aria-label')).toBe('Locate annotation 1');
+  });
+
+  it('Locate scrolls the anchored element into view and flashes the shared highlight in the shell root', async () => {
+    vi.useFakeTimers();
+    const { panel, root } = mounted();
+    const target = anchor('annotation-1');
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 5, y: 6, width: 7, height: 8 }));
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'One')]));
+    await list.render();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-locate]')!.click();
+
+    expect(target.scrollIntoView).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' });
+    const highlight = root.querySelector<HTMLElement>(':scope > [data-annotation-scan-highlight]');
+    expect([highlight?.style.position, highlight?.style.top, highlight?.style.left]).toEqual(['fixed', '6px', '5px']);
+    expect(panel.querySelector('[data-annotation-locate-missing]')).toBeNull();
+    list.clear();
+    expect(root.querySelector('[data-annotation-scan-highlight]')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('Locate on a stale anchor shows Element not found on that row, announces it, and moves nothing', async () => {
+    const { panel, root } = mounted();
+    const other = anchor('annotation-2');
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'Gone'), annotation('annotation-2', 'Here')]));
+    root.append(list.live);
+    await list.render();
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+    panel.querySelector<HTMLButtonElement>('[data-annotation-id="annotation-1"] [data-annotation-locate]')!.click();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-id="annotation-1"] [data-annotation-locate]')!.click();
+
+    const missing = panel.querySelectorAll('[data-annotation-locate-missing]');
+    expect(missing).toHaveLength(1);
+    expect(missing[0]?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id')).toBe('annotation-1');
+    expect(missing[0]?.textContent).toBe('Element not found on this page');
+    expect(list.live.textContent).toBe('Element not found on this page');
+    expect(root.querySelector('[data-annotation-scan-highlight]')).toBeNull();
+    expect(scroll).not.toHaveBeenCalled();
+    expect(other.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('Edit asks the host to open the note panel on that annotation', async () => {
+    const panel = document.createElement('div');
+    const annotations = [annotation('annotation-1', 'One'), annotation('annotation-2', 'Two')];
+    const onEdit = vi.fn((event: Event) => (event as CustomEvent<Annotation>).detail);
+    panel.addEventListener(ANNOTATION_EDIT_EVENT, onEdit);
+    const store = persistence(annotations);
+    await createAnnotationList(panel, pageUrl, store).render();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-id="annotation-2"] [data-annotation-row-edit]')!.click();
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit.mock.results[0]?.value).toEqual(annotations[1]);
+    expect(store.sendAnnotationWrite).not.toHaveBeenCalled();
   });
 });

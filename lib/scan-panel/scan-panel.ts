@@ -1,6 +1,7 @@
 import { collectFindings, createScanContext, type Finding, type Rule, type Severity } from '../lint/engine';
 import { ALL_RULES, DEEP_SCAN_RULES } from '../lint/rules';
 import { revealSweep } from './reveal-sweep';
+import { createLocateHighlight } from '../ui/locate-highlight';
 
 export interface ScanPanelOptions {
   scan: (signal: AbortSignal) => Promise<Finding[]>;
@@ -12,12 +13,13 @@ export interface ScanPanelOptions {
 export interface ScanPanel {
   render(): Promise<void>;
   clear(): void;
+  isDeepScanRunning(): boolean;
+  live: HTMLElement;
 }
 
 const SEVERITY_ORDER: Severity[] = ['error', 'warning', 'advisory'];
 const SEVERITY_LABEL: Record<Severity, string> = { error: 'Error', warning: 'Warning', advisory: 'Advisory' };
 const MAX_ROWS = 10;
-const HIGHLIGHT_MS = 1500;
 
 export async function scanPage(
   win: Window,
@@ -37,9 +39,21 @@ export async function deepScanPage(win: Window, host: Element, signal: AbortSign
 
 export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): ScanPanel {
   let renderVersion = 0;
-  let highlight: HTMLElement | undefined;
-  let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+  const highlight = createLocateHighlight();
   let stopScan: (() => void) | undefined;
+  let deepScan: AbortController | undefined;
+  const live = panel.ownerDocument.createElement('p');
+  live.dataset.annotationLive = '';
+  live.setAttribute('role', 'status');
+
+  function announce(text: string): void {
+    if (live.textContent !== text) live.textContent = text;
+  }
+
+  function setStatus(status: HTMLElement, text: string): void {
+    status.textContent = text;
+    announce(text);
+  }
 
   function begin(statusText: string): {
     version: number;
@@ -50,7 +64,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
   } {
     const version = ++renderVersion;
     stopScan?.();
-    removeHighlight();
+    highlight.remove();
     const controller = new AbortController();
     stopScan = () => {
       stopScan = undefined;
@@ -61,7 +75,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     heading.textContent = 'Design scan';
     const status = document.createElement('p');
     status.dataset.annotationStatus = '';
-    status.textContent = statusText;
+    setStatus(status, statusText);
     panel.replaceChildren(heading, status);
     return { version, controller, document, heading, status };
   }
@@ -78,7 +92,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     } catch (error) {
       if (version !== renderVersion) return;
       stopScan = undefined;
-      status.textContent = `Scan failed: ${error instanceof Error ? error.message : String(error)}`;
+      setStatus(status, `Scan failed: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
 
@@ -90,6 +104,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
 
   async function runDeepScan(): Promise<void> {
     const { version, controller, document, heading, status } = begin('Deep scan running…');
+    deepScan = controller;
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.dataset.annotationDeepScanCancel = '';
@@ -106,6 +121,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     let focusWasInPanel = false;
     const finish = () => {
       stopScan = undefined;
+      deepScan = undefined;
       document.removeEventListener('keydown', onKeydown);
       focusWasInPanel = panel.contains((panel.getRootNode() as Document | ShadowRoot).activeElement ?? null);
     };
@@ -122,11 +138,11 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       if (version !== renderVersion) return;
       finish();
       if (controller.signal.aborted) {
-        status.textContent = 'Deep scan cancelled';
+        setStatus(status, 'Deep scan cancelled');
         panel.replaceChildren(heading, status, createDeepScanButton(document));
         restoreFocus();
       } else {
-        status.textContent = `Scan failed: ${error instanceof Error ? error.message : String(error)}`;
+        setStatus(status, `Scan failed: ${error instanceof Error ? error.message : String(error)}`);
         panel.replaceChildren(heading, status);
       }
       options.onUpdate();
@@ -154,6 +170,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     const summary = document.createElement('p');
     summary.dataset.annotationScanSummary = '';
     summary.textContent = `${prefix}${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}: ${count('error')} errors, ${count('warning')} warnings, ${count('advisory')} advisory`;
+    announce(summary.textContent);
     panel.append(summary, createDeepScanButton(document));
 
     if (findings.length === 0) {
@@ -218,42 +235,23 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       locate.type = 'button';
       locate.dataset.annotationScanLocate = '';
       locate.textContent = 'Locate';
-      locate.addEventListener('click', () => showHighlight(el));
+      locate.addEventListener('click', () => highlight.show(options.highlightRoot, el));
       row.append(' ', locate);
     }
     return row;
   }
 
-  function showHighlight(el: Element): void {
-    el.scrollIntoView({ block: 'center', inline: 'nearest' });
-    removeHighlight();
-    const rect = el.getBoundingClientRect();
-    highlight = options.highlightRoot.ownerDocument.createElement('div');
-    highlight.dataset.annotationScanHighlight = '';
-    Object.assign(highlight.style, {
-      position: 'fixed',
-      top: `${rect.top}px`,
-      left: `${rect.left}px`,
-      width: `${rect.width}px`,
-      height: `${rect.height}px`,
-    });
-    options.highlightRoot.append(highlight);
-    highlightTimer = setTimeout(removeHighlight, HIGHLIGHT_MS);
-  }
-
-  function removeHighlight(): void {
-    clearTimeout(highlightTimer);
-    highlightTimer = undefined;
-    highlight?.remove();
-    highlight = undefined;
-  }
-
   function clear(): void {
     renderVersion += 1;
     stopScan?.();
-    removeHighlight();
+    highlight.remove();
     panel.replaceChildren();
+    announce('');
   }
 
-  return { render, clear };
+  function isDeepScanRunning(): boolean {
+    return deepScan !== undefined && !deepScan.signal.aborted;
+  }
+
+  return { render, clear, isDeepScanRunning, live };
 }

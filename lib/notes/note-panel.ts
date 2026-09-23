@@ -10,11 +10,18 @@ import { SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/validation';
 import { attachmentKey, screenshotKey } from '../blob-store';
 import type { ElementContext } from '../capture/context';
 import { createNotePanelPersistence, type NotePanelPersistence } from './persistence';
+import { keepPanelFocus } from '../ui/shell';
 
 export interface NotePanel {
   render(context: ElementContext): Promise<void>;
+  clear(): void;
   teardown(): void;
+  live: HTMLElement;
 }
+
+// Dispatched on the panel mount when the user asks to close the note panel.
+export const NOTE_PANEL_CLOSE_EVENT = 'annotation-note-close';
+const EMPTY_NOTE_MESSAGE = 'Write a note before saving.';
 
 export function createNotePanel(
   panel: HTMLElement,
@@ -23,8 +30,24 @@ export function createNotePanel(
   let selectedContext: ElementContext | undefined;
   let statusMessage: string | undefined;
   const previewUrls = new Set<string>();
+  const live = panel.ownerDocument.createElement('p');
+  live.dataset.annotationLive = '';
+  live.setAttribute('role', 'status');
 
+  function announce(text: string): void {
+    if (live.textContent !== text) live.textContent = text;
+  }
+
+  // Opening moves focus into the panel: the first note of the element, else the new-note field.
   async function render(context: ElementContext): Promise<void> {
+    await refresh(context);
+    if (selectedContext !== context) return;
+    panel
+      .querySelector<HTMLTextAreaElement>('[data-annotation-edit-note], [data-annotation-new-note]')
+      ?.focus();
+  }
+
+  async function refresh(context: ElementContext): Promise<void> {
     if (selectedContext && selectedContext.selector !== context.selector) statusMessage = undefined;
     selectedContext = context;
     let annotations: Annotation[] = [];
@@ -38,20 +61,29 @@ export function createNotePanel(
     if (selectedContext !== context) return;
 
     revokePreviewUrls();
+    const restoreFocus = keepPanelFocus(panel);
     panel.replaceChildren();
     const document = panel.ownerDocument;
     const heading = document.createElement('h2');
     heading.textContent = 'Notes';
-    panel.append(heading);
+    heading.tabIndex = -1;
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.dataset.annotationClose = '';
+    close.textContent = 'Close';
+    close.setAttribute('aria-label', 'Close annotation note');
+    close.addEventListener('click', () => panel.dispatchEvent(new Event(NOTE_PANEL_CLOSE_EVENT)));
+    panel.append(heading, close);
     let status: HTMLParagraphElement | undefined;
     const showStatus = () => {
+      announce(statusMessage ?? '');
       if (!statusMessage) return;
       if (!status) {
         status = document.createElement('p');
         status.dataset.annotationStatus = '';
       }
       status.textContent = statusMessage;
-      if (!status.isConnected) panel.insertBefore(status, panel.children[1] ?? null);
+      if (!status.isConnected) panel.insertBefore(status, panel.children[2] ?? null);
     };
     showStatus();
 
@@ -79,7 +111,11 @@ export function createNotePanel(
     save.textContent = 'Save';
     const add = () => {
       const value = note.value.trim();
-      if (!value) return;
+      if (!value) {
+        statusMessage = EMPTY_NOTE_MESSAGE;
+        showStatus();
+        return;
+      }
       void mutate({
         type: 'annotation.add',
         pageUrl: context.url,
@@ -87,22 +123,28 @@ export function createNotePanel(
       }, context).catch(() => undefined);
     };
     save.addEventListener('click', add);
+    note.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      add();
+    });
     form.append(note, save);
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       if (event.submitter !== save) add();
     });
     panel.append(form);
+    restoreFocus();
   }
 
   async function mutate(message: AnnotationWriteMessage, context: ElementContext): Promise<void> {
     try {
       await persistence.sendAnnotationWrite(message);
       statusMessage = undefined;
-      await render(context);
+      await refresh(context);
     } catch (error) {
       statusMessage = errorMessage(error);
-      await render(context);
+      await refresh(context);
     }
   }
 
@@ -132,7 +174,7 @@ export function createNotePanel(
 
   function reportFileError(error: unknown, context: ElementContext): void {
     statusMessage = errorMessage(error);
-    void render(context).catch((renderError) => {
+    void refresh(context).catch((renderError) => {
       statusMessage = errorMessage(renderError);
     });
   }
@@ -175,7 +217,7 @@ export function createNotePanel(
       if (files.length === 0) return;
       event.preventDefault();
       void addFiles(annotation, context, files).then(
-        () => render(context),
+        () => refresh(context),
         (error) => reportFileError(error, context),
       );
     });
@@ -200,10 +242,10 @@ export function createNotePanel(
         try {
           await persistence.captureScreenshot(annotation, context);
           statusMessage = undefined;
-          await render(context);
+          await refresh(context);
         } catch (error) {
           statusMessage = errorMessage(error);
-          await render(context);
+          await refresh(context);
         }
       })();
     });
@@ -226,7 +268,7 @@ export function createNotePanel(
       const files = Array.from(attachmentInput.files ?? []);
       if (files.length === 0) return;
       void addFiles(annotation, context, files).then(
-        () => render(context),
+        () => refresh(context),
         (error) => reportFileError(error, context),
       );
       attachmentInput.value = '';
@@ -236,7 +278,7 @@ export function createNotePanel(
       if (files.length === 0) return;
       event.preventDefault();
       void addFiles(annotation, context, files).then(
-        () => render(context),
+        () => refresh(context),
         (error) => reportFileError(error, context),
       );
     });
@@ -386,7 +428,7 @@ export function createNotePanel(
             pageUrl: context.url,
             annotationId: annotation.id,
             attachmentId: attachment.id,
-          }).then(() => render(context), (error) => reportFileError(error, context));
+          }).then(() => refresh(context), (error) => reportFileError(error, context));
         });
         wrapper.append(caption, removeAttachment);
         item.append(wrapper);
@@ -418,12 +460,20 @@ export function createNotePanel(
     previewUrls.clear();
   }
 
+  function clear(): void {
+    selectedContext = undefined;
+    statusMessage = undefined;
+    revokePreviewUrls();
+    panel.replaceChildren();
+    announce('');
+  }
+
   function teardown(): void {
     revokePreviewUrls();
     persistence.revertAllCssEdits();
   }
 
-  return { render, teardown };
+  return { render, clear, teardown, live };
 }
 
 function errorMessage(error: unknown): string {

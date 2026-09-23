@@ -1,10 +1,11 @@
 import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
-import { createAnnotationList } from '../lib/annotation-list/annotation-list';
-import { createNotePanel } from '../lib/notes/note-panel';
+import { ANNOTATION_EDIT_EVENT, createAnnotationList } from '../lib/annotation-list/annotation-list';
+import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../lib/notes/note-panel';
 import { createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import type { ElementContext } from '../lib/capture/context';
+import type { Annotation } from '../lib/annotation';
 import { resolveLiveElementContext } from '../lib/wiring/live-element';
 import { watchRoute } from '../lib/wiring/route-watch';
 import { buildOverlayShell, positionPopover } from '../lib/ui/shell';
@@ -56,7 +57,8 @@ export default defineContentScript({
               : undefined,
         });
         let url = document.location.href;
-        notePanel = createNotePanel(shell.panel);
+        const activeNotePanel = createNotePanel(shell.panel);
+        notePanel = activeNotePanel;
         let annotationList = createAnnotationList(shell.panel, url);
         const activeScanPanel = createScanPanel(shell.panel, {
           scan: (signal) => scanPage(window, shadowHost, signal),
@@ -67,7 +69,12 @@ export default defineContentScript({
           highlightRoot: shell.root,
         });
         scanPanel = activeScanPanel;
-        let panelMode: 'none' | 'list' | 'scan' = 'none';
+        // Live regions sit outside the panel mount so they persist while panels re-render and close.
+        shell.root.append(activeNotePanel.live, annotationList.live, activeScanPanel.live);
+        const overlayRoot = shell.root.getRootNode() as Document | ShadowRoot;
+        const PANEL_LABELS = { note: 'Annotation note', list: 'Annotations on this page', scan: 'Page scan' } as const;
+        let panelMode: 'none' | keyof typeof PANEL_LABELS = 'none';
+        let panelOpener: HTMLElement | undefined;
         let renderSequence = 0;
         resetPanelPosition = () => {
           shell.panel.style.removeProperty('position');
@@ -96,21 +103,39 @@ export default defineContentScript({
         scanToggle.setAttribute('aria-expanded', 'false');
         scanToggle.textContent = 'Scan';
         const listToggle = document.createElement('button');
-        const closePanel = () => {
+        const resetPanel = () => {
+          if (panelMode === 'note') activeNotePanel.clear();
           if (panelMode === 'list') annotationList.clear();
           if (panelMode === 'scan') activeScanPanel.clear();
           listToggle.setAttribute('aria-expanded', 'false');
           scanToggle.setAttribute('aria-expanded', 'false');
+          shell.panel.removeAttribute('aria-label');
           resetPanelPosition?.();
           panelMode = 'none';
+          panelOpener = undefined;
+        };
+        const setPanelMode = (mode: keyof typeof PANEL_LABELS, opener: HTMLElement | undefined) => {
+          panelMode = mode;
+          panelOpener = opener;
+          shell.panel.setAttribute('aria-label', PANEL_LABELS[mode]);
+        };
+        // Focus returns to the opener only if it was inside the panel; focus elsewhere is left alone.
+        const closePanel = () => {
+          const focusWasInPanel = shell.panel.contains(overlayRoot.activeElement);
+          const opener = panelOpener;
+          resetPanel();
+          if (focusWasInPanel && opener?.isConnected) opener.focus();
         };
         const openPanel = (mode: 'list' | 'scan') => {
-          const wasOpen = panelMode === mode;
-          closePanel();
-          if (wasOpen) return;
-          panelMode = mode;
+          if (panelMode === mode) {
+            closePanel();
+            return;
+          }
+          resetPanel();
+          const toggle = mode === 'list' ? listToggle : scanToggle;
+          setPanelMode(mode, toggle);
           const sequence = ++renderSequence;
-          (mode === 'list' ? listToggle : scanToggle).setAttribute('aria-expanded', 'true');
+          toggle.setAttribute('aria-expanded', 'true');
           void (mode === 'list' ? annotationList.render() : activeScanPanel.render()).then(() => {
             if (sequence !== renderSequence || panelMode !== mode) return;
             anchorPanel(shell.toolbar.getBoundingClientRect());
@@ -136,18 +161,17 @@ export default defineContentScript({
         annotateToggle.addEventListener('click', () => controller?.toggle());
         shell.toolbar.append(annotateToggle);
 
-        const showNotePanel = (context: ElementContext) => {
-          if (panelMode !== 'none') closePanel();
+        const showNotePanel = (context: ElementContext, opener: HTMLElement | undefined) => {
+          resetPanel();
+          setPanelMode('note', opener);
           const sequence = ++renderSequence;
-          const panel = notePanel;
-          if (!panel) return;
-          void panel.render(context).then(() => {
-            if (sequence !== renderSequence) return;
+          void activeNotePanel.render(context).then(() => {
+            if (sequence !== renderSequence || panelMode !== 'note') return;
             anchorPanel(context.boundingBox);
           });
         };
         unsubscribeSelection = bus.on('element:selected', (context) => {
-          showNotePanel(context);
+          showNotePanel(context, annotateToggle);
         });
         pins = createPinsController({
           document,
@@ -155,8 +179,24 @@ export default defineContentScript({
           toolbar: shell.toolbar,
           onActivate: (annotation) => {
             const context = resolveLiveElementContext(document, annotation);
-            if (context) showNotePanel(context);
+            const pin = overlayRoot.activeElement as HTMLElement | null;
+            if (context) showNotePanel(context, pin && !shell.panel.contains(pin) ? pin : undefined);
           },
+        });
+        // A row's control is gone once the list closes, so the note panel returns focus to the list's opener.
+        shell.panel.addEventListener(ANNOTATION_EDIT_EVENT, (event) => {
+          const annotation = (event as CustomEvent<Annotation>).detail;
+          showNotePanel(resolveLiveElementContext(document, annotation) ?? annotation.elementContext, panelOpener);
+        });
+        shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, () => {
+          if (panelMode === 'note') closePanel();
+        });
+        shell.panel.addEventListener('keydown', (event) => {
+          if (event.key !== 'Escape' || panelMode === 'none') return;
+          // The first Escape during a deep scan only cancels it (scan-panel's document listener).
+          if (panelMode === 'scan' && activeScanPanel.isDeepScanRunning()) return;
+          event.stopPropagation();
+          closePanel();
         });
         toolbarControls = createToolbarControls({
           toolbar: shell.toolbar,
@@ -166,7 +206,7 @@ export default defineContentScript({
             if (collapsed && panelMode !== 'none') closePanel();
           },
           onPositionChange: () => {
-            if (panelMode !== 'none') anchorPanel(shell.toolbar.getBoundingClientRect());
+            if (panelMode === 'list' || panelMode === 'scan') anchorPanel(shell.toolbar.getBoundingClientRect());
           },
         });
         let pinsSequence = 0;
@@ -184,7 +224,9 @@ export default defineContentScript({
         stopRouteWatch = watchRoute(window, (newUrl) => {
           url = newUrl;
           if (panelMode !== 'none') closePanel();
-          annotationList = createAnnotationList(shell.panel, newUrl);
+          const nextList = createAnnotationList(shell.panel, newUrl);
+          annotationList.live.replaceWith(nextList.live);
+          annotationList = nextList;
           void refreshPins();
         });
         controller = createCaptureController({

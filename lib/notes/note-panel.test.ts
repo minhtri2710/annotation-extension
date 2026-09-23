@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { AnnotationWriteMessage } from '../annotation-messages';
 import type { ElementContext } from '../capture/context';
-import { createNotePanel } from './note-panel';
+import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from './note-panel';
 import type { NotePanelPersistence } from './persistence';
 
 const pageUrl = 'https://example.com/article';
@@ -664,5 +664,156 @@ describe('note panel', () => {
       id: 'annotation-1',
     } satisfies AnnotationWriteMessage);
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('note panel close, focus, editor and live status', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  function mounted(): HTMLDivElement {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    return panel;
+  }
+
+  function ctrlEnter(target: HTMLElement, init: KeyboardEventInit = { ctrlKey: true }): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it('renders a labelled Close button that requests close from the host', async () => {
+    const panel = mounted();
+    const onClose = vi.fn();
+    panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, onClose);
+    await render(panel);
+    const close = panel.querySelector<HTMLButtonElement>('[data-annotation-close]');
+    expect(close?.type).toBe('button');
+    expect(close?.textContent).toBe('Close');
+    expect(close?.getAttribute('aria-label')).toBe('Close annotation note');
+    close?.click();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves focus to the new-note field when opened on an element without notes', async () => {
+    const panel = mounted();
+    await render(panel);
+    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-new-note]'));
+  });
+
+  it('moves focus to the first note field when opened on an annotated element', async () => {
+    const panel = mounted();
+    await render(panel, [annotation('Existing')]);
+    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-edit-note]'));
+  });
+
+  it('saves with Ctrl+Enter and Cmd+Enter exactly like Save', async () => {
+    const panel = mounted();
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    await render(panel, [], { sendAnnotationWrite });
+    const note = () => panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+
+    note().value = 'With ctrl';
+    expect(ctrlEnter(note()).defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    note().value = 'With cmd';
+    ctrlEnter(note(), { metaKey: true });
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(2));
+    note().value = 'Plain enter';
+    ctrlEnter(note(), {});
+    await Promise.resolve();
+
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(2);
+    expect(sendAnnotationWrite).toHaveBeenNthCalledWith(1, {
+      type: 'annotation.add', pageUrl, input: { note: 'With ctrl', selector: context.selector, elementContext: context },
+    } satisfies AnnotationWriteMessage);
+    expect(sendAnnotationWrite).toHaveBeenNthCalledWith(2, {
+      type: 'annotation.add', pageUrl, input: { note: 'With cmd', selector: context.selector, elementContext: context },
+    } satisfies AnnotationWriteMessage);
+  });
+
+  it('keeps focus on the new-note field after a keyboard save re-renders the panel', async () => {
+    const panel = mounted();
+    const listAnnotations = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([annotation('Saved')]);
+    await render(panel, [], { listAnnotations });
+    const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+    note.value = 'Saved';
+    ctrlEnter(note);
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-edit-note]')).not.toBeNull());
+    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-new-note]'));
+    expect(document.activeElement).not.toBe(note);
+  });
+
+  it('moves focus to the heading when the focused control is gone after a re-render', async () => {
+    const panel = mounted();
+    const listAnnotations = vi.fn().mockResolvedValueOnce([annotation('Delete me')]).mockResolvedValue([]);
+    await render(panel, [], { listAnnotations });
+    const remove = panel.querySelector('[data-annotation-delete]') as HTMLButtonElement;
+    remove.focus();
+    remove.click();
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-delete]')).toBeNull());
+    expect(document.activeElement).toBe(panel.querySelector('h2'));
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('refuses an empty save with a status in the persistent live region', async () => {
+    const panel = mounted();
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const { notePanel } = await render(panel, [], { sendAnnotationWrite });
+    const live = notePanel.live;
+    document.body.append(live);
+    expect(live.getAttribute('role')).toBe('status');
+    expect(live.textContent).toBe('');
+
+    const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+    note.value = '  \n ';
+    ctrlEnter(note);
+    (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+    await Promise.resolve();
+
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    expect(live.textContent).toBe('Write a note before saving.');
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Write a note before saving.');
+  });
+
+  it('announces a write error through the same live node across re-renders and clears it on success', async () => {
+    const panel = mounted();
+    const sendAnnotationWrite = vi.fn().mockRejectedValueOnce(new Error('write failed')).mockResolvedValue(undefined);
+    const { notePanel } = await render(panel, [], { sendAnnotationWrite });
+    const live = notePanel.live;
+    document.body.append(live);
+    const save = (value: string) => {
+      (panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement).value = value;
+      (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+    };
+
+    save('Fails');
+    await vi.waitFor(() => expect(live.textContent).toBe('write failed'));
+    expect(notePanel.live).toBe(live);
+    expect(live.isConnected).toBe(true);
+    save('Works');
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(live.textContent).toBe(''));
+  });
+
+  it('clear() empties the panel and the live region and drops a pending render', async () => {
+    const panel = mounted();
+    let resolveList: (value: Annotation[]) => void = () => undefined;
+    const listAnnotations = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockReturnValueOnce(new Promise<Annotation[]>((resolve) => { resolveList = resolve; }));
+    const { notePanel } = await render(panel, [], { listAnnotations });
+    (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+    expect(notePanel.live.textContent).toBe('Write a note before saving.');
+
+    const pending = notePanel.render(context);
+    notePanel.clear();
+    expect(panel.childElementCount).toBe(0);
+    expect(notePanel.live.textContent).toBe('');
+    resolveList([annotation('Late')]);
+    await pending;
+    expect(panel.childElementCount).toBe(0);
   });
 });

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { OVERLAY_STYLES } from './styles';
-import { buildOverlayShell, clampToolbarPosition, positionPopover } from './shell';
+import { buildOverlayShell, clampToolbarPosition, keepPanelFocus, positionPopover } from './shell';
 
 describe('overlay shell', () => {
   it('builds the themed toolbar and panel mounts with the injected stylesheet', () => {
@@ -82,5 +82,67 @@ describe('overlay shell', () => {
       x: 8,
       y: 8,
     });
+  });
+
+  it('gives the panel mount a region role', () => {
+    const shell = buildOverlayShell(document.createElement('div'));
+    expect(shell.panel.getAttribute('role')).toBe('region');
+  });
+
+  it('refocuses the equivalent control of the same annotation after the panel re-renders', () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    const renderItems = () => {
+      panel.replaceChildren();
+      const heading = document.createElement('h2');
+      heading.tabIndex = -1;
+      panel.append(heading);
+      for (const id of ['a', 'b']) {
+        const item = document.createElement('article');
+        item.dataset.annotationId = id;
+        const button = document.createElement('button');
+        button.dataset.annotationEdit = '';
+        item.append(button);
+        panel.append(item);
+      }
+    };
+    renderItems();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-id="b"] [data-annotation-edit]')!.focus();
+    const restore = keepPanelFocus(panel);
+    renderItems();
+    restore();
+    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-id="b"] [data-annotation-edit]'));
+    panel.remove();
+  });
+
+  it('falls back to the panel heading when the focused control is gone', () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    const button = document.createElement('button');
+    button.dataset.annotationClear = '';
+    panel.append(button);
+    button.focus();
+    const restore = keepPanelFocus(panel);
+    const heading = document.createElement('h2');
+    heading.tabIndex = -1;
+    panel.replaceChildren(heading);
+    restore();
+    expect(document.activeElement).toBe(heading);
+    panel.remove();
+  });
+
+  it('leaves focus alone when it was outside the panel', () => {
+    const panel = document.createElement('div');
+    const outside = document.createElement('input');
+    document.body.append(panel, outside);
+    outside.focus();
+    const restore = keepPanelFocus(panel);
+    const heading = document.createElement('h2');
+    heading.tabIndex = -1;
+    panel.replaceChildren(heading);
+    restore();
+    expect(document.activeElement).toBe(outside);
+    panel.remove();
+    outside.remove();
   });
 });

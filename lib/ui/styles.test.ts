@@ -285,6 +285,24 @@ ${ANNOTATION_DARK_TOKENS}
   });
 });
 
+describe('overlay live region and panel chrome styles', () => {
+  it('hides the live status nodes visually without removing them from the accessibility tree', () => {
+    const body = ruleBody('[data-annotation-shell] [data-annotation-live] {');
+    expect(body).toContain('position: absolute');
+    expect(body).toContain('width: 1px');
+    expect(body).toContain('height: 1px');
+    expect(body).toContain('overflow: hidden');
+    expect(body).toContain('clip-path: inset(50%)');
+    expect(body).not.toMatch(/display: none|visibility: hidden/);
+  });
+
+  it('styles the stale-anchor note and the clear prompt from tokens without motion', () => {
+    expect(ruleBody('[data-annotation-shell] [data-annotation-locate-missing] {')).toContain('color: var(--annotation-color-danger)');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-clear-prompt] {')).toMatch(/var\(--annotation-/);
+    expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toMatch(/data-annotation-(?:live|locate-missing|clear-prompt)/);
+  });
+});
+
 function ruleBody(selectorLine: string, css = OVERLAY_STYLES): string {
   const start = css.search(new RegExp(`\\n *${selectorLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   expect(start, selectorLine).toBeGreaterThanOrEqual(0);

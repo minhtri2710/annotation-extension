@@ -518,3 +518,79 @@ describe('scan panel deep scan', () => {
     expect(onUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe('scan panel live status', () => {
+  it('announces scanning and the done summary on one persistent role=status node', async () => {
+    vi.useFakeTimers();
+    const { scanPanel } = setup(async () => [finding('a', 'A', 'warning', 'x')]);
+    const live = scanPanel.live;
+    document.body.append(live);
+    expect(live.getAttribute('role')).toBe('status');
+    expect(live.textContent).toBe('');
+    const done = scanPanel.render();
+    expect(live.textContent).toBe('Scanning…');
+    await vi.runAllTimersAsync();
+    await done;
+    expect(scanPanel.live).toBe(live);
+    expect(live.isConnected).toBe(true);
+    expect(live.textContent).toBe('1 finding: 0 errors, 1 warnings, 0 advisory');
+  });
+
+  it('announces a scan failure', async () => {
+    vi.useFakeTimers();
+    const { scanPanel } = setup(async () => {
+      throw new Error('boom');
+    });
+    await renderNow(scanPanel.render);
+    expect(scanPanel.live.textContent).toBe('Scan failed: boom');
+  });
+
+  it('announces deep scan running, cancelled, failed and done, and clear() empties it', async () => {
+    vi.useFakeTimers();
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(async () => [], deepScan);
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    expect(scanPanel.live.textContent).toBe('Deep scan running…');
+    panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]')?.click();
+    await flush();
+    expect(scanPanel.live.textContent).toBe('Deep scan cancelled');
+
+    deepButton(panel)?.click();
+    calls[1]?.resolve([]);
+    await flush();
+    expect(scanPanel.live.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisory');
+
+    deepButton(panel)?.click();
+    calls[2]?.reject(new Error('sweep broke'));
+    await flush();
+    expect(scanPanel.live.textContent).toBe('Scan failed: sweep broke');
+
+    scanPanel.clear();
+    expect(scanPanel.live.textContent).toBe('');
+  });
+
+  it('reports a running deep scan only between start and finish', async () => {
+    vi.useFakeTimers();
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(async () => [], deepScan);
+    const scanning = scanPanel.render();
+    expect(scanPanel.isDeepScanRunning()).toBe(false);
+    await flush();
+    await scanning;
+    deepButton(panel)?.click();
+    expect(scanPanel.isDeepScanRunning()).toBe(true);
+    calls[0]?.resolve([]);
+    await flush();
+    expect(scanPanel.isDeepScanRunning()).toBe(false);
+
+    deepButton(panel)?.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(scanPanel.isDeepScanRunning()).toBe(false);
+    await flush();
+
+    deepButton(panel)?.click();
+    scanPanel.clear();
+    expect(scanPanel.isDeepScanRunning()).toBe(false);
+  });
+});

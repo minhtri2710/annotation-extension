@@ -9,6 +9,9 @@ import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-
 import { sendBlobRead } from '../screenshot/messages';
 import { attachmentKey, screenshotKey } from '../blob-store';
 import { readOnboardingOpen, writeOnboardingOpen } from '../ui/ui-prefs';
+import { resolveSelector } from '../capture/selector';
+import { createLocateHighlight } from '../ui/locate-highlight';
+import { keepPanelFocus } from '../ui/shell';
 
 export interface AnnotationListPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
@@ -21,7 +24,12 @@ export interface AnnotationListPersistence {
 export interface AnnotationList {
   render(): Promise<void>;
   clear(): void;
+  live: HTMLElement;
 }
+
+// Dispatched on the panel mount with the annotation as detail when a row's Edit is clicked.
+export const ANNOTATION_EDIT_EVENT = 'annotation-edit';
+const LOCATE_MISSING_MESSAGE = 'Element not found on this page';
 
 const productionPersistence: AnnotationListPersistence = {
   listAnnotations,
@@ -48,6 +56,14 @@ export function createAnnotationList(
   let renderVersion = 0;
   let clearVersion = 0;
   let statusMessage: string | undefined;
+  const highlight = createLocateHighlight();
+  const live = panel.ownerDocument.createElement('p');
+  live.dataset.annotationLive = '';
+  live.setAttribute('role', 'status');
+
+  function announce(text: string): void {
+    if (live.textContent !== text) live.textContent = text;
+  }
 
   async function render(): Promise<void> {
     const version = ++renderVersion;
@@ -62,11 +78,14 @@ export function createAnnotationList(
     if (version !== renderVersion) return;
 
     const document = panel.ownerDocument;
+    const restoreFocus = keepPanelFocus(panel);
     panel.replaceChildren();
 
     const heading = document.createElement('h2');
     heading.textContent = 'All annotations';
+    heading.tabIndex = -1;
     panel.append(heading, createOnboarding(document, onboardingOpen));
+    announce(statusMessage ?? '');
     if (statusMessage) {
       const status = document.createElement('p');
       status.dataset.annotationStatus = '';
@@ -74,29 +93,63 @@ export function createAnnotationList(
       panel.append(status);
     }
 
-    const clear = document.createElement('button');
-    clear.type = 'button';
-    clear.dataset.annotationClear = '';
-    clear.textContent = 'Clear all';
-    clear.addEventListener('click', () => {
-      void mutate({ type: 'annotation.clear', pageUrl });
-    });
-    panel.append(clear);
-
     if (annotations.length === 0) {
       const empty = document.createElement('p');
       empty.dataset.annotationEmptyState = '';
       empty.textContent = 'No annotations on this page.';
       panel.append(empty);
-      return;
+    } else {
+      panel.append(createClearAll(document, annotations.length), createExportSection(document, annotations));
+      const rows = document.createElement('div');
+      rows.dataset.annotationRows = '';
+      annotations.forEach((annotation, index) => rows.append(createRow(document, annotation, index + 1)));
+      panel.append(rows);
     }
+    restoreFocus();
+  }
 
-    panel.append(createExportSection(document, annotations));
+  // Clear all deletes nothing by itself; it swaps in an inline prompt, and only its Delete all clears.
+  function createClearAll(document: Document, count: number): HTMLButtonElement {
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.dataset.annotationClear = '';
+    clear.textContent = 'Clear all';
 
-    const rows = document.createElement('div');
-    rows.dataset.annotationRows = '';
-    for (const annotation of annotations) rows.append(createRow(document, annotation));
-    panel.append(rows);
+    const prompt = document.createElement('div');
+    prompt.dataset.annotationClearPrompt = '';
+    prompt.setAttribute('role', 'group');
+    const question = document.createElement('p');
+    question.textContent = `Delete all ${count} ${count === 1 ? 'annotation' : 'annotations'} on this page? This cannot be undone.`;
+    const confirm = document.createElement('button');
+    confirm.type = 'button';
+    confirm.dataset.annotationClearConfirm = '';
+    confirm.textContent = 'Delete all';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.dataset.annotationClearCancel = '';
+    cancel.textContent = 'Cancel';
+    prompt.setAttribute('aria-label', 'Confirm clear all');
+    prompt.append(question, confirm, cancel);
+
+    const dismiss = () => {
+      prompt.replaceWith(clear);
+      clear.focus();
+    };
+    clear.addEventListener('click', () => {
+      clear.replaceWith(prompt);
+      cancel.focus();
+    });
+    confirm.addEventListener('click', () => {
+      void mutate({ type: 'annotation.clear', pageUrl });
+    });
+    cancel.addEventListener('click', dismiss);
+    prompt.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      // Escape here dismisses the prompt only; it must not also close the panel.
+      event.stopPropagation();
+      dismiss();
+    });
+    return clear;
   }
 
   function createOnboarding(document: Document, open: boolean): HTMLElement {
@@ -172,7 +225,7 @@ export function createAnnotationList(
     return section;
   }
 
-  function createRow(document: Document, annotation: Annotation): HTMLElement {
+  function createRow(document: Document, annotation: Annotation, position: number): HTMLElement {
     const row = document.createElement('article');
     row.dataset.annotationRow = '';
     row.dataset.annotationId = annotation.id;
@@ -198,7 +251,38 @@ export function createAnnotationList(
       void mutate({ type: 'annotation.delete', pageUrl, id: annotation.id });
     });
 
-    row.append(note, hint, status, remove);
+    const locate = document.createElement('button');
+    locate.type = 'button';
+    locate.dataset.annotationLocate = '';
+    locate.setAttribute('aria-label', `Locate annotation ${position}`);
+    locate.textContent = 'Locate';
+    locate.addEventListener('click', () => {
+      const element = resolveSelector(document, annotation.selector);
+      if (element) {
+        row.querySelector('[data-annotation-locate-missing]')?.remove();
+        // The panel mount sits in the shell root, the same root the scan panel highlights into.
+        highlight.show(panel.parentElement!, element);
+        return;
+      }
+      if (!row.querySelector('[data-annotation-locate-missing]')) {
+        const missing = document.createElement('p');
+        missing.dataset.annotationLocateMissing = '';
+        missing.textContent = LOCATE_MISSING_MESSAGE;
+        row.append(missing);
+      }
+      announce(LOCATE_MISSING_MESSAGE);
+    });
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.dataset.annotationRowEdit = '';
+    edit.setAttribute('aria-label', `Edit annotation ${position}`);
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => {
+      panel.dispatchEvent(new CustomEvent<Annotation>(ANNOTATION_EDIT_EVENT, { detail: annotation }));
+    });
+
+    row.append(note, hint, status, locate, edit, remove);
     return row;
   }
 
@@ -221,10 +305,12 @@ export function createAnnotationList(
     clearVersion += 1;
     renderVersion += 1;
     statusMessage = undefined;
+    highlight.remove();
     panel.replaceChildren();
+    announce('');
   }
 
-  return { render, clear };
+  return { render, clear, live };
 }
 
 function errorMessage(error: unknown): string {
