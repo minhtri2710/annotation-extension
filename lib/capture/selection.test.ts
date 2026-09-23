@@ -649,6 +649,60 @@ describe('highlight follows scroll and resize', () => {
     expect(highlight().style.top).toBe('200px');
   });
 
+  it('hides the box and label when the hovered element is gone at the follow-up, and arrows restart from the viewport centre', () => {
+    const target = document.querySelector('#target')!;
+    const mid = document.querySelector('#mid')!;
+    stubRect(target, 100);
+    stubRect(mid, 60);
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => undefined);
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: vi.fn(() => [mid]) });
+    controller.activate();
+    pointer('pointermove', target);
+    expect(highlight().hidden).toBe(false);
+
+    target.remove();
+    document.dispatchEvent(new Event('scroll'));
+    flushFrames();
+    expect(highlight().hidden).toBe(true);
+    expect(label().hidden).toBe(true);
+
+    try {
+      key('ArrowDown');
+      expect(document.elementsFromPoint).toHaveBeenCalledWith(window.innerWidth / 2, window.innerHeight / 2);
+      expect(label().textContent).toBe('section#mid');
+      expect(highlight().style.top).toBe('60px');
+    } finally {
+      delete (document as { elementsFromPoint?: unknown }).elementsFromPoint;
+    }
+  });
+
+  it('drops the retrace stack of a removed hovered element at the follow-up', () => {
+    const target = document.querySelector('#target')!;
+    const outer = document.querySelector('#outer')!;
+    const side = document.createElement('aside');
+    side.id = 'side';
+    document.body.prepend(side);
+    for (const element of [target, outer, side]) stubRect(element, 100);
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => undefined);
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: vi.fn(() => [side]) });
+    controller.activate();
+    pointer('pointermove', target);
+    key('ArrowUp');
+    expect(label().textContent).toBe('section#mid');
+
+    outer.remove();
+    document.dispatchEvent(new Event('scroll'));
+    flushFrames();
+    try {
+      key('ArrowDown');
+      expect(label().textContent).toBe('aside#side');
+      key('ArrowDown');
+      expect(label().textContent).toBe('aside#side');
+    } finally {
+      delete (document as { elementsFromPoint?: unknown }).elementsFromPoint;
+    }
+  });
+
   it('removes the listeners on deactivate', () => {
     const target = document.querySelector('#target')!;
     stubRect(target, 100);

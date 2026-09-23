@@ -64,7 +64,12 @@ export async function mountOptionsPage(elements: OptionsPageElements, storage: P
       status.textContent = allowlistEntryError(invalid) ?? '';
       return;
     }
-    await storage.write(policy);
+    try {
+      await storage.write(policy);
+    } catch (error) {
+      status.textContent = `Save failed: ${error instanceof Error ? error.message : String(error)}`;
+      return;
+    }
     status.textContent = 'Settings saved.';
   });
 

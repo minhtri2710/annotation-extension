@@ -243,7 +243,10 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     if (!hoveredElement || followFrame !== undefined) return;
     followFrame = options.document.defaultView?.requestAnimationFrame(() => {
       followFrame = undefined;
-      if (active) setHoveredElement(hoveredElement);
+      if (!active) return;
+      // A hovered element removed since the last move reads as hovering nothing, as a pointer move off it would.
+      if (!hoveredElement?.isConnected) retrace = [];
+      setHoveredElement(hoveredElement?.isConnected ? hoveredElement : null);
     });
   }
 

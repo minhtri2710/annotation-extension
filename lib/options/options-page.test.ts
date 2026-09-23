@@ -91,6 +91,15 @@ describe('options page', () => {
     expect(elements.status.textContent).toBe('Settings saved.');
   });
 
+  it('reports a failed save with its reason and never says saved', async () => {
+    const { elements, storage, save } = setup();
+    storage.write.mockRejectedValueOnce(new Error('QUOTA_BYTES quota exceeded'));
+    await mountOptionsPage(elements, storage);
+    await save();
+    expect(storage.write).toHaveBeenCalledTimes(1);
+    expect(elements.status.textContent).toBe('Save failed: QUOTA_BYTES quota exceeded');
+  });
+
   it('names each remove button after its entry and removes only that entry', async () => {
     const { elements, storage, entries } = setup({ enabled: true, allowlist: ['a.example', 'b.example'] });
     await mountOptionsPage(elements, storage);
