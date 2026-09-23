@@ -21,7 +21,9 @@ import { validateImageBlob, validateAttachmentName } from '../attachments/valida
 import {
   isBlobReadMessage,
   isScreenshotCaptureMessage,
+  ScreenshotCaptureError,
   type BlobReadMessage,
+  type ScreenshotCaptureErrorResponse,
   type ScreenshotCaptureMessage,
 } from '../screenshot/messages';
 import { createBlobStore, screenshotKey, type BlobStore } from '../blob-store';
@@ -59,7 +61,7 @@ export function registerBackgroundMessageHandlers(
 
     if (isScreenshotCaptureMessage(message)) {
       const capture = captureScreenshot(message, sender.tab?.windowId, blobStore, screenshotProcessor);
-      void capture.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
+      void capture.then(sendResponse, (error) => sendResponse(createScreenshotCaptureErrorResponse(error)));
       return true;
     }
 
@@ -101,9 +103,7 @@ async function captureScreenshot(
   blobStore: BlobStore,
   screenshotProcessor: ScreenshotProcessor,
 ) {
-  const capture = windowId === undefined
-    ? await browser.tabs.captureVisibleTab()
-    : await browser.tabs.captureVisibleTab(windowId);
+  const capture = await captureVisibleTab(windowId);
   const processed = await screenshotProcessor(capture, message.rect, message.devicePixelRatio);
   validateImageBlob(processed.blob);
   const key = screenshotKey(message.annotationId);
@@ -137,6 +137,29 @@ async function captureScreenshot(
     throw new Error('Annotation was not found for screenshot capture');
   }
   return annotation.screenshot;
+}
+
+// Chrome and Firefox refuse captureVisibleTab until the user grants the tab through the action or a command.
+const MISSING_GRANT = /'activeTab' permission is required|Missing activeTab permission|Missing host permission for the tab/;
+
+async function captureVisibleTab(windowId: number | undefined): Promise<string> {
+  try {
+    return windowId === undefined
+      ? await browser.tabs.captureVisibleTab()
+      : await browser.tabs.captureVisibleTab(windowId);
+  } catch (error) {
+    if (!MISSING_GRANT.test(errorMessage(error))) throw error;
+    const commands = await browser.commands.getAll();
+    const shortcut = commands.find((command) => command.name === 'capture.toggle')?.shortcut;
+    throw new ScreenshotCaptureError(shortcut ? { kind: 'needs-grant', shortcut } : { kind: 'needs-grant' });
+  }
+}
+
+function createScreenshotCaptureErrorResponse(error: unknown): ScreenshotCaptureErrorResponse {
+  const failure = error instanceof ScreenshotCaptureError
+    ? error.failure
+    : { kind: 'failed' as const, reason: errorMessage(error) };
+  return { ...createAnnotationErrorResponse(error), failure };
 }
 
 async function addAttachmentMessage(

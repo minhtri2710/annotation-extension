@@ -11,6 +11,7 @@ import { attachmentKey, screenshotKey } from '../blob-store';
 import type { ElementContext } from '../capture/context';
 import { createNotePanelPersistence, type NotePanelPersistence } from './persistence';
 import { keepPanelFocus } from '../ui/shell';
+import { ScreenshotCaptureError } from '../screenshot/messages';
 
 export interface NotePanel {
   render(context: ElementContext): Promise<void>;
@@ -22,6 +23,7 @@ export interface NotePanel {
 // Dispatched on the panel mount when the user asks to close the note panel.
 export const NOTE_PANEL_CLOSE_EVENT = 'annotation-note-close';
 const EMPTY_NOTE_MESSAGE = 'Write a note before saving.';
+const NOTE_SAVED_MESSAGE = 'Note saved.';
 
 export function createNotePanel(
   panel: HTMLElement,
@@ -51,10 +53,12 @@ export function createNotePanel(
     if (selectedContext && selectedContext.selector !== context.selector) statusMessage = undefined;
     selectedContext = context;
     let annotations: Annotation[] = [];
+    // Names use the annotation's 1-based position on the page, as the annotation list does.
+    const positions = new Map<string, number>();
     try {
-      annotations = (await persistence.listAnnotations(context.url)).filter(
-        (annotation) => annotation.selector === context.selector,
-      );
+      const pageAnnotations = await persistence.listAnnotations(context.url);
+      pageAnnotations.forEach((annotation, index) => positions.set(annotation.id, index + 1));
+      annotations = pageAnnotations.filter((annotation) => annotation.selector === context.selector);
     } catch (error) {
       statusMessage = errorMessage(error);
     }
@@ -89,7 +93,7 @@ export function createNotePanel(
 
     for (const annotation of annotations) {
       try {
-        const item = await createAnnotationItem(document, annotation, context, (error) => {
+        const item = await createAnnotationItem(document, annotation, positions.get(annotation.id)!, context, (error) => {
           statusMessage = errorMessage(error);
           showStatus();
         });
@@ -120,7 +124,7 @@ export function createNotePanel(
         type: 'annotation.add',
         pageUrl: context.url,
         input: { note: value, selector: context.selector, elementContext: context },
-      }, context).catch(() => undefined);
+      }, context, NOTE_SAVED_MESSAGE).catch(() => undefined);
     };
     save.addEventListener('click', add);
     note.addEventListener('keydown', (event) => {
@@ -137,10 +141,14 @@ export function createNotePanel(
     restoreFocus();
   }
 
-  async function mutate(message: AnnotationWriteMessage, context: ElementContext): Promise<void> {
+  async function mutate(
+    message: AnnotationWriteMessage,
+    context: ElementContext,
+    successMessage?: string,
+  ): Promise<void> {
     try {
       await persistence.sendAnnotationWrite(message);
-      statusMessage = undefined;
+      statusMessage = successMessage;
       await refresh(context);
     } catch (error) {
       statusMessage = errorMessage(error);
@@ -172,6 +180,11 @@ export function createNotePanel(
     }
   }
 
+  function reportFileSuccess(context: ElementContext): Promise<void> {
+    statusMessage = undefined;
+    return refresh(context);
+  }
+
   function reportFileError(error: unknown, context: ElementContext): void {
     statusMessage = errorMessage(error);
     void refresh(context).catch((renderError) => {
@@ -182,6 +195,7 @@ export function createNotePanel(
   async function createAnnotationItem(
     document: Document,
     annotation: Annotation,
+    position: number,
     context: ElementContext,
     reportReadError: (error: unknown) => void,
   ): Promise<HTMLElement> {
@@ -194,7 +208,7 @@ export function createNotePanel(
     const note = document.createElement('textarea');
     note.dataset.annotationEditNote = '';
     note.value = annotation.note;
-    note.setAttribute('aria-label', `Edit note ${annotation.id}`);
+    note.setAttribute('aria-label', `Edit note, annotation ${position}`);
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.dataset.annotationEdit = '';
@@ -217,7 +231,7 @@ export function createNotePanel(
       if (files.length === 0) return;
       event.preventDefault();
       void addFiles(annotation, context, files).then(
-        () => refresh(context),
+        () => reportFileSuccess(context),
         (error) => reportFileError(error, context),
       );
     });
@@ -244,7 +258,7 @@ export function createNotePanel(
           statusMessage = undefined;
           await refresh(context);
         } catch (error) {
-          statusMessage = errorMessage(error);
+          statusMessage = screenshotFailureMessage(error);
           await refresh(context);
         }
       })();
@@ -268,7 +282,7 @@ export function createNotePanel(
       const files = Array.from(attachmentInput.files ?? []);
       if (files.length === 0) return;
       void addFiles(annotation, context, files).then(
-        () => refresh(context),
+        () => reportFileSuccess(context),
         (error) => reportFileError(error, context),
       );
       attachmentInput.value = '';
@@ -278,7 +292,7 @@ export function createNotePanel(
       if (files.length === 0) return;
       event.preventDefault();
       void addFiles(annotation, context, files).then(
-        () => refresh(context),
+        () => reportFileSuccess(context),
         (error) => reportFileError(error, context),
       );
     });
@@ -286,22 +300,35 @@ export function createNotePanel(
     const attachmentLabel = document.createElement('label');
     attachmentLabel.textContent = 'Attach image';
     attachmentLabel.append(attachmentInput);
-    const reproSteps = document.createElement('textarea');
+    // Each field sits in a visible label; its accessible name starts with that label text.
+    const labelledField = (text: string, value: string) => {
+      const field = document.createElement('textarea');
+      field.value = value;
+      field.setAttribute('aria-label', `${text}, annotation ${position}`);
+      const label = document.createElement('label');
+      label.append(text, field);
+      return { field, label };
+    };
+    const { field: reproSteps, label: reproStepsLabel } = labelledField(
+      'Reproduction steps',
+      annotation.repro?.steps.join('\n') ?? '',
+    );
     reproSteps.dataset.annotationReproSteps = '';
-    reproSteps.value = annotation.repro?.steps.join('\n') ?? '';
-    reproSteps.setAttribute('aria-label', `Reproduction steps ${annotation.id}`);
-    const reproExpected = document.createElement('textarea');
+    const { field: reproExpected, label: reproExpectedLabel } = labelledField(
+      'Expected result',
+      annotation.repro?.expected ?? '',
+    );
     reproExpected.dataset.annotationReproExpected = '';
-    reproExpected.value = annotation.repro?.expected ?? '';
-    reproExpected.setAttribute('aria-label', `Expected result ${annotation.id}`);
-    const reproActual = document.createElement('textarea');
+    const { field: reproActual, label: reproActualLabel } = labelledField(
+      'Actual result',
+      annotation.repro?.actual ?? '',
+    );
     reproActual.dataset.annotationReproActual = '';
-    reproActual.value = annotation.repro?.actual ?? '';
-    reproActual.setAttribute('aria-label', `Actual result ${annotation.id}`);
-    const cssDecls = document.createElement('textarea');
+    const { field: cssDecls, label: cssDeclsLabel } = labelledField(
+      'CSS declarations',
+      annotation.cssEdits?.map(({ property, value }) => `${property}: ${value}`).join('\n') ?? '',
+    );
     cssDecls.dataset.annotationCssDecls = '';
-    cssDecls.value = annotation.cssEdits?.map(({ property, value }) => `${property}: ${value}`).join('\n') ?? '';
-    cssDecls.setAttribute('aria-label', `CSS declarations ${annotation.id}`);
     const saveCss = document.createElement('button');
     saveCss.type = 'button';
     saveCss.dataset.annotationCssSave = '';
@@ -369,11 +396,11 @@ export function createNotePanel(
       capture,
       remove,
       attachmentLabel,
-      cssDecls,
+      cssDeclsLabel,
       saveCss,
-      reproSteps,
-      reproExpected,
-      reproActual,
+      reproStepsLabel,
+      reproExpectedLabel,
+      reproActualLabel,
       saveRepro,
     );
     if (annotation.cssEdits && annotation.cssEdits.length > 0) {
@@ -428,7 +455,7 @@ export function createNotePanel(
             pageUrl: context.url,
             annotationId: annotation.id,
             attachmentId: attachment.id,
-          }).then(() => refresh(context), (error) => reportFileError(error, context));
+          }).then(() => reportFileSuccess(context), (error) => reportFileError(error, context));
         });
         wrapper.append(caption, removeAttachment);
         item.append(wrapper);
@@ -478,6 +505,15 @@ export function createNotePanel(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function screenshotFailureMessage(error: unknown): string {
+  if (!(error instanceof ScreenshotCaptureError) || error.failure.kind === 'failed') {
+    return `Screenshot failed: ${errorMessage(error)}`;
+  }
+  const { shortcut } = error.failure;
+  const grant = shortcut ? `toolbar icon, or press ${shortcut},` : 'toolbar icon';
+  return `The screenshot needs your permission on this tab. Click the extension's ${grant} once on this tab, then select Capture screenshot again.`;
 }
 
 function parseCssDeclarations(value: string): CssDeclaration[] {

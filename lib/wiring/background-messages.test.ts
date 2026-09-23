@@ -57,6 +57,24 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+function captureFailed(reason: string) {
+  return { ok: false, error: reason, failure: { kind: 'failed', reason } };
+}
+
+const captureMessage = {
+  type: 'screenshot.capture',
+  pageUrl,
+  annotationId: 'annotation-1',
+  rect: elementContext.boundingBox,
+  devicePixelRatio: 2,
+};
+
+function stubCommands(shortcut: string) {
+  return vi.spyOn(browser.commands, 'getAll').mockResolvedValue([
+    { name: 'capture.toggle', description: 'Toggle annotation capture mode', shortcut },
+  ] as never);
+}
+
 describe('background message routing', () => {
   it('answers a rejected storage mutation with an error response', async () => {
     const store = new MemoryBlobStore();
@@ -136,7 +154,7 @@ describe('background message routing', () => {
     );
 
     await vi.waitFor(() =>
-      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'capture denied' }),
+      expect(sendResponse).toHaveBeenCalledWith(captureFailed('capture denied')),
     );
     expect(browser.tabs.captureVisibleTab).toHaveBeenCalledWith(42);
   });
@@ -190,7 +208,7 @@ describe('background message routing', () => {
       sendResponse,
     );
 
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'metadata unavailable' }));
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith(captureFailed('metadata unavailable')));
     expect(await store.get(`screenshot:${created.id}`)).toBeUndefined();
     const [stored] = await listAnnotations(pageUrl);
     expect(stored?.id).toBe(created.id);
@@ -220,10 +238,9 @@ describe('background message routing', () => {
       sendResponse,
     );
 
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({
-      ok: false,
-      error: 'metadata unavailable; cleanup failed: cleanup unavailable',
-    }));
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith(
+      captureFailed('metadata unavailable; cleanup failed: cleanup unavailable'),
+    ));
   });
 
   it('restores the previous Blob when re-capture metadata persistence fails', async () => {
@@ -260,7 +277,7 @@ describe('background message routing', () => {
       secondResponse,
     );
 
-    await vi.waitFor(() => expect(secondResponse).toHaveBeenCalledWith({ ok: false, error: 'metadata unavailable' }));
+    await vi.waitFor(() => expect(secondResponse).toHaveBeenCalledWith(captureFailed('metadata unavailable')));
     const restoredBlob = await store.get(`screenshot:${created.id}`);
     expect(restoredBlob).toBe(oldBlob);
     expect(await restoredBlob?.text()).toBe('old');
@@ -285,10 +302,9 @@ describe('background message routing', () => {
       sendResponse,
     );
 
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({
-      ok: false,
-      error: 'Annotation was not found for screenshot capture; cleanup failed: cleanup unavailable',
-    }));
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith(
+      captureFailed('Annotation was not found for screenshot capture; cleanup failed: cleanup unavailable'),
+    ));
     expect(processor).toHaveBeenCalledTimes(1);
   });
 
@@ -417,6 +433,44 @@ describe('background message routing', () => {
       sender,
       sendResponse,
     );
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'decode failed' }));
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith(captureFailed('decode failed')));
+  });
+
+  describe('capture refused for lack of an activeTab or host grant', () => {
+    const refusals = [
+      ['Chrome', "Either the '<all_urls>' or 'activeTab' permission is required."],
+      ['Firefox', 'Missing activeTab permission'],
+      ['Firefox host', 'Missing host permission for the tab'],
+    ];
+
+    for (const [engine, refusal] of refusals) {
+      it(`answers the ${engine} refusal with a needs-grant failure carrying the bound shortcut`, async () => {
+        start(new MemoryBlobStore());
+        vi.spyOn(browser.tabs, 'captureVisibleTab').mockRejectedValue(new Error(refusal));
+        stubCommands('Alt+Shift+A');
+        const sendResponse = vi.fn();
+
+        await fakeBrowser.runtime.onMessage.trigger(captureMessage, sender, sendResponse);
+
+        await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledTimes(1));
+        const response = sendResponse.mock.calls[0]?.[0] as { error: string; failure: unknown };
+        expect(response.failure).toEqual({ kind: 'needs-grant', shortcut: 'Alt+Shift+A' });
+        expect(response.error).not.toContain(refusal);
+      });
+    }
+
+    it('leaves the shortcut out when the command has none bound', async () => {
+      start(new MemoryBlobStore());
+      vi.spyOn(browser.tabs, 'captureVisibleTab').mockRejectedValue(
+        new Error("Either the '<all_urls>' or 'activeTab' permission is required."),
+      );
+      stubCommands('');
+      const sendResponse = vi.fn();
+
+      await fakeBrowser.runtime.onMessage.trigger(captureMessage, sender, sendResponse);
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledTimes(1));
+      expect((sendResponse.mock.calls[0]?.[0] as { failure: unknown }).failure).toEqual({ kind: 'needs-grant' });
+    });
   });
 });

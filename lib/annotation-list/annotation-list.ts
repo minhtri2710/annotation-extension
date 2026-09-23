@@ -228,7 +228,11 @@ export function createAnnotationList(
           if (version !== clearVersion) return;
           statusMessage = errorMessage(error);
           await render();
+          return;
         }
+        if (version !== clearVersion) return;
+        statusMessage = 'Download started for annotations.md.';
+        await render();
       })();
     });
 
@@ -256,7 +260,7 @@ export function createAnnotationList(
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.dataset.annotationDelete = '';
-    remove.setAttribute('aria-label', `Delete annotation ${annotation.id}`);
+    remove.setAttribute('aria-label', `Delete annotation ${position}`);
     remove.textContent = 'Delete';
     remove.addEventListener('click', () => {
       void mutate({ type: 'annotation.delete', pageUrl, id: annotation.id });
@@ -273,6 +277,7 @@ export function createAnnotationList(
         row.querySelector('[data-annotation-locate-missing]')?.remove();
         // The panel mount sits in the shell root, the same root the scan panel highlights into.
         highlight.show(panel.parentElement!, element);
+        announce(`Annotation ${position} located.`);
         return;
       }
       if (!row.querySelector('[data-annotation-locate-missing]')) {

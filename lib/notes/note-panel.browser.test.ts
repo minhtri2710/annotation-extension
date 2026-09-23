@@ -4,6 +4,7 @@ import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { buildOverlayShell } from '../ui/shell';
 import { createNotePanel } from './note-panel';
+import { ScreenshotCaptureError } from '../screenshot/messages';
 
 const pageUrl = 'https://example.com/article';
 const context: ElementContext = {
@@ -57,6 +58,41 @@ describe('note panel in a real browser', () => {
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
     expect(shadow.activeElement).toBe(shell.panel.querySelector('[data-annotation-new-note]'));
     expect(document.activeElement).not.toBe(document.body);
-    expect(notePanel.live.textContent).toBe('');
+    expect(notePanel.live.textContent).toBe('Note saved.');
+  });
+
+  it('binds visible labels to the fields, names them by position, and words a refused capture', async () => {
+    const { shell } = mountShadowPanel();
+    const annotation: Annotation = {
+      id: '3f2a9c1e-0000-4000-8000-000000000001', pageUrl, note: 'Shot', selector: context.selector,
+      elementContext: context, createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      status: 'open',
+    };
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => [annotation],
+      sendAnnotationWrite: vi.fn(),
+      captureScreenshot: vi.fn().mockRejectedValue(new ScreenshotCaptureError({ kind: 'needs-grant', shortcut: 'Ctrl+Shift+Period' })),
+      readBlob: vi.fn(), addAttachment: vi.fn(), deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    shell.root.append(notePanel.live);
+    await notePanel.render(context);
+
+    for (const [selector, text] of [
+      ['[data-annotation-css-decls]', 'CSS declarations'],
+      ['[data-annotation-repro-steps]', 'Reproduction steps'],
+      ['[data-annotation-repro-expected]', 'Expected result'],
+      ['[data-annotation-repro-actual]', 'Actual result'],
+    ] as const) {
+      const field = shell.panel.querySelector<HTMLTextAreaElement>(selector)!;
+      expect(field.labels?.[0]?.textContent).toBe(text);
+      expect(field.labels?.[0]?.getBoundingClientRect().height).toBeGreaterThan(0);
+      expect(field.getAttribute('aria-label')).toBe(`${text}, annotation 1`);
+    }
+
+    shell.panel.querySelector<HTMLButtonElement>('[data-annotation-capture-screenshot]')!.click();
+    await vi.waitFor(() => expect(notePanel.live.textContent).toContain('toolbar icon'));
+    expect(notePanel.live.textContent).toContain('Ctrl+Shift+Period');
+    expect(notePanel.live.textContent).not.toContain('permission is required');
   });
 });

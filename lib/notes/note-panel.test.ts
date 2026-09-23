@@ -6,6 +6,7 @@ import type { AnnotationWriteMessage } from '../annotation-messages';
 import type { ElementContext } from '../capture/context';
 import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from './note-panel';
 import type { NotePanelPersistence } from './persistence';
+import { ScreenshotCaptureError } from '../screenshot/messages';
 
 const pageUrl = 'https://example.com/article';
 const context: ElementContext = {
@@ -795,7 +796,7 @@ describe('note panel close, focus, editor and live status', () => {
     expect(live.isConnected).toBe(true);
     save('Works');
     await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(2));
-    await vi.waitFor(() => expect(live.textContent).toBe(''));
+    await vi.waitFor(() => expect(live.textContent).toBe('Note saved.'));
   });
 
   it('clear() empties the panel and the live region and drops a pending render', async () => {
@@ -815,5 +816,136 @@ describe('note panel close, focus, editor and live status', () => {
     resolveList([annotation('Late')]);
     await pending;
     expect(panel.childElementCount).toBe(0);
+  });
+});
+
+describe('note panel screenshot outcome, fresh status, labels, announcements and names', () => {
+  const chromeRefusal = "Either the '<all_urls>' or 'activeTab' permission is required.";
+
+  async function captureWith(error: unknown) {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Shot')], {
+      captureScreenshot: vi.fn().mockRejectedValue(error),
+    });
+    (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')).not.toBeNull());
+    return { panel, notePanel, status: panel.querySelector('[data-annotation-status]')?.textContent ?? '' };
+  }
+
+  it('tells the user to grant the tab with the toolbar icon or the bound shortcut, then retry', async () => {
+    const { status, notePanel } = await captureWith(
+      new ScreenshotCaptureError({ kind: 'needs-grant', shortcut: 'Alt+Shift+A' }),
+    );
+    expect(status).toContain('toolbar icon');
+    expect(status).toContain('Alt+Shift+A');
+    expect(status).toMatch(/again/);
+    expect(status).not.toContain(chromeRefusal);
+    expect(notePanel.live.textContent).toBe(status);
+  });
+
+  it('leaves the shortcut out of the grant message when none is bound', async () => {
+    const { status } = await captureWith(new ScreenshotCaptureError({ kind: 'needs-grant' }));
+    expect(status).toContain('toolbar icon');
+    expect(status).not.toMatch(/press/i);
+  });
+
+  it('shows any other capture failure as Screenshot failed with its reason', async () => {
+    const { status } = await captureWith(new ScreenshotCaptureError({ kind: 'failed', reason: 'decode failed' }));
+    expect(status).toBe('Screenshot failed: decode failed');
+  });
+
+  async function failThen(persistence: Partial<NotePanelPersistence>) {
+    const panel = document.createElement('div');
+    const existing = {
+      ...annotation('Fresh'),
+      attachments: [{ id: 'attachment-1', name: 'a.png', mimeType: 'image/png', byteLength: 1 }],
+    };
+    const { notePanel } = await render(panel, [existing], {
+      captureScreenshot: vi.fn()
+        .mockRejectedValueOnce(new ScreenshotCaptureError({ kind: 'failed', reason: 'decode failed' }))
+        .mockResolvedValue(undefined),
+      ...persistence,
+    });
+    (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Screenshot failed: decode failed'),
+    );
+    return { panel, notePanel };
+  }
+
+  const cleared = async (panel: HTMLElement) =>
+    vi.waitFor(() => expect(panel.textContent).not.toContain('Screenshot failed'));
+
+  it('clears a previous error after a successful screenshot', async () => {
+    const { panel } = await failThen({});
+    (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
+    await cleared(panel);
+  });
+
+  it('clears a previous error after a successful attachment add', async () => {
+    const addAttachment = vi.fn().mockResolvedValue({});
+    const { panel } = await failThen({ addAttachment });
+    const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File([new Uint8Array([137, 80, 78, 71])], 'b.png', { type: 'image/png' })],
+    });
+    input.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    await cleared(panel);
+  });
+
+  it('clears a previous error after a successful attachment remove', async () => {
+    const deleteAttachment = vi.fn().mockResolvedValue(true);
+    const { panel } = await failThen({ deleteAttachment });
+    (panel.querySelector('[data-annotation-attachment-delete]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(deleteAttachment).toHaveBeenCalledTimes(1));
+    await cleared(panel);
+  });
+
+  it('clears a previous error after a successful repro save and a successful note save', async () => {
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const { panel } = await failThen({ sendAnnotationWrite });
+    (panel.querySelector('[data-annotation-repro-steps]') as HTMLTextAreaElement).value = 'Open page';
+    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    await cleared(panel);
+
+    const second = await failThen({ sendAnnotationWrite });
+    (second.panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement).value = 'More';
+    (second.panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+    await cleared(second.panel);
+    expect(second.notePanel.live.textContent).toBe('Note saved.');
+  });
+
+  it('binds a visible label to the CSS and repro fields', async () => {
+    const panel = document.createElement('div');
+    await render(panel, [annotation('Labels')]);
+    for (const [selector, text] of [
+      ['[data-annotation-css-decls]', 'CSS declarations'],
+      ['[data-annotation-repro-steps]', 'Reproduction steps'],
+      ['[data-annotation-repro-expected]', 'Expected result'],
+      ['[data-annotation-repro-actual]', 'Actual result'],
+    ] as const) {
+      const field = panel.querySelector<HTMLTextAreaElement>(selector)!;
+      const label = field.closest('label');
+      expect(label, selector).not.toBeNull();
+      expect(label?.textContent).toContain(text);
+      expect(field.labels?.[0]).toBe(label);
+    }
+  });
+
+  it('names fields by the 1-based page position, never by the annotation id', async () => {
+    const panel = document.createElement('div');
+    const first = { ...annotation('Elsewhere'), id: '3f2a9c1e-0000-4000-8000-000000000001', selector: '.other' };
+    const second = { ...annotation('Here'), id: '3f2a9c1e-0000-4000-8000-000000000002' };
+    await render(panel, [first, second]);
+    const names = Array.from(panel.querySelectorAll('textarea[aria-label]'), (field) => field.getAttribute('aria-label') ?? '');
+    const itemNames = names.filter((name) => name !== 'New note');
+    expect(itemNames).toHaveLength(5);
+    for (const name of itemNames) {
+      expect(name).not.toContain(second.id);
+      expect(name).toMatch(/annotation 2$/);
+    }
   });
 });

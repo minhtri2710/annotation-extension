@@ -531,4 +531,41 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     expect(onEdit.mock.results[0]?.value).toEqual(annotations[1]);
     expect(store.sendAnnotationWrite).not.toHaveBeenCalled();
   });
+
+  it('names Delete by row number and puts no annotation id in any accessible name', async () => {
+    const panel = document.createElement('div');
+    const ids = ['3f2a9c1e-0000-4000-8000-000000000001', '3f2a9c1e-0000-4000-8000-000000000002'];
+    await createAnnotationList(panel, pageUrl, persistence(ids.map((id) => annotation(id, id.slice(-1))))).render();
+    const rows = [...panel.querySelectorAll('[data-annotation-row]')];
+    expect(rows[1]?.querySelector('[data-annotation-delete]')?.getAttribute('aria-label')).toBe('Delete annotation 2');
+    expect(rows[0]?.querySelector('[data-annotation-delete]')?.getAttribute('aria-label')).toBe('Delete annotation 1');
+    for (const element of panel.querySelectorAll('[aria-label]')) {
+      for (const id of ids) expect(element.getAttribute('aria-label')).not.toContain(id);
+    }
+  });
+
+  it('Locate on a live anchor announces that the annotation was located', async () => {
+    const { panel, root } = mounted();
+    anchor('annotation-2');
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'Gone'), annotation('annotation-2', 'Here')]));
+    root.append(list.live);
+    await list.render();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-id="annotation-1"] [data-annotation-locate]')!.click();
+    expect(list.live.textContent).toBe('Element not found on this page');
+    panel.querySelector<HTMLButtonElement>('[data-annotation-id="annotation-2"] [data-annotation-locate]')!.click();
+    expect(list.live.textContent).toBe('Annotation 2 located.');
+    list.clear();
+  });
+
+  it('announces a successful Download in the live region and the visible status', async () => {
+    const { panel, root } = mounted();
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'One', 'image/webp')]), delivery);
+    root.append(list.live);
+    await list.render();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-export-download]')!.click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Download started for annotations.md.'));
+    expect(delivery.downloadAsset).toHaveBeenCalledTimes(1);
+    expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Download started for annotations.md.');
+  });
 });

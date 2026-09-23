@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { isAnnotationErrorResponse, isAnnotationWriteMessage } from '../annotation-messages';
-import { isBlobReadMessage, isScreenshotCaptureMessage, sendBlobRead, sendScreenshotCapture } from './messages';
+import {
+  isBlobReadMessage,
+  isScreenshotCaptureFailure,
+  isScreenshotCaptureMessage,
+  ScreenshotCaptureError,
+  sendBlobRead,
+  sendScreenshotCapture,
+} from './messages';
 
 const captureMessage = {
   pageUrl: 'https://example.com/page',
@@ -35,11 +42,62 @@ describe('screenshot messages', () => {
   });
 
   it('rejects capture errors and invalid responses', async () => {
-    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'capture denied' } as never);
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({
+      ok: false,
+      error: 'capture denied',
+      failure: { kind: 'failed', reason: 'capture denied' },
+    } as never);
     await expect(sendScreenshotCapture(captureMessage)).rejects.toThrow('capture denied');
 
     vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ mimeType: 'image/png' } as never);
     await expect(sendScreenshotCapture(captureMessage)).rejects.toThrow('Invalid screenshot metadata response');
+  });
+
+  it('guards capture failures of both kinds', () => {
+    expect(isScreenshotCaptureFailure({ kind: 'needs-grant' })).toBe(true);
+    expect(isScreenshotCaptureFailure({ kind: 'needs-grant', shortcut: 'Ctrl+Shift+Period' })).toBe(true);
+    expect(isScreenshotCaptureFailure({ kind: 'failed', reason: 'boom' })).toBe(true);
+    expect(isScreenshotCaptureFailure({ kind: 'needs-grant', shortcut: 3 })).toBe(false);
+    expect(isScreenshotCaptureFailure({ kind: 'failed' })).toBe(false);
+    expect(isScreenshotCaptureFailure({ kind: 'other', reason: 'boom' })).toBe(false);
+    expect(isScreenshotCaptureFailure(null)).toBe(false);
+  });
+
+  it('throws a typed error carrying each failure kind', async () => {
+    const needsGrant = { kind: 'needs-grant', shortcut: 'Ctrl+Shift+Period' } as const;
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'x', failure: needsGrant } as never);
+    const grantError = await sendScreenshotCapture(captureMessage).catch((error: unknown) => error);
+    expect(grantError).toBeInstanceOf(ScreenshotCaptureError);
+    expect((grantError as ScreenshotCaptureError).failure).toEqual(needsGrant);
+
+    const failed = { kind: 'failed', reason: 'decode failed' } as const;
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'x', failure: failed } as never);
+    const failedError = await sendScreenshotCapture(captureMessage).catch((error: unknown) => error);
+    expect(failedError).toBeInstanceOf(ScreenshotCaptureError);
+    expect((failedError as ScreenshotCaptureError).failure).toEqual(failed);
+    expect((failedError as Error).message).toBe('decode failed');
+  });
+
+  it('fails closed on a missing or malformed failure and on invalid metadata', async () => {
+    const invalid = { kind: 'failed', reason: 'Invalid screenshot response' };
+    for (const response of [
+      { ok: false, error: 'capture denied' },
+      { ok: false, error: 'capture denied', failure: { kind: 'failed' } },
+      { ok: false, error: 'capture denied', failure: { kind: 'unknown', reason: 'x' } },
+    ]) {
+      vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue(response as never);
+      const error = await sendScreenshotCapture(captureMessage).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ScreenshotCaptureError);
+      expect((error as ScreenshotCaptureError).failure).toEqual(invalid);
+    }
+
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ mimeType: 'image/png' } as never);
+    const metadataError = await sendScreenshotCapture(captureMessage).catch((caught: unknown) => caught);
+    expect(metadataError).toBeInstanceOf(ScreenshotCaptureError);
+    expect((metadataError as ScreenshotCaptureError).failure).toEqual({
+      kind: 'failed',
+      reason: 'Invalid screenshot metadata response',
+    });
   });
 
   it('round-trips blob.read bytes as a Blob', async () => {

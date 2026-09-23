@@ -56,4 +56,28 @@ describe('annotation list in a real browser', () => {
     expect(highlight?.style.top).toBe(`${rect.top}px`);
     list.clear();
   });
+
+  it('announces a found Locate by row number through the persistent live region', async () => {
+    const target = document.createElement('p');
+    target.id = 'near-target';
+    const host = document.createElement('div');
+    document.body.append(target, host);
+    const container = document.createElement('div');
+    host.attachShadow({ mode: 'open' }).append(container);
+    const shell = buildOverlayShell(container);
+    const list = createAnnotationList(shell.panel, pageUrl, {
+      listAnnotations: async () => [annotation('a1', '#gone'), annotation('a2', '#near-target')],
+      sendAnnotationWrite: vi.fn(), readBlob: vi.fn(),
+      readOnboardingOpen: async () => false, writeOnboardingOpen: async () => undefined,
+    });
+    shell.root.append(list.live);
+    await list.render();
+    const live = list.live;
+
+    shell.panel.querySelector<HTMLButtonElement>('[data-annotation-id="a2"] [data-annotation-locate]')!.click();
+    expect(list.live).toBe(live);
+    expect(live.textContent).toBe('Annotation 2 located.');
+    expect(shell.root.querySelectorAll('[role="status"]')).toHaveLength(1);
+    list.clear();
+  });
 });

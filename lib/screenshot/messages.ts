@@ -17,6 +17,20 @@ export type ScreenshotCaptureMessage = {
   devicePixelRatio: number;
 };
 
+// Why a screenshot capture failed; the background classifies it and the note panel words it.
+export type ScreenshotCaptureFailure =
+  | { kind: 'needs-grant'; shortcut?: string }
+  | { kind: 'failed'; reason: string };
+
+export type ScreenshotCaptureErrorResponse = AnnotationErrorResponse & { failure: ScreenshotCaptureFailure };
+
+export class ScreenshotCaptureError extends Error {
+  constructor(readonly failure: ScreenshotCaptureFailure) {
+    super(failure.kind === 'failed' ? failure.reason : 'Screenshot needs an activeTab grant for this tab');
+    this.name = 'ScreenshotCaptureError';
+  }
+}
+
 export type BlobReadMessage = { type: 'blob.read'; key: string };
 
 export interface BlobReadResponse {
@@ -36,6 +50,12 @@ export function isScreenshotCaptureMessage(value: unknown): value is ScreenshotC
   );
 }
 
+export function isScreenshotCaptureFailure(value: unknown): value is ScreenshotCaptureFailure {
+  if (!isRecord(value)) return false;
+  if (value.kind === 'needs-grant') return value.shortcut === undefined || typeof value.shortcut === 'string';
+  return value.kind === 'failed' && typeof value.reason === 'string';
+}
+
 export function isBlobReadMessage(value: unknown): value is BlobReadMessage {
   return isRecord(value) && value.type === 'blob.read' && isBlobKey(value.key);
 }
@@ -44,13 +64,20 @@ export function sendScreenshotCapture(
   message: Omit<ScreenshotCaptureMessage, 'type'>,
 ): Promise<ScreenshotMetadata> {
   return browser.runtime
-    .sendMessage<ScreenshotCaptureMessage, ScreenshotMetadata | AnnotationErrorResponse>({
+    .sendMessage<ScreenshotCaptureMessage, ScreenshotMetadata | ScreenshotCaptureErrorResponse>({
       type: 'screenshot.capture',
       ...message,
     })
     .then((response) => {
-      if (isAnnotationErrorResponse(response)) throw new Error(response.error);
-      if (!isScreenshotMetadata(response)) throw new Error('Invalid screenshot metadata response');
+      if (isAnnotationErrorResponse(response)) {
+        const { failure } = response as { failure?: unknown };
+        throw new ScreenshotCaptureError(
+          isScreenshotCaptureFailure(failure) ? failure : { kind: 'failed', reason: 'Invalid screenshot response' },
+        );
+      }
+      if (!isScreenshotMetadata(response)) {
+        throw new ScreenshotCaptureError({ kind: 'failed', reason: 'Invalid screenshot metadata response' });
+      }
       return response;
     });
 }
