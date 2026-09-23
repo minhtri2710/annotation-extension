@@ -3,6 +3,8 @@ import { processScreenshot } from './processor';
 
 const RED = [255, 0, 0];
 const BLUE = [0, 0, 255];
+const GREEN = [0, 255, 0];
+const YELLOW = [255, 255, 0];
 
 /** A PNG data URL whose left half is red and right half is blue. */
 async function splitImage(width: number, height: number): Promise<string> {
@@ -13,6 +15,30 @@ async function splitImage(width: number, height: number): Promise<string> {
   context.fillRect(0, 0, width / 2, height);
   context.fillStyle = 'rgb(0, 0, 255)';
   context.fillRect(width / 2, 0, width / 2, height);
+  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** A PNG data URL split into quadrants: red top-left, blue top-right, green bottom-left, yellow bottom-right. */
+async function quadrantImage(width: number, height: number): Promise<string> {
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('no 2d context');
+  const quadrants: [number, number, string][] = [
+    [0, 0, 'rgb(255, 0, 0)'],
+    [width / 2, 0, 'rgb(0, 0, 255)'],
+    [0, height / 2, 'rgb(0, 255, 0)'],
+    [width / 2, height / 2, 'rgb(255, 255, 0)'],
+  ];
+  for (const [x, y, color] of quadrants) {
+    context.fillStyle = color;
+    context.fillRect(x, y, width / 2, height / 2);
+  }
   const blob = await canvas.convertToBlob({ type: 'image/png' });
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -56,6 +82,21 @@ describe('processScreenshot', () => {
     expect([image.width, image.height]).toEqual([160, 100]);
     expectColor(image.pixel(10, 50), RED);
     expectColor(image.pixel(150, 50), BLUE);
+  });
+
+  it('offsets and scales the crop by devicePixelRatio on both axes', async () => {
+    const capture = await quadrantImage(400, 200);
+
+    // Device-pixel crop is x 160..240, y 60..140: it straddles both the vertical and the horizontal split.
+    const result = await processScreenshot(capture, { x: 80, y: 30, width: 40, height: 40 }, 2);
+
+    expect([result.width, result.height]).toEqual([80, 80]);
+    const image = await decode(result.blob);
+    expect([image.width, image.height]).toEqual([80, 80]);
+    expectColor(image.pixel(10, 10), RED);
+    expectColor(image.pixel(70, 10), BLUE);
+    expectColor(image.pixel(10, 70), GREEN);
+    expectColor(image.pixel(70, 70), YELLOW);
   });
 
   it('keeps a crop at or under 1600px at full size', async () => {

@@ -33,7 +33,7 @@ afterEach(() => {
 describe('popup page', () => {
   it('sends the capture toggle to the active tab and closes the popup', async () => {
     loadPage('popup');
-    vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 11 }] as never);
+    const query = vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 11 }] as never);
     const sendMessage = vi.spyOn(browser.tabs, 'sendMessage').mockResolvedValue(undefined);
     // Stub: happy-dom's window.close would tear the test window down.
     const close = vi.spyOn(window, 'close').mockImplementation(() => {});
@@ -43,6 +43,7 @@ describe('popup page', () => {
 
     await vi.waitFor(() => expect(close).toHaveBeenCalled());
     expect(sendMessage.mock.calls).toEqual([[11, { type: 'capture.toggle' }]]);
+    expect(query.mock.calls).toEqual([[{ active: true, currentWindow: true }]]);
     expect(byId('status').textContent).toBe('');
   });
 

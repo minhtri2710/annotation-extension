@@ -201,6 +201,7 @@ describe('layout and space lint rules through the real engine', () => {
       detail: 'tiny numbered label "01" beside h2 "First section" (2 on page)',
     });
     expect(positive[1]).toMatchObject({ detail: 'tiny numbered label "02" beside h2 "Second section" (2 on page)' });
+    expect(positive.map((finding) => finding.el?.textContent)).toEqual(['01', '02']);
 
     const negative = await ruleFindings(
       '<section><span style="font-size:13.01px;letter-spacing:1px;font-weight:700;font-family:monospace">01</span><h2 style="font-size:28px">Only section</h2></section>',
@@ -441,6 +442,11 @@ describe('layout and space lint rules through the real engine', () => {
       detail: 'h2 "First section" has 10px above vs 30px below — it reads as bound to the block above (2 headings on page)',
     });
     expect(first(positive).el).toBe(document.querySelector('#h1'));
+    expect(positive[1]).toMatchObject({
+      ruleId: 'heading-rhythm',
+      detail: 'h2 "Second section" has 0px above vs 30px below — it reads as bound to the block above (2 headings on page)',
+    });
+    expect(positive[1]!.el).toBe(document.querySelector('#h2'));
 
     document.body.innerHTML = `
       <div id="before1">${'Previous block '.repeat(7)}</div><h2 id="h1">First section</h2><div id="after1">First content</div>

@@ -6,7 +6,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import contentScript from '../../entrypoints/content';
 import { interceptPageEvents, releasePageEvents } from '../capture';
-import { writePolicy } from '../options/storage';
+import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
 
 const HOST = 'annotation-extension-root';
 const PAGE_EVENTS = ['pointermove', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'keydown'];
@@ -99,6 +99,35 @@ describe('content script entrypoint', () => {
     await vi.waitFor(() => expect(hosts()).toHaveLength(1));
     expect(toolbarButtons().filter((text) => text === 'Scan')).toEqual(['Scan']);
     expect(hosts()[0]!.isConnected).toBe(true);
+  });
+
+  it('does not mount again when a policy write keeps the page enabled', async () => {
+    const raised: Element[] = [];
+    (HTMLElement.prototype as { showPopover?: () => void }).showPopover = function showPopover(this: Element) {
+      raised.push(this);
+    };
+    await start();
+    const [host] = hosts();
+    expect(raised).toEqual([host]);
+
+    await writePolicy({ enabled: true, allowlist: [] });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(raised).toEqual([host]);
+    expect(hosts()).toEqual([host]);
+  });
+
+  it('ignores policy-key changes outside local storage', async () => {
+    await start();
+    const get = vi.spyOn(browser.storage.local, 'get');
+    const change = { [SITE_POLICY_STORAGE_KEY]: { newValue: { enabled: false, allowlist: [] } } };
+
+    await fakeBrowser.storage.onChanged.trigger(change, 'sync');
+    await fakeBrowser.storage.onChanged.trigger(change, 'session');
+    expect(get.mock.calls.filter(([key]) => key === SITE_POLICY_STORAGE_KEY)).toEqual([]);
+
+    await fakeBrowser.storage.onChanged.trigger(change, 'local');
+    expect(get.mock.calls.filter(([key]) => key === SITE_POLICY_STORAGE_KEY)).toEqual([[SITE_POLICY_STORAGE_KEY]]);
   });
 
   it('opening one panel closes the other panel mode', async () => {

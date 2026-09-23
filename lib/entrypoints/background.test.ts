@@ -27,7 +27,7 @@ beforeEach(() => {
 
 describe('background entrypoint', () => {
   it('sends the capture toggle command to the active tab and ignores other commands', async () => {
-    vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 7 }] as never);
+    const query = vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 7 }] as never);
     const sendMessage = vi.spyOn(browser.tabs, 'sendMessage').mockResolvedValue(undefined);
 
     for (const listener of commandListeners) await listener('some-other-command');
@@ -35,6 +35,7 @@ describe('background entrypoint', () => {
 
     for (const listener of commandListeners) await listener('capture.toggle');
     expect(sendMessage.mock.calls).toEqual([[7, { type: 'capture.toggle' }]]);
+    expect(query.mock.calls).toEqual([[{ active: true, currentWindow: true }]]);
   });
 
   it('routes an annotation write message to storage and answers with the stored annotation', async () => {
