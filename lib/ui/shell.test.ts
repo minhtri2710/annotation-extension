@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { OVERLAY_STYLES } from './styles';
-import { buildOverlayShell, positionPopover } from './shell';
+import { buildOverlayShell, clampToolbarPosition, positionPopover } from './shell';
 
 describe('overlay shell', () => {
   it('builds the themed toolbar and panel mounts with the injected stylesheet', () => {
@@ -64,5 +64,23 @@ describe('overlay shell', () => {
         { width: 300, height: 60 },
       ),
     ).toEqual({ top: 10, left: 100 });
+  });
+
+  it('clamps the toolbar inside the viewport margin at every edge', () => {
+    const size = { width: 200, height: 40 };
+    const viewport = { width: 800, height: 600 };
+    expect(clampToolbarPosition({ x: 100, y: 100 }, size, viewport)).toEqual({ x: 100, y: 100 });
+    expect(clampToolbarPosition({ x: -50, y: 100 }, size, viewport)).toEqual({ x: 8, y: 100 });
+    expect(clampToolbarPosition({ x: 700, y: 100 }, size, viewport)).toEqual({ x: 592, y: 100 });
+    expect(clampToolbarPosition({ x: 100, y: -5 }, size, viewport)).toEqual({ x: 100, y: 8 });
+    expect(clampToolbarPosition({ x: 100, y: 590 }, size, viewport)).toEqual({ x: 100, y: 552 });
+    expect(clampToolbarPosition({ x: 900, y: 900 }, size, viewport, 16)).toEqual({ x: 584, y: 544 });
+  });
+
+  it('pins the toolbar to the margin when the viewport is smaller than the toolbar', () => {
+    expect(clampToolbarPosition({ x: 50, y: 50 }, { width: 200, height: 40 }, { width: 150, height: 30 })).toEqual({
+      x: 8,
+      y: 8,
+    });
   });
 });

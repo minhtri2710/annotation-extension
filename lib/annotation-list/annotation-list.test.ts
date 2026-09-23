@@ -30,6 +30,8 @@ function persistence(annotations: Annotation[]): AnnotationListPersistence {
     listAnnotations: vi.fn().mockResolvedValue(annotations),
     sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
     readBlob: vi.fn().mockResolvedValue(new Blob(['abc'], { type: 'image/webp' })),
+    readOnboardingOpen: vi.fn().mockResolvedValue(true),
+    writeOnboardingOpen: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -147,5 +149,52 @@ describe('annotation list', () => {
       type: 'annotation.clear', pageUrl,
     } satisfies AnnotationWriteMessage);
     await vi.waitFor(() => expect(store.listAnnotations).toHaveBeenCalledTimes(2));
+  });
+
+  it('renders a How it works section right after the heading with the five steps', async () => {
+    const panel = document.createElement('div');
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'Note')]));
+    await list.render();
+    const onboarding = panel.querySelector<HTMLDetailsElement>('details[data-annotation-onboarding]');
+    expect(onboarding).not.toBeNull();
+    expect(onboarding!.previousElementSibling?.tagName).toBe('H2');
+    expect(panel.firstElementChild?.tagName).toBe('H2');
+    expect(onboarding!.open).toBe(true);
+    expect(onboarding!.querySelector('summary')?.textContent).toBe('How it works');
+    expect(Array.from(onboarding!.querySelectorAll('ol > li'), (item) => item.textContent)).toEqual([
+      'Click Annotate (default shortcut Ctrl+Shift+. ; Control+Shift+. on Mac), then click any element to leave a note.',
+      'Pins mark annotated elements. Click a pin to reopen its note.',
+      "View all lists this page's notes. Export them here, or export every page from the extension popup.",
+      'Scan checks the page against design rules. Locate jumps to each finding.',
+      'Press Esc to stop annotating.',
+    ]);
+  });
+
+  it('opens How it works from the stored state and persists toggles', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([]);
+    vi.mocked(store.readOnboardingOpen).mockResolvedValue(false);
+    const list = createAnnotationList(panel, pageUrl, store);
+    await list.render();
+    const onboarding = panel.querySelector<HTMLDetailsElement>('[data-annotation-onboarding]')!;
+    expect(onboarding.open).toBe(false);
+    expect(store.writeOnboardingOpen).not.toHaveBeenCalled();
+    onboarding.open = true;
+    onboarding.dispatchEvent(new Event('toggle'));
+    expect(store.writeOnboardingOpen).toHaveBeenLastCalledWith(true);
+    onboarding.open = false;
+    onboarding.dispatchEvent(new Event('toggle'));
+    expect(store.writeOnboardingOpen).toHaveBeenLastCalledWith(false);
+  });
+
+  it('renders How it works open and keeps the list when the onboarding read fails', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Still listed')]);
+    vi.mocked(store.readOnboardingOpen).mockRejectedValue(new Error('storage down'));
+    const list = createAnnotationList(panel, pageUrl, store);
+    await expect(list.render()).resolves.toBeUndefined();
+    expect(panel.querySelector<HTMLDetailsElement>('[data-annotation-onboarding]')?.open).toBe(true);
+    expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(1);
+    expect(panel.querySelector('[data-annotation-status=""]')).toBeNull();
   });
 });

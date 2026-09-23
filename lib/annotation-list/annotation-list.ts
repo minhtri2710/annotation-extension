@@ -8,11 +8,14 @@ import { listAnnotations } from '../annotation-storage';
 import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 import { sendBlobRead } from '../screenshot/messages';
 import { attachmentKey, screenshotKey } from '../blob-store';
+import { readOnboardingOpen, writeOnboardingOpen } from '../ui/ui-prefs';
 
 export interface AnnotationListPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
   sendAnnotationWrite(message: AnnotationWriteMessage): Promise<unknown>;
   readBlob(key: string): Promise<Blob>;
+  readOnboardingOpen(): Promise<boolean>;
+  writeOnboardingOpen(open: boolean): Promise<void>;
 }
 
 export interface AnnotationList {
@@ -20,7 +23,21 @@ export interface AnnotationList {
   clear(): void;
 }
 
-const productionPersistence: AnnotationListPersistence = { listAnnotations, sendAnnotationWrite, readBlob: sendBlobRead };
+const productionPersistence: AnnotationListPersistence = {
+  listAnnotations,
+  sendAnnotationWrite,
+  readBlob: sendBlobRead,
+  readOnboardingOpen,
+  writeOnboardingOpen,
+};
+
+const ONBOARDING_STEPS = [
+  'Click Annotate (default shortcut Ctrl+Shift+. ; Control+Shift+. on Mac), then click any element to leave a note.',
+  'Pins mark annotated elements. Click a pin to reopen its note.',
+  "View all lists this page's notes. Export them here, or export every page from the extension popup.",
+  'Scan checks the page against design rules. Locate jumps to each finding.',
+  'Press Esc to stop annotating.',
+];
 
 export function createAnnotationList(
   panel: HTMLElement,
@@ -40,6 +57,7 @@ export function createAnnotationList(
       if (version !== renderVersion) return;
       statusMessage = errorMessage(error);
     }
+    const onboardingOpen = await persistence.readOnboardingOpen().catch(() => true);
     if (version !== renderVersion) return;
 
     const document = panel.ownerDocument;
@@ -47,7 +65,7 @@ export function createAnnotationList(
 
     const heading = document.createElement('h2');
     heading.textContent = 'All annotations';
-    panel.append(heading);
+    panel.append(heading, createOnboarding(document, onboardingOpen));
     if (statusMessage) {
       const status = document.createElement('p');
       status.dataset.annotationStatus = '';
@@ -78,6 +96,25 @@ export function createAnnotationList(
     rows.dataset.annotationRows = '';
     for (const annotation of annotations) rows.append(createRow(document, annotation));
     panel.append(rows);
+  }
+
+  function createOnboarding(document: Document, open: boolean): HTMLElement {
+    const details = document.createElement('details');
+    details.dataset.annotationOnboarding = '';
+    details.open = open;
+    const summary = document.createElement('summary');
+    summary.textContent = 'How it works';
+    const steps = document.createElement('ol');
+    for (const step of ONBOARDING_STEPS) {
+      const item = document.createElement('li');
+      item.textContent = step;
+      steps.append(item);
+    }
+    details.append(summary, steps);
+    details.addEventListener('toggle', () => {
+      void persistence.writeOnboardingOpen(details.open).catch(() => undefined);
+    });
+    return details;
   }
 
   function createExportSection(document: Document, annotations: Annotation[]): HTMLElement {

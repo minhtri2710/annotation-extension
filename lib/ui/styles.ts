@@ -42,6 +42,19 @@ ${ANNOTATION_DARK_TOKENS}
   pointer-events: auto;
 }
 
+[data-annotation-shell] [data-annotation-toolbar-grip] {
+  cursor: grab;
+  touch-action: none;
+}
+
+[data-annotation-shell] [data-annotation-toolbar-grip][data-dragging] {
+  cursor: grabbing;
+}
+
+[data-annotation-shell] [data-annotation-mount="toolbar"][data-collapsed] > :not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse]):not([data-annotation-badge]) {
+  display: none;
+}
+
 [data-annotation-shell] [data-annotation-mount="panel"] {
   position: fixed;
   right: var(--annotation-space-4);
@@ -74,6 +87,26 @@ ${ANNOTATION_DARK_TOKENS}
 @keyframes annotation-badge-pop {
   from { opacity: 0; transform: scale(0.6); }
   to { opacity: 1; transform: none; }
+}
+
+[data-annotation-shell] [data-annotation-onboarding] {
+  padding: var(--annotation-space-2) var(--annotation-space-3);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-md);
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+}
+
+[data-annotation-shell] [data-annotation-onboarding] summary {
+  color: var(--annotation-color-text);
+  font-weight: var(--annotation-font-weight-medium);
+  cursor: pointer;
+}
+
+[data-annotation-shell] [data-annotation-onboarding] ol {
+  margin: var(--annotation-space-2) 0 0;
+  padding-left: var(--annotation-space-4);
 }
 
 [data-annotation-shell] [data-annotation-empty-state] {

@@ -9,6 +9,8 @@ import { resolveLiveElementContext } from '../lib/wiring/live-element';
 import { watchRoute } from '../lib/wiring/route-watch';
 import { buildOverlayShell, positionPopover } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
+import { createToolbarControls } from '../lib/ui/toolbar-controls';
+import { readToolbarPrefs, writeToolbarPrefs } from '../lib/ui/ui-prefs';
 import { pageKey } from '../utils/page-key';
 import { isEnabledForUrl } from '../lib/options/policy';
 import { readPolicy } from '../lib/options/storage';
@@ -38,6 +40,7 @@ export default defineContentScript({
     let annotationToggle: HTMLButtonElement | undefined;
     let resetPanelPosition: (() => void) | undefined;
     let stopRouteWatch: (() => void) | undefined;
+    let toolbarControls: ReturnType<typeof createToolbarControls> | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
@@ -69,6 +72,19 @@ export default defineContentScript({
           shell.panel.style.removeProperty('right');
           shell.panel.style.removeProperty('bottom');
         };
+        const anchorPanel = (box: { x: number; y: number; width: number; height: number }) => {
+          const { width, height } = shell.panel.getBoundingClientRect();
+          const { top, left } = positionPopover(
+            box,
+            { width, height },
+            { width: window.innerWidth, height: window.innerHeight },
+          );
+          shell.panel.style.position = 'fixed';
+          shell.panel.style.top = `${top}px`;
+          shell.panel.style.left = `${left}px`;
+          shell.panel.style.right = 'auto';
+          shell.panel.style.bottom = 'auto';
+        };
         const scanToggle = document.createElement('button');
         scanToggleButton = scanToggle;
         scanToggle.type = 'button';
@@ -89,9 +105,12 @@ export default defineContentScript({
           closePanel();
           if (wasOpen) return;
           panelMode = mode;
-          ++renderSequence;
+          const sequence = ++renderSequence;
           (mode === 'list' ? listToggle : scanToggle).setAttribute('aria-expanded', 'true');
-          void (mode === 'list' ? annotationList.render() : activeScanPanel.render());
+          void (mode === 'list' ? annotationList.render() : activeScanPanel.render()).then(() => {
+            if (sequence !== renderSequence || panelMode !== mode) return;
+            anchorPanel(shell.toolbar.getBoundingClientRect());
+          });
         };
         scanToggle.addEventListener('click', () => openPanel('scan'));
         shell.toolbar.append(scanToggle);
@@ -120,17 +139,7 @@ export default defineContentScript({
           if (!panel) return;
           void panel.render(context).then(() => {
             if (sequence !== renderSequence) return;
-            const { width, height } = shell.panel.getBoundingClientRect();
-            const { top, left } = positionPopover(
-              context.boundingBox,
-              { width, height },
-              { width: window.innerWidth, height: window.innerHeight },
-            );
-            shell.panel.style.position = 'fixed';
-            shell.panel.style.top = `${top}px`;
-            shell.panel.style.left = `${left}px`;
-            shell.panel.style.right = 'auto';
-            shell.panel.style.bottom = 'auto';
+            anchorPanel(context.boundingBox);
           });
         };
         unsubscribeSelection = bus.on('element:selected', (context) => {
@@ -143,6 +152,17 @@ export default defineContentScript({
           onActivate: (annotation) => {
             const context = resolveLiveElementContext(document, annotation);
             if (context) showNotePanel(context);
+          },
+        });
+        toolbarControls = createToolbarControls({
+          toolbar: shell.toolbar,
+          win: window,
+          prefs: { read: readToolbarPrefs, write: writeToolbarPrefs },
+          onCollapsedChange: (collapsed) => {
+            if (collapsed) closePanel();
+          },
+          onPositionChange: () => {
+            if (panelMode !== 'none') anchorPanel(shell.toolbar.getBoundingClientRect());
           },
         });
         let pinsSequence = 0;
@@ -197,6 +217,8 @@ export default defineContentScript({
         resetPanelPosition = undefined;
         notePanel?.teardown();
         notePanel = undefined;
+        toolbarControls?.destroy();
+        toolbarControls = undefined;
         pins?.destroy();
         pins = undefined;
         controller?.destroy();

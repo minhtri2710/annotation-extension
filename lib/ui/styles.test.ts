@@ -260,6 +260,29 @@ ${ANNOTATION_DARK_TOKENS}
       'color: var(--annotation-color-text-muted)',
     );
   });
+
+  it('styles the toolbar grip as a touch-safe drag handle with a grabbing state', () => {
+    const body = ruleBody('[data-annotation-shell] [data-annotation-toolbar-grip] {');
+    expect(body).toContain('cursor: grab');
+    expect(body).toContain('touch-action: none');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-toolbar-grip][data-dragging] {')).toContain('cursor: grabbing');
+  });
+
+  it('hides every collapsed toolbar child except the grip, collapse button and badge', () => {
+    expect(
+      ruleBody(
+        '[data-annotation-shell] [data-annotation-mount="toolbar"][data-collapsed] > :not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse]):not([data-annotation-badge]) {',
+      ),
+    ).toContain('display: none');
+  });
+
+  it('styles the onboarding details with token colours and caption size and no motion', () => {
+    const details = ruleBody('[data-annotation-shell] [data-annotation-onboarding] {');
+    expect(details).toMatch(/var\(--annotation-color-/);
+    expect(details).toContain('font-size: var(--annotation-font-size-caption)');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-onboarding] summary {')).toMatch(/var\(--annotation-/);
+    expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toMatch(/data-annotation-(?:onboarding|toolbar-grip|toolbar-collapse|collapsed)/);
+  });
 });
 
 function ruleBody(selectorLine: string, css = OVERLAY_STYLES): string {
