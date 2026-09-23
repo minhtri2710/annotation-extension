@@ -6,7 +6,7 @@ import {
   type Rgba,
 } from '../color';
 import { parsePx } from '../css';
-import type { ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
 
 const WCAG_LARGE_TEXT_PX = 24;
 const WCAG_LARGE_BOLD_TEXT_PX = 18.6667;
@@ -466,10 +466,12 @@ function aiPaletteReading(ctx: ScanContext, el: Element): {
   return { hits, tells };
 }
 
-function aiPalettePageHits(ctx: ScanContext): PageHit[] {
-  const readings = Array.from(ctx.doc.querySelectorAll('*'))
-    .filter((el) => el !== ctx.doc.body && el !== ctx.doc.documentElement)
-    .map((el) => ({ el, reading: aiPaletteReading(ctx, el) }));
+async function aiPalettePageHits(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
+  const readings: Array<{ el: Element; reading: ReturnType<typeof aiPaletteReading> }> = [];
+  for (const el of Array.from(ctx.doc.querySelectorAll('*'))) {
+    await checkpoint();
+    if (el !== ctx.doc.body && el !== ctx.doc.documentElement) readings.push({ el, reading: aiPaletteReading(ctx, el) });
+  }
   const tells = new Set(readings.flatMap(({ reading }) => [...reading.tells]));
   const hits: PageHit[] = [];
   for (const { el, reading } of readings) {
@@ -649,7 +651,7 @@ const creamPaletteRule: PageRule = {
   description: 'A warm cream or beige page background has become the default "tasteful" AI surface, reached for by reflex. Choose a background that comes from a deliberate palette, not the safe warm off-white.',
   skillSection: 'Color & Contrast',
   scope: 'page',
-  test: (ctx) => creamPaletteHit(ctx),
+  test: async (ctx) => creamPaletteHit(ctx),
 };
 
 const aiColorPaletteRule: PageRule = {
@@ -659,7 +661,7 @@ const aiColorPaletteRule: PageRule = {
   description: 'Purple/violet gradients and cyan-on-dark are the most recognizable tells of AI-generated UIs. A gradient in one of those hues is the tell on its own; flat neon ink on a dark ground is charged once a second tell hue joins it. Choose a distinctive, intentional palette.',
   skillSection: 'Color & Contrast',
   scope: 'page',
-  test: (ctx) => aiPalettePageHits(ctx),
+  test: (ctx, checkpoint) => aiPalettePageHits(ctx, checkpoint),
 };
 
 const darkGlowRule: ElementRule = {

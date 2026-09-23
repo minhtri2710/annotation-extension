@@ -55,7 +55,7 @@ function bodyText(ctx: ScanContext): string {
   return text;
 }
 
-function emDashOveruse(ctx: ScanContext): PageHit[] {
+async function emDashOveruse(ctx: ScanContext): Promise<PageHit[]> {
   const text = bodyText(ctx);
   const count = text.match(EM_DASH_RE)?.length ?? 0;
   if (count < EM_DASH_FLOOR) return [];
@@ -63,7 +63,7 @@ function emDashOveruse(ctx: ScanContext): PageHit[] {
   return [{ detail: `${count} em-dashes in body text` }];
 }
 
-function marketingBuzzword(ctx: ScanContext): PageHit[] {
+async function marketingBuzzword(ctx: ScanContext): Promise<PageHit[]> {
   const text = bodyText(ctx);
   const lower = text.toLowerCase();
   let count = 0;
@@ -82,7 +82,7 @@ function marketingBuzzword(ctx: ScanContext): PageHit[] {
   return [{ detail: `${count} buzzword phrase${count === 1 ? '' : 's'}: "${sample}"` }];
 }
 
-function aphoristicCadence(ctx: ScanContext): PageHit[] {
+async function aphoristicCadence(ctx: ScanContext): Promise<PageHit[]> {
   const text = bodyText(ctx);
   const matches = [...text.matchAll(NOT_A_RE), ...text.matchAll(SHORT_REBUTTAL_RE)];
   if (matches.length < APHORISTIC_MIN_COUNT) return [];
@@ -90,7 +90,7 @@ function aphoristicCadence(ctx: ScanContext): PageHit[] {
   return [{ detail: `${matches.length} aphoristic constructions: "${sample}"` }];
 }
 
-function theaterSlopPhrase(ctx: ScanContext): PageHit[] {
+async function theaterSlopPhrase(ctx: ScanContext): Promise<PageHit[]> {
   const match = THEATER_RE.exec(bodyText(ctx));
   return match ? [{ detail: `"${match[0].trim()}"` }] : [];
 }

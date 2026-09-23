@@ -141,9 +141,10 @@ const organicClipPath: PageRule = {
   description: 'A clip-path polygon with many arbitrary vertices, or a curved clip-path path(), is CSS approximating a torn edge, blob, or silhouette. It reads as the cheap version of the effect and is usually a produced or photographic material replaced with code. Derive an alpha matte from the real image, or ship the shape as a cut-out raster; keep clip-path for geometry (cut corners, diagonals, hexagons).',
   skillSection: 'Imagery',
   scope: 'page',
-  test(ctx): PageHit[] {
+  async test(ctx, checkpoint): Promise<PageHit[]> {
     const hits: PageHit[] = [];
     for (const source of cssSources(ctx)) {
+      await checkpoint();
       for (const match of source.text.matchAll(ORGANIC_CLIP_RE)) {
         const detail = organicClipDetail((match[1] ?? '').toLowerCase(), match[2] ?? '');
         if (detail) hits.push({ detail, el: source.el });
@@ -209,13 +210,15 @@ const buriedRaster: PageRule = {
   description: 'A background image under a near-opaque gradient wash, or a raster on an element at near-zero opacity, never reaches the screen: the page shows the wash, and the produced texture or photo ships as a compliance token. Let the material show (a tint under 0.9 alpha, a blend mode, an opacity you can see) or remove the file.',
   skillSection: 'Imagery',
   scope: 'page',
-  test(ctx): PageHit[] {
+  async test(ctx, checkpoint): Promise<PageHit[]> {
     const hits: PageHit[] = [];
     for (const el of Array.from(ctx.doc.querySelectorAll('*'))) {
+      await checkpoint();
       const detail = transparentRasterDetail(el, ctx);
       if (detail) hits.push({ detail, el });
     }
     for (const source of cssSources(ctx)) {
+      await checkpoint();
       for (const match of source.text.matchAll(BURIED_DECL_RE)) {
         const detail = washedRasterDetail(source.text, match[1] ?? '', match.index);
         if (detail) hits.push({ detail, el: source.el });

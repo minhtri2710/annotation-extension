@@ -1,6 +1,6 @@
 import { isAccentColor, parseColor } from '../color';
 import { parsePx, trackingEm } from '../css';
-import type { ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
 
 const TYPE_HIERARCHY_MIN_ROLES = 3;
 const TYPE_HIERARCHY_MIN_STEP_RATIO = 1.25;
@@ -233,10 +233,11 @@ function isAccentDashPseudo(ctx: ScanContext, el: Element): boolean {
   return false;
 }
 
-function overusedFont(ctx: ScanContext): PageHit[] {
+async function overusedFont(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const usage = new Map<string, number>();
   let total = 0;
   for (const el of Array.from(ctx.doc.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,th,dd,blockquote,figcaption,a,button,label,span'))) {
+    await checkpoint();
     if (el.closest('.impeccable-overlay, .impeccable-label, .impeccable-banner, .impeccable-tooltip')) continue;
     if (!hasDirectText(el)) continue;
     const font = primaryFont(styleValue(ctx, el, 'font-family'), true);
@@ -260,9 +261,10 @@ function hierarchyRole(el: Element): string {
   return HEADING_TAGS.has(tag) ? tag : 'body';
 }
 
-function flatTypeHierarchy(ctx: ScanContext): PageHit[] {
+async function flatTypeHierarchy(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const byRole = new Map<string, number[]>();
   for (const el of Array.from(ctx.doc.querySelectorAll(TYPE_HIERARCHY_SELECTOR))) {
+    await checkpoint();
     if (el.closest(TYPE_HIERARCHY_SKIP_SELECTOR) || !collapseWhitespace(el.textContent ?? '') || !isRendered(ctx, el)) continue;
     const size = parseFontSize(ctx, el);
     if (!Number.isFinite(size) || size < 8 || size >= 200) continue;
@@ -293,12 +295,13 @@ function flatTypeHierarchy(ctx: ScanContext): PageHit[] {
   }];
 }
 
-function skippedHeading(ctx: ScanContext): PageHit[] {
+async function skippedHeading(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const headings = Array.from(ctx.doc.querySelectorAll(HEADING_SELECTOR));
   const hits: PageHit[] = [];
   let previousLevel = 0;
   let previousText = '';
   for (const heading of headings) {
+    await checkpoint();
     const level = Number.parseInt(tagName(heading).slice(1), 10);
     const currentText = textSample(heading, 60);
     if (previousLevel > 0 && level > previousLevel + 1) {
@@ -462,7 +465,7 @@ export const typographyStructureRules: Rule[] = [
     'slop',
     'Overused font',
     'Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.',
-    (ctx) => overusedFont(ctx),
+    (ctx, checkpoint) => overusedFont(ctx, checkpoint),
     'Typography',
   ),
   pageRule(
@@ -470,7 +473,7 @@ export const typographyStructureRules: Rule[] = [
     'slop',
     'Flat type hierarchy',
     'Dominant heading and body roles are separated by less than 1.25× at every step, leaving the size hierarchy flat. Add at least one stronger size step.',
-    (ctx) => flatTypeHierarchy(ctx),
+    (ctx, checkpoint) => flatTypeHierarchy(ctx, checkpoint),
     'Typography',
   ),
   pageRule(
@@ -478,7 +481,7 @@ export const typographyStructureRules: Rule[] = [
     'quality',
     'Skipped heading level',
     'Heading levels should not skip (e.g. h1 then h3 with no h2). Screen readers use heading hierarchy for navigation. Skipping levels breaks the document outline.',
-    (ctx) => skippedHeading(ctx),
+    (ctx, checkpoint) => skippedHeading(ctx, checkpoint),
   ),
   elementRule(
     'icon-tile-stack',

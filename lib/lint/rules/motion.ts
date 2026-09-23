@@ -1,6 +1,6 @@
 import { parseColor } from '../color';
 import { parsePx } from '../css';
-import type { ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
 
 const DOT_MIN_SIZE_PX = 2;
 const DOT_MAX_SIZE_PX = 16;
@@ -359,13 +359,14 @@ function marqueeKeyframeNames(ctx: ScanContext): Set<string> {
   return names;
 }
 
-function marqueeHit(ctx: ScanContext): PageHit[] {
+async function marqueeHit(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const marquee = ctx.doc.querySelector('marquee');
   const hits: PageHit[] = marquee ? [{ detail: '<marquee> element', el: marquee }] : [];
   const names = marqueeKeyframeNames(ctx);
   if (names.size === 0) return hits;
 
   for (const el of Array.from(ctx.doc.querySelectorAll('*'))) {
+    await checkpoint();
     const name = animationNames(ctx, el).find((candidate) => names.has(candidate) && hasInfiniteAnimation(ctx, el, candidate));
     if (!name) continue;
     hits.push({

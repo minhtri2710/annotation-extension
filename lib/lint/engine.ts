@@ -39,9 +39,11 @@ export interface ElementRule extends RuleMeta {
   test(el: Element, ctx: ScanContext): RuleHit[];
 }
 
+export type Checkpoint = () => Promise<void>;
+
 export interface PageRule extends RuleMeta {
   scope: 'page';
-  test(ctx: ScanContext): PageHit[];
+  test(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]>;
 }
 
 export type Rule = ElementRule | PageRule;
@@ -100,6 +102,7 @@ export function createScanContext(win: Window, config: ScanConfig = {}): ScanCon
 }
 
 export const SCAN_SLICE_MS = 12;
+const SLICE_NOT_DUE: Promise<void> = Promise.resolve();
 
 // This single live-DOM engine intentionally drops impeccable's multi-engine Dom trait.
 export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: AbortSignal): Promise<Finding[]> {
@@ -112,6 +115,15 @@ export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: A
   const pageRules = rules.filter((rule): rule is PageRule => rule.scope === 'page');
 
   let sliceStart = performance.now();
+  const sliceDue = (): boolean => performance.now() - sliceStart >= SCAN_SLICE_MS;
+  const yieldSlice = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    signal.throwIfAborted();
+    sliceStart = performance.now();
+  };
+  // Page rules await this inside their loops; when no yield is due it costs one microtask.
+  const checkpoint: Checkpoint = () => (sliceDue() ? yieldSlice() : SLICE_NOT_DUE);
+
   for (const el of elements) {
     if (!el.isConnected) continue;
     for (const rule of elementRules) {
@@ -119,14 +131,11 @@ export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: A
         findings.push(toFinding(rule, hit, el));
       }
     }
-    if (performance.now() - sliceStart >= SCAN_SLICE_MS) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      signal.throwIfAborted();
-      sliceStart = performance.now();
-    }
+    if (sliceDue()) await yieldSlice();
   }
   for (const rule of pageRules) {
-    for (const hit of rule.test(ctx)) {
+    await checkpoint();
+    for (const hit of await rule.test(ctx, checkpoint)) {
       findings.push(toFinding(rule, hit, hit.el));
     }
   }

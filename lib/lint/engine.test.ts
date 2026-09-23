@@ -65,7 +65,7 @@ describe('lint engine', () => {
         category: 'slop',
         name: 'Fake page rule',
         description: 'Finds the page.',
-        test: () => [{ detail: 'page hit' }],
+        test: async () => [{ detail: 'page hit' }],
       },
     ];
 
@@ -116,7 +116,7 @@ describe('lint engine', () => {
       category: 'quality',
       name: 'Disabled',
       description: 'Disabled rule.',
-      test: () => [{ detail: 'disabled' }],
+      test: async () => [{ detail: 'disabled' }],
     };
 
     const findings = await collectFindings([targetRule, disabledRule], createScanContext(window, {
@@ -176,7 +176,7 @@ describe('lint engine', () => {
     });
     const page: Rule = {
       id: 'page', scope: 'page', category: 'slop', name: 'page', description: 'page',
-      test: () => [{ detail: 'page:a', el: byId('a') }, { detail: 'page:none' }],
+      test: async () => [{ detail: 'page:a', el: byId('a') }, { detail: 'page:none' }],
     };
 
     const pending = collectFindings([page, rule('any', '[id]'), rule('para', 'p, a')], createScanContext(window), new AbortController().signal);
@@ -199,7 +199,7 @@ describe('lint engine', () => {
     const clock = stubClock();
     const elements = tenElements();
     const log: Element[] = [];
-    const pageTest = vi.fn(() => []);
+    const pageTest = vi.fn(async () => []);
     const page: Rule = { id: 'page', scope: 'page', category: 'slop', name: 'page', description: 'page', test: pageTest };
     const controller = new AbortController();
     const reason = new Error('stopped');
@@ -216,7 +216,7 @@ describe('lint engine', () => {
 
   it('runs no rule when the signal is already aborted', async () => {
     const elementTest = vi.fn(() => []);
-    const pageTest = vi.fn(() => []);
+    const pageTest = vi.fn(async () => []);
     const rules: Rule[] = [
       { id: 'el', scope: 'element', category: 'quality', name: 'el', description: 'el', test: elementTest },
       { id: 'page', scope: 'page', category: 'quality', name: 'page', description: 'page', test: pageTest },
@@ -244,6 +244,73 @@ describe('lint engine', () => {
     await pending;
 
     expect(log).toEqual(elements.filter((el) => el !== removed));
+  });
+
+  it('yields inside and between page rules once the shared slice reaches SCAN_SLICE_MS', async () => {
+    vi.useFakeTimers();
+    const clock = stubClock();
+    const events: string[] = [];
+    const fakeSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: () => void, ms?: number) => {
+      events.push('yield');
+      return fakeSetTimeout(handler, ms);
+    }) as typeof setTimeout);
+    const looping: Rule = {
+      id: 'looping', scope: 'page', category: 'quality', name: 'looping', description: 'looping',
+      test: async (_ctx, checkpoint) => {
+        for (let i = 0; i < 6; i += 1) {
+          await checkpoint();
+          events.push(`loop${i}`);
+          clock.now += 5;
+        }
+        return [{ detail: 'looping done' }];
+      },
+    };
+    const next: Rule = {
+      id: 'next', scope: 'page', category: 'quality', name: 'next', description: 'next',
+      test: async () => {
+        events.push('next');
+        return [{ detail: 'next done' }];
+      },
+    };
+
+    const pending = collectFindings([looping, next], createScanContext(window), new AbortController().signal);
+    await vi.runAllTimersAsync();
+    const findings = await pending;
+
+    expect(findings.map((f) => f.detail)).toEqual(['looping done', 'next done']);
+    expect(events).toEqual(['loop0', 'loop1', 'loop2', 'yield', 'loop3', 'loop4', 'loop5', 'yield', 'next']);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('rejects with the abort reason during a page-phase yield and runs no further page rule', async () => {
+    vi.useFakeTimers();
+    const clock = stubClock();
+    const iterations: number[] = [];
+    const controller = new AbortController();
+    const reason = new Error('stopped in page phase');
+    const nextTest = vi.fn(async () => []);
+    const looping: Rule = {
+      id: 'looping', scope: 'page', category: 'quality', name: 'looping', description: 'looping',
+      test: async (_ctx, checkpoint) => {
+        for (let i = 0; i < 6; i += 1) {
+          await checkpoint();
+          iterations.push(i);
+          clock.now += 5;
+          if (i === 2) controller.abort(reason);
+        }
+        return [];
+      },
+    };
+    const next: Rule = { id: 'next', scope: 'page', category: 'quality', name: 'next', description: 'next', test: nextTest };
+
+    const pending = collectFindings([looping, next], createScanContext(window), controller.signal);
+    const outcome = pending.then(() => 'resolved', (error: unknown) => error);
+    await vi.runAllTimersAsync();
+
+    expect(await outcome).toBe(reason);
+    expect(iterations).toEqual([0, 1, 2]);
+    expect(nextTest).not.toHaveBeenCalled();
   });
 
   it('runs last on the real setTimeout after earlier tests spied on a fake one', async () => {

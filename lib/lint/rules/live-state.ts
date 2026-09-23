@@ -1,6 +1,6 @@
 import { parseColor } from '../color';
 import { parsePx } from '../css';
-import type { ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
 
 const EDGE_SCROLL_EXTRA_PX = 8;
 const EDGE_SCROLL_LEFT_MAX_PX = 4;
@@ -356,11 +356,12 @@ function paintedRect(ctx: ScanContext, el: Element, rect: DOMRect): DOMRect | un
     } as DOMRect;
 }
 
-function edgeFlushCards(ctx: ScanContext): PageHit[] {
+async function edgeFlushCards(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const findings: PageHit[] = [];
   const viewportHeight = ctx.innerHeight || 800;
   const scrollY = ctx.scrollY || 0;
   for (const scroller of Array.from(ctx.doc.querySelectorAll('*'))) {
+    await checkpoint();
     if (!isScroller(ctx, scroller)) continue;
     if (scroller.scrollWidth <= scroller.clientWidth + EDGE_SCROLL_EXTRA_PX) continue;
     if (scroller.scrollLeft > EDGE_SCROLL_LEFT_MAX_PX) continue;
@@ -372,6 +373,7 @@ function edgeFlushCards(ctx: ScanContext): PageHit[] {
     const contentRight = contentLeft + scroller.clientWidth;
     const flush: Array<{ card: Element; edge: 'left' | 'right'; gap: number }> = [];
     for (const card of Array.from(scroller.querySelectorAll('*'))) {
+      await checkpoint();
       if (!isRendered(ctx, card)) continue;
       let owner = card.parentElement;
       while (owner && owner !== scroller && !isScroller(ctx, owner)) owner = owner.parentElement;
@@ -407,9 +409,10 @@ function edgeFlushCards(ctx: ScanContext): PageHit[] {
   return findings;
 }
 
-function textElementsForOcclusion(ctx: ScanContext): Array<{ el: Element; rect: DOMRect; text: string }> {
+async function textElementsForOcclusion(ctx: ScanContext, checkpoint: Checkpoint): Promise<Array<{ el: Element; rect: DOMRect; text: string }>> {
   const textElements: Array<{ el: Element; rect: DOMRect; text: string }> = [];
   for (const el of Array.from(ctx.doc.querySelectorAll('body *'))) {
+    await checkpoint();
     if (OCCLUSION_TEXT_SKIP_TAGS.has(el.tagName.toLowerCase())) continue;
     const inSvg = el.closest('svg') !== null;
     if (inSvg && el.tagName.toLowerCase() !== 'text') continue;
@@ -426,14 +429,15 @@ function textElementsForOcclusion(ctx: ScanContext): Array<{ el: Element; rect: 
   return textElements;
 }
 
-function textOcclusion(ctx: ScanContext): PageHit[] {
+async function textOcclusion(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const findings: PageHit[] = [];
   const seenVictims = new Set<Element>();
-  const textElements = textElementsForOcclusion(ctx);
+  const textElements = await textElementsForOcclusion(ctx, checkpoint);
   const viewportWidth = ctx.innerWidth || 1280;
   const viewportHeight = ctx.innerHeight || 800;
 
   for (const victim of textElements) {
+    await checkpoint();
     if (seenVictims.has(victim.el) || isScreenReaderOnly(ctx, victim.el)) continue;
     const cols = Math.max(OCCLUSION_MIN_GRID_COLUMNS, Math.min(OCCLUSION_MAX_GRID_COLUMNS, Math.round(victim.rect.width / OCCLUSION_GRID_COLUMN_DIVISOR)));
     const rows = Math.max(OCCLUSION_MIN_GRID_ROWS, Math.min(OCCLUSION_MAX_GRID_ROWS, Math.round(victim.rect.height / OCCLUSION_GRID_ROW_DIVISOR)));
@@ -484,6 +488,7 @@ function textOcclusion(ctx: ScanContext): PageHit[] {
 
   const cards: Array<{ el: Element; rect: DOMRect }> = [];
   for (const el of Array.from(ctx.doc.querySelectorAll('body *'))) {
+    await checkpoint();
     if (!isPaintedForOcclusion(ctx, el) || el.closest('svg') !== null) continue;
     const background = parseColor(styleValue(ctx, el, 'background-color'));
     if ((background?.a ?? 0) <= 0.7) continue;
@@ -498,12 +503,14 @@ function textOcclusion(ctx: ScanContext): PageHit[] {
     cards.push({ el, rect });
   }
   for (const victim of textElements) {
+    await checkpoint();
     if (seenVictims.has(victim.el)) continue;
     const fontSize = numberValue(styleValue(ctx, victim.el, 'font-size'), 16);
     if (fontSize < OCCLUSION_HEADLINE_FONT_SIZE_PX) continue;
     const lineHeight = numberValue(styleValue(ctx, victim.el, 'line-height'), fontSize * 1.2);
     const centerX = victim.rect.left + victim.rect.width / 2;
     for (const card of cards) {
+      await checkpoint();
       if (card.el === victim.el || victim.el.contains(card.el) || card.el.contains(victim.el)) continue;
       const intersectionWidth = Math.max(0, Math.min(victim.rect.right, card.rect.right) - Math.max(victim.rect.left, card.rect.left));
       const intersectionHeight = Math.max(0, Math.min(victim.rect.bottom, card.rect.bottom) - Math.max(victim.rect.top, card.rect.top));
@@ -520,6 +527,7 @@ function textOcclusion(ctx: ScanContext): PageHit[] {
   }
 
   for (const el of Array.from(ctx.doc.querySelectorAll('body *'))) {
+    await checkpoint();
     if (seenVictims.has(el) || el.closest('svg') !== null || !isPaintedForOcclusion(ctx, el)) continue;
     if (styleValue(ctx, el, 'display') !== 'inline') continue;
     const background = parseColor(styleValue(ctx, el, 'background-color'));
@@ -553,11 +561,12 @@ function textOcclusion(ctx: ScanContext): PageHit[] {
   return findings;
 }
 
-function firstViewportColumnOverflow(ctx: ScanContext): PageHit[] {
+async function firstViewportColumnOverflow(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const findings: PageHit[] = [];
   const viewportWidth = ctx.innerWidth || 1280;
   const viewportHeight = ctx.innerHeight || 800;
   for (const section of Array.from(ctx.doc.querySelectorAll('body *'))) {
+    await checkpoint();
     const display = styleValue(ctx, section, 'display');
     if (!/(?:^|inline-)(?:grid|flex)$/.test(display)) continue;
     const sectionRect = section.getBoundingClientRect();
@@ -576,6 +585,7 @@ function firstViewportColumnOverflow(ctx: ScanContext): PageHit[] {
       if (childRect.height < FIRST_VIEWPORT_COLUMN_MIN_HEIGHT_PX) continue;
       let contentBottom = childRect.top;
       for (const descendant of Array.from(child.querySelectorAll('*'))) {
+        await checkpoint();
         const descendantPosition = styleValue(ctx, descendant, 'position');
         if (descendantPosition === 'absolute' || descendantPosition === 'fixed') continue;
         if (styleValue(ctx, descendant, 'display') === 'none' || styleValue(ctx, descendant, 'visibility') === 'hidden') continue;
@@ -646,20 +656,24 @@ function isRepeatedTextContainer(ctx: ScanContext, el: Element): boolean {
   return (hasShadow || hasBorder) && (hasRadius || hasBackground);
 }
 
-function repeatedContainerText(ctx: ScanContext): PageHit[] {
+async function repeatedContainerText(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const findings: PageHit[] = [];
-  const containers = Array.from(ctx.doc.querySelectorAll('*')).filter((el) => (
-    REPEATED_TEXT_CONTAINER_TAGS.has(el.tagName.toLowerCase())
-    && !el.closest(REPEATED_TEXT_SKIP_SELECTOR)
-    && isRepeatedTextContainer(ctx, el)
-  ));
+  const containers: Element[] = [];
+  for (const el of Array.from(ctx.doc.querySelectorAll('*'))) {
+    await checkpoint();
+    if (REPEATED_TEXT_CONTAINER_TAGS.has(el.tagName.toLowerCase())
+      && !el.closest(REPEATED_TEXT_SKIP_SELECTOR)
+      && isRepeatedTextContainer(ctx, el)) containers.push(el);
+  }
 
   for (const container of containers) {
+    await checkpoint();
     if (!isRendered(ctx, container)) continue;
     const descendants = Array.from(container.querySelectorAll('*'));
     if (descendants.length > REPEATED_TEXT_MAX_DESCENDANTS) continue;
     const groups = new Map<string, string[]>();
     for (const descendant of descendants) {
+      await checkpoint();
       let ancestor = descendant.parentElement;
       let ownedByInner = false;
       while (ancestor && ancestor !== container) {

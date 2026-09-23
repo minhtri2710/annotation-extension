@@ -1,4 +1,4 @@
-import type { PageHit, PageRule, Rule, ScanContext } from '../engine';
+import type { Checkpoint, PageHit, PageRule, Rule, ScanContext } from '../engine';
 
 const MIN_TOTAL_CHARS = 200;
 const MIN_HIDDEN_CHARS = 150;
@@ -33,7 +33,7 @@ function opacityOrZero(value: string): number {
   return Number.isNaN(parsed) || parsed === 0 ? 0 : parsed;
 }
 
-function measureHiddenText(ctx: ScanContext): { total: number; hidden: number; sample?: string } {
+async function measureHiddenText(ctx: ScanContext, checkpoint: Checkpoint): Promise<{ total: number; hidden: number; sample?: string }> {
   const root = ctx.doc.documentElement;
   const cache = new Map<Element, HiddenState>();
   const stateOf = (el: Element | null): HiddenState => {
@@ -73,6 +73,7 @@ function measureHiddenText(ctx: ScanContext): { total: number; hidden: number; s
   let hidden = 0;
   let sample: string | undefined;
   for (const el of ctx.doc.querySelectorAll('body *')) {
+    await checkpoint();
     let length = 0;
     for (const node of el.childNodes) {
       if (node.nodeType === node.TEXT_NODE) length += collapse(node.textContent ?? '').length;
@@ -97,8 +98,8 @@ const contentHiddenAtRest: PageRule = {
   description:
     'A large share of the page text sits at opacity 0 or visibility hidden even after every reveal handler had a chance to run. This is the failed-reveal signature: the content shipped but never becomes visible. Make content visible by default and let JavaScript enhance its entrance instead of gating its existence.',
   scope: 'page',
-  test(ctx): PageHit[] {
-    const { total, hidden, sample } = measureHiddenText(ctx);
+  async test(ctx, checkpoint): Promise<PageHit[]> {
+    const { total, hidden, sample } = await measureHiddenText(ctx, checkpoint);
     if (total < MIN_TOTAL_CHARS || hidden < MIN_HIDDEN_CHARS) return [];
     const share = hidden / total;
     if (share <= MAX_QUIET_SHARE) return [];

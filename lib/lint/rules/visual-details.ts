@@ -1,6 +1,6 @@
 import { hasChroma, isNeutralColor, parseColor } from '../color';
 import { cssColorAlpha, parsePx, roundTo } from '../css';
-import type { ElementRule, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import type { Checkpoint, ElementRule, PageRule, Rule, RuleHit, ScanContext } from '../engine';
 
 const SIDE_TAB_MIN_RECT_WIDTH_PX = 20;
 const SIDE_TAB_MIN_RECT_HEIGHT_PX = 20;
@@ -483,11 +483,13 @@ function insetStripeHits(el: Element, ctx: ScanContext): RuleHit[] {
   return hits;
 }
 
-function repeatingGradientTest(ctx: ScanContext): RuleHit[] {
+async function repeatingGradientTest(ctx: ScanContext, checkpoint: Checkpoint): Promise<RuleHit[]> {
   const repeating = /repeating-(?:linear|radial|conic)-gradient\s*\(/i;
-  return stylesheetSources(ctx).some((source) => repeating.test(source))
-    ? [{ detail: 'repeating-gradient decorative stripes' }]
-    : [];
+  for (const source of stylesheetSources(ctx)) {
+    await checkpoint();
+    if (repeating.test(source)) return [{ detail: 'repeating-gradient decorative stripes' }];
+  }
+  return [];
 }
 
 function hasGridBackground(block: string): boolean {
@@ -503,9 +505,10 @@ function hasGridBackground(block: string): boolean {
   return hasSizeCell;
 }
 
-function gridBackgroundTest(ctx: ScanContext): RuleHit[] {
-  if (stylesheetSources(ctx).some((source) => sourceBlocks(source).some(hasGridBackground))) {
-    return [{ detail: 'two-axis grid-line gradient background' }];
+async function gridBackgroundTest(ctx: ScanContext, checkpoint: Checkpoint): Promise<RuleHit[]> {
+  for (const source of stylesheetSources(ctx)) {
+    await checkpoint();
+    if (sourceBlocks(source).some(hasGridBackground)) return [{ detail: 'two-axis grid-line gradient background' }];
   }
   return [];
 }

@@ -1,6 +1,6 @@
 import { parseColor, isAccentColor } from '../color';
 import { cssColorAlpha, parsePx } from '../css';
-import type { ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
 
 const MONOTONOUS_MIN_VALUES = 10;
 const MONOTONOUS_DOMINANT_SHARE = 0.6;
@@ -229,9 +229,10 @@ function isCardLike(ctx: ScanContext, el: Element): boolean {
   return (hasShadow || hasBorder) && (hasRadius || hasBackground);
 }
 
-function nestedCardsHit(ctx: ScanContext): PageHit[] {
+async function nestedCardsHit(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const flagged: Element[] = [];
   for (const el of Array.from(ctx.doc.querySelectorAll('*'))) {
+    await checkpoint();
     if (!isCardLike(ctx, el) || flagged.includes(el)) continue;
     const classes = classText(el);
     const position = styleValue(ctx, el, 'position');
@@ -253,7 +254,7 @@ function nestedCardsHit(ctx: ScanContext): PageHit[] {
     .map((el) => ({ detail: 'Card inside card', el }));
 }
 
-function collectInlineSpacing(ctx: ScanContext): number[] {
+async function collectInlineSpacing(ctx: ScanContext, checkpoint: Checkpoint): Promise<number[]> {
   const values: number[] = [];
   const add = (raw: string, max = MONOTONOUS_MAX_SPACING_PX): void => {
     const value = Number.parseFloat(raw);
@@ -272,6 +273,7 @@ function collectInlineSpacing(ctx: ScanContext): number[] {
     'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'gap',
   ];
   for (const el of Array.from(ctx.doc.querySelectorAll('*'))) {
+    await checkpoint();
     const style = el.getAttribute('style') ?? '';
     for (const declaration of style.split(';')) {
       const colon = declaration.indexOf(':');
@@ -285,6 +287,7 @@ function collectInlineSpacing(ctx: ScanContext): number[] {
     }
   }
   for (const style of Array.from(ctx.doc.querySelectorAll('style'))) {
+    await checkpoint();
     const source = style.textContent ?? '';
     const declarations = /(?:padding|margin)(?:-(?:top|right|bottom|left))?\s*:\s*(-?(?:\d+\.?\d*|\.\d+)(?:px|rem))/gi;
     for (const match of source.matchAll(declarations)) addLength(match[1] ?? '');
@@ -294,8 +297,8 @@ function collectInlineSpacing(ctx: ScanContext): number[] {
   return values.map((value) => Math.round(value / MONOTONOUS_ROUNDING_PX) * MONOTONOUS_ROUNDING_PX);
 }
 
-function monotonousSpacingHit(ctx: ScanContext): PageHit[] {
-  const values = collectInlineSpacing(ctx);
+async function monotonousSpacingHit(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
+  const values = await collectInlineSpacing(ctx, checkpoint);
   if (values.length < MONOTONOUS_MIN_VALUES) return [];
   const counts = new Map<number, number>();
   for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -341,10 +344,11 @@ function isInSelector(el: Element, selector: string): boolean {
   }
 }
 
-function numberedCandidates(ctx: ScanContext): NumberedCandidate[] {
+async function numberedCandidates(ctx: ScanContext, checkpoint: Checkpoint): Promise<NumberedCandidate[]> {
   const candidates: NumberedCandidate[] = [];
   const seen = new Set<Element>();
   for (const heading of Array.from(ctx.doc.querySelectorAll('h2, h3, h4'))) {
+    await checkpoint();
     if (isInSelector(heading, KICKER_SKIP_SELECTOR)) continue;
     let label = heading.previousElementSibling;
     if (!label && heading.parentElement && heading.parentElement.firstElementChild === heading) {
@@ -377,8 +381,8 @@ function numberedCandidates(ctx: ScanContext): NumberedCandidate[] {
   return candidates;
 }
 
-function numberedLabelsHit(ctx: ScanContext): PageHit[] {
-  const candidates = numberedCandidates(ctx);
+async function numberedLabelsHit(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
+  const candidates = await numberedCandidates(ctx, checkpoint);
   if (candidates.length < NUMBERED_LABEL_MIN_COUNT || new Set(candidates.map((candidate) => candidate.index)).size < 2) return [];
   return candidates.map((candidate) => ({
     detail: `tiny numbered label "${candidate.labelText}" beside ${candidate.headingTag} "${candidate.headingText}" (${candidates.length} on page)`,
@@ -674,10 +678,11 @@ function ownTopBoundary(ctx: ScanContext, el: Element): boolean {
   return shadow !== '' && shadow !== 'none';
 }
 
-function headingRhythmHit(ctx: ScanContext): PageHit[] {
+async function headingRhythmHit(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   interface Candidate { el: Element; above: number; below: number; tag: string; text: string }
   const candidates: Candidate[] = [];
   for (const heading of Array.from(ctx.doc.querySelectorAll('h2, h3, h4'))) {
+    await checkpoint();
     if (!visibleFlow(ctx, heading)) continue;
     const text = textContent(heading);
     if (text.length < 3) continue;
