@@ -58,6 +58,7 @@ describe('copy lint rules through the real engine', () => {
     const dashes = '—'.repeat(8);
     setBodyText(dashes + 'x'.repeat(4000 - 8));
     expect(await ruleFindings('em-dash-overuse')).toHaveLength(1);
+    expect(await ruleFindings('em-dash-overuse')).toMatchObject([{ ruleId: 'em-dash-overuse', detail: '8 em-dashes in body text' }]);
     setBodyText(dashes + 'x'.repeat(4001 - 8));
     expect(await ruleFindings('em-dash-overuse')).toEqual([]);
   });

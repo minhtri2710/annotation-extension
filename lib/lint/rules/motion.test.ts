@@ -273,5 +273,7 @@ describe('motion lint rules through the real engine', () => {
       '@keyframes pulse { 50% { opacity: 0.4; } } @media (prefers-reduced-motion: no-preference) { .dot { animation-name: pulse; animation-iteration-count: infinite; } }',
     );
     expect(findings).toHaveLength(1);
+    expect(first(findings)).toMatchObject({ detail: 'span.dot — 8x8px dot with infinite "pulse" animation' });
+    expect(first(findings).el).toBe(document.querySelector('.dot'));
   });
 });

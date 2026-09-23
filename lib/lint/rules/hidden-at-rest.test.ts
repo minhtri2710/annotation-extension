@@ -67,11 +67,17 @@ describe('content-hidden-at-rest', () => {
   it('fires just above the 0.3 share', async () => {
     load(`<p>${text(349)}</p><p style="opacity: 0">${text(150)}</p>`);
     expect(await detailsFor()).toHaveLength(1);
+    expect(await detailsFor()).toEqual([
+      `30% of page text (150 of 499 chars) stays at opacity 0 after reveal handlers ran (e.g. "${text(40)}")`,
+    ]);
   });
 
   it('counts opacity at or below 0.02 as hidden and above it as visible', async () => {
     load(`<p>${text(50)}</p><p style="opacity: 0.02">${text(150)}</p>`);
     expect(await detailsFor()).toHaveLength(1);
+    expect(await detailsFor()).toEqual([
+      `75% of page text (150 of 200 chars) stays at opacity 0 after reveal handlers ran (e.g. "${text(40)}")`,
+    ]);
     load(`<p>${text(50)}</p><p style="opacity: 0.03">${text(150)}</p>`);
     expect(await detailsFor()).toEqual([]);
   });

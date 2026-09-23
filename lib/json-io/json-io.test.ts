@@ -189,6 +189,8 @@ describe('JSON annotation I/O', () => {
     const imported = entries[0] as Annotation;
     expect(imported.screenshot).toEqual({ mimeType: 'image/png', width: 10, height: 20, byteLength: 12 });
     expect(await store.get(`screenshot:${imported.id}`)).toBeDefined();
+    expect(imported).toMatchObject({ id: 'entry-1', pageUrl: firstPage, note: 'With image', selector: '#target', status: 'open' });
+    expect(await payload(await store.get(`screenshot:${imported.id}`))).toBe('shot');
   });
 
   it('round-trips status and attachments through JSON', async () => {
@@ -221,6 +223,8 @@ describe('JSON annotation I/O', () => {
     const stored = await storedAnnotations();
     expect(order[0]).toMatch(/^put:attachment:/);
     expect(stored[0]?.attachments).toHaveLength(1);
+    expect(stored[0]?.attachments).toEqual([{ id: 'a', name: 'x.png', mimeType: 'image/png', byteLength: 9 }]);
+    expect(await payload(await store.get(attachmentKey('a')))).toBe('x');
   });
 
   it('writes one annotation per import entry to its own page, in file order', async () => {

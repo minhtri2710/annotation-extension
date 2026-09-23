@@ -126,6 +126,7 @@ describe('background message routing', () => {
     expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({ note: 'created' });
     expect(isAnnotationWriteMessage(message)).toBe(true);
     await expect(listAnnotations(pageUrl)).resolves.toHaveLength(1);
+    await expect(listAnnotations(pageUrl)).resolves.toEqual([sendResponse.mock.calls[0]?.[0]]);
   });
 
   it('passes a sender tab window id to captureVisibleTab', async () => {

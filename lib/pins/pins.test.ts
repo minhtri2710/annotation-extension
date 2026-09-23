@@ -341,6 +341,8 @@ describe('pins controller', () => {
       document.body.append(lateTarget);
       await Promise.resolve();
       expect(vi.getTimerCount()).toBeGreaterThan(0);
+      expect(vi.getTimerCount()).toBe(2);
+      expect(overlay.querySelector('[data-annotation-id]')).toBeNull();
 
       controller.destroy();
 

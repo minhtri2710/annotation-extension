@@ -69,6 +69,9 @@ describe('imagery lint rules through the real engine', () => {
       expect(await ruleFindings('shape-assembled-illustration', `<svg viewBox="0 0 600 240" width="600" height="240">${horizontal}</svg>`)).toEqual([]);
       const scene = Array.from({ length: 12 }, (_, index) => `<rect x="${index * 40}" y="${index * 10}" width="${20 + index * 9}" height="${15 + index * 11}" fill="${series[index % 3]}"/>`).join('');
       expect(await ruleFindings('shape-assembled-illustration', `<svg viewBox="0 0 600 240" width="600" height="240" role="img">${scene}</svg>`)).toHaveLength(1);
+      const sceneFindings = await ruleFindings('shape-assembled-illustration', `<svg viewBox="0 0 600 240" width="600" height="240" role="img">${scene}</svg>`);
+      expect(sceneFindings).toMatchObject([{ detail: 'inline <svg> scene: 12 primitive shapes, ~600x240px, 3 fill colors' }]);
+      expect(sceneFindings[0]!.el).toBe(document.querySelector('svg'));
     });
 
     it('fires on a large inline svg built from 8 primitives and 3 fills', async () => {
@@ -96,6 +99,9 @@ describe('imagery lint rules through the real engine', () => {
     it('keeps stroke-width out of the width lookup (a width attr wins over viewBox)', async () => {
       expect(await ruleFindings('shape-assembled-illustration', `<svg stroke-width="1" width="100" viewBox="0 0 400 300">${SCENE}</svg>`)).toEqual([]);
       expect(await ruleFindings('shape-assembled-illustration', `<svg viewBox="0 0 400 300">${SCENE}<text>a</text><text>b</text></svg>`)).toHaveLength(1);
+      const twoTexts = await ruleFindings('shape-assembled-illustration', `<svg viewBox="0 0 400 300">${SCENE}<text>a</text><text>b</text></svg>`);
+      expect(twoTexts).toMatchObject([{ detail: 'inline <svg> scene: 8 primitive shapes, ~400x300px, 3 fill colors' }]);
+      expect(twoTexts[0]!.el).toBe(document.querySelector('svg'));
     });
   });
 

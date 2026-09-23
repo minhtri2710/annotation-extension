@@ -165,6 +165,8 @@ describe('visual-details lint rules through the real engine', () => {
     expect(querySelectorAll.mock.calls.filter(([selector]) => selector === 'style' || selector === '[style]')).toHaveLength(2);
     expect(querySelectorAll.mock.calls.filter(([selector]) => selector === 'style')).toHaveLength(1);
     expect(querySelectorAll.mock.calls.filter(([selector]) => selector === '[style]')).toHaveLength(1);
+    expect(findings.map((finding) => finding.el)).toEqual([...document.body.children]);
+    expect(findings.map((finding) => finding.detail)).toEqual(Array(4).fill('.card — inset box-shadow 4px stripe (left)'));
   });
 
   it('detects an accent top border on a rounded element and rejects 1.5px', async () => {
