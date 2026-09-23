@@ -158,6 +158,54 @@ ${ANNOTATION_DARK_TOKENS}
   outline-offset: 2px;
 }
 
+[data-annotation-shell] [data-annotation-scan-summary] {
+  margin: 0;
+  font-weight: var(--annotation-font-weight-medium);
+}
+
+[data-annotation-shell] [data-annotation-scan-group] {
+  padding-top: var(--annotation-space-3);
+  border-top: 1px solid var(--annotation-color-border);
+}
+
+[data-annotation-shell] [data-annotation-scan-group] h3,
+[data-annotation-shell] [data-annotation-scan-group] p,
+[data-annotation-shell] [data-annotation-scan-group] ul {
+  margin: 0 0 var(--annotation-space-2);
+}
+
+[data-annotation-shell] [data-annotation-scan-group] ul {
+  padding-left: var(--annotation-space-4);
+}
+
+[data-annotation-shell] [data-annotation-scan-finding] {
+  font-size: var(--annotation-font-size-caption);
+  overflow-wrap: anywhere;
+}
+
+[data-annotation-shell] [data-annotation-severity] {
+  font-size: var(--annotation-font-size-caption);
+  font-weight: var(--annotation-font-weight-bold);
+}
+
+[data-annotation-shell] [data-annotation-severity="error"] {
+  color: var(--annotation-color-danger);
+}
+
+[data-annotation-shell] [data-annotation-severity="warning"] {
+  color: var(--annotation-color-warning);
+}
+
+[data-annotation-shell] [data-annotation-severity="advisory"] {
+  color: var(--annotation-color-text-muted);
+}
+
+[data-annotation-shell] [data-annotation-scan-highlight] {
+  z-index: 2147483644;
+  outline: 2px solid var(--annotation-color-accent);
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   [data-annotation-shell] [data-annotation-mount="panel"]:not(:empty) {
     animation: annotation-panel-enter 160ms ease-out;

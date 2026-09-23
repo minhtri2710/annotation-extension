@@ -94,7 +94,7 @@ ${ANNOTATION_DARK_TOKENS}
     expect(OVERLAY_STYLES).toContain('[data-annotation-shell] [data-annotation-mount] select');
 
     const declarations = OVERLAY_STYLES.match(/--annotation-[a-z0-9-]+(?=:)/g) ?? [];
-    expect(declarations).toHaveLength(27);
+    expect(declarations).toHaveLength(31);
     expect(new Set(declarations)).toEqual(
       new Set([
         ...Object.keys({
@@ -104,6 +104,8 @@ ${ANNOTATION_DARK_TOKENS}
           '--annotation-color-text-muted': true,
           '--annotation-color-border': true,
           '--annotation-color-accent': true,
+          '--annotation-color-danger': true,
+          '--annotation-color-warning': true,
           '--annotation-space-1': true,
           '--annotation-space-2': true,
           '--annotation-space-3': true,
@@ -233,6 +235,30 @@ ${ANNOTATION_DARK_TOKENS}
     expect(body).toContain('text-align: center');
     expect(body).toMatch(/padding: var\(--annotation-space-/);
     expect(body).toContain('font-size: var(--annotation-font-size-caption)');
+  });
+
+  it('styles the scan highlight as a static, non-interactive accent outline under the toolbar', () => {
+    const body = ruleBody('[data-annotation-shell] [data-annotation-scan-highlight] {');
+    expect(body).toMatch(/(?:outline|border): 2px solid var\(--annotation-color-accent\)/);
+    expect(body).toContain('pointer-events: none');
+    const zIndex = Number(/z-index: (\d+)/.exec(body)?.[1]);
+    expect(zIndex).toBeLessThan(2147483646);
+    expect(zIndex).toBeGreaterThan(2147483000);
+    expect(body).not.toMatch(/animation|transition|transform/);
+    expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toContain('data-annotation-scan');
+  });
+
+  it('styles scan groups, caption-size rows, the summary, and token-coloured severities', () => {
+    expect(ruleBody('[data-annotation-shell] [data-annotation-scan-group] {')).toMatch(/var\(--annotation-/);
+    expect(ruleBody('[data-annotation-shell] [data-annotation-scan-finding] {')).toContain(
+      'font-size: var(--annotation-font-size-caption)',
+    );
+    expect(ruleBody('[data-annotation-shell] [data-annotation-scan-summary] {')).toMatch(/var\(--annotation-/);
+    expect(ruleBody('[data-annotation-shell] [data-annotation-severity="error"] {')).toContain('color: var(--annotation-color-danger)');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-severity="warning"] {')).toContain('color: var(--annotation-color-warning)');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-severity="advisory"] {')).toContain(
+      'color: var(--annotation-color-text-muted)',
+    );
   });
 });
 

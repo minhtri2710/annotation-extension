@@ -2,6 +2,7 @@ import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
 import { createAnnotationList } from '../lib/annotation-list/annotation-list';
 import { createNotePanel } from '../lib/notes/note-panel';
+import { createScanPanel, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import type { ElementContext } from '../lib/capture/context';
 import { resolveLiveElementContext } from '../lib/wiring/live-element';
@@ -32,6 +33,8 @@ export default defineContentScript({
     let storageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] | undefined;
     let runtimeMessageListener: ((message: unknown) => void) | undefined;
     let annotationListToggle: HTMLButtonElement | undefined;
+    let scanToggleButton: HTMLButtonElement | undefined;
+    let scanPanel: ReturnType<typeof createScanPanel> | undefined;
     let annotationToggle: HTMLButtonElement | undefined;
     let resetPanelPosition: (() => void) | undefined;
     let stopRouteWatch: (() => void) | undefined;
@@ -52,7 +55,12 @@ export default defineContentScript({
         let url = document.location.href;
         notePanel = createNotePanel(shell.panel);
         let annotationList = createAnnotationList(shell.panel, url);
-        let listOpen = false;
+        const activeScanPanel = createScanPanel(shell.panel, {
+          scan: () => scanPage(window, shadowHost),
+          highlightRoot: shell.root,
+        });
+        scanPanel = activeScanPanel;
+        let panelMode: 'none' | 'list' | 'scan' = 'none';
         let renderSequence = 0;
         resetPanelPosition = () => {
           shell.panel.style.removeProperty('position');
@@ -61,23 +69,39 @@ export default defineContentScript({
           shell.panel.style.removeProperty('right');
           shell.panel.style.removeProperty('bottom');
         };
+        const scanToggle = document.createElement('button');
+        scanToggleButton = scanToggle;
+        scanToggle.type = 'button';
+        scanToggle.dataset.annotationScanToggle = '';
+        scanToggle.setAttribute('aria-expanded', 'false');
+        scanToggle.textContent = 'Scan';
         const listToggle = document.createElement('button');
+        const closePanel = () => {
+          if (panelMode === 'list') annotationList.clear();
+          if (panelMode === 'scan') activeScanPanel.clear();
+          listToggle.setAttribute('aria-expanded', 'false');
+          scanToggle.setAttribute('aria-expanded', 'false');
+          resetPanelPosition?.();
+          panelMode = 'none';
+        };
+        const openPanel = (mode: 'list' | 'scan') => {
+          const wasOpen = panelMode === mode;
+          closePanel();
+          if (wasOpen) return;
+          panelMode = mode;
+          ++renderSequence;
+          (mode === 'list' ? listToggle : scanToggle).setAttribute('aria-expanded', 'true');
+          void (mode === 'list' ? annotationList.render() : activeScanPanel.render());
+        };
+        scanToggle.addEventListener('click', () => openPanel('scan'));
+        shell.toolbar.append(scanToggle);
+
         annotationListToggle = listToggle;
         listToggle.type = 'button';
         listToggle.dataset.annotationListToggle = '';
         listToggle.setAttribute('aria-expanded', 'false');
         listToggle.textContent = 'View all';
-        listToggle.addEventListener('click', () => {
-          listOpen = !listOpen;
-          listToggle.setAttribute('aria-expanded', String(listOpen));
-          if (listOpen) {
-            ++renderSequence;
-            resetPanelPosition?.();
-            void annotationList.render();
-          } else {
-            annotationList.clear();
-          }
-        });
+        listToggle.addEventListener('click', () => openPanel('list'));
         shell.toolbar.append(listToggle);
 
         const annotateToggle = document.createElement('button');
@@ -90,12 +114,7 @@ export default defineContentScript({
         shell.toolbar.append(annotateToggle);
 
         const showNotePanel = (context: ElementContext) => {
-          if (listOpen) {
-            listOpen = false;
-            listToggle.setAttribute('aria-expanded', 'false');
-            annotationList.clear();
-            resetPanelPosition?.();
-          }
+          if (panelMode !== 'none') closePanel();
           const sequence = ++renderSequence;
           const panel = notePanel;
           if (!panel) return;
@@ -140,12 +159,7 @@ export default defineContentScript({
         void refreshPins();
         stopRouteWatch = watchRoute(window, (newUrl) => {
           url = newUrl;
-          if (listOpen) {
-            listOpen = false;
-            listToggle.setAttribute('aria-expanded', 'false');
-            annotationList.clear();
-            resetPanelPosition?.();
-          }
+          if (panelMode !== 'none') closePanel();
           annotationList = createAnnotationList(shell.panel, newUrl);
           void refreshPins();
         });
@@ -171,6 +185,10 @@ export default defineContentScript({
           browser.runtime.onMessage.removeListener(runtimeMessageListener);
           runtimeMessageListener = undefined;
         }
+        scanPanel?.clear();
+        scanPanel = undefined;
+        scanToggleButton?.remove();
+        scanToggleButton = undefined;
         annotationListToggle?.remove();
         annotationListToggle = undefined;
         annotationToggle?.remove();
