@@ -92,16 +92,11 @@ body.annotation-page--popup .annotation-page__card {
 
 .annotation-page__card button {
   cursor: pointer;
-  transition: background 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
 }
 
 .annotation-page__card button:hover {
   border-color: var(--annotation-color-accent);
   background: var(--annotation-color-surface-raised);
-}
-
-.annotation-page__card button:active {
-  transform: translateY(1px);
 }
 
 .annotation-page__card button:focus-visible,
@@ -144,13 +139,13 @@ body.annotation-page--popup .annotation-page__card {
   accent-color: var(--annotation-color-accent);
 }
 
-@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: no-preference) {
   .annotation-page__card button {
-    transition: none;
+    transition: background 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
   }
 
   .annotation-page__card button:active {
-    transform: none;
+    transform: translateY(1px);
   }
 }
 `;

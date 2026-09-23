@@ -152,8 +152,8 @@ ${ANNOTATION_DARK_TOKENS}
     expect(OVERLAY_STYLES).toContain('pointer-events: none');
     expect(OVERLAY_STYLES).toContain('@keyframes locate-pulse');
     expect(OVERLAY_STYLES).toContain('.locate-pulse');
-    expect(OVERLAY_STYLES).toContain('@media (prefers-reduced-motion: reduce)');
-    expect(OVERLAY_STYLES).toContain('animation: none');
+    expect(noPreferenceBlocks(OVERLAY_STYLES)).toContain('animation: locate-pulse 500ms');
+    expect(noPreferenceBlocks(OVERLAY_STYLES)).toContain('animation: annotation-tooltip-fade-in 120ms');
   });
 
   it('uses type tokens instead of font-size and font-weight literals', () => {
@@ -205,23 +205,26 @@ ${ANNOTATION_DARK_TOKENS}
     expect(Number(panelMs)).toBeLessThanOrEqual(200);
     expect(OVERLAY_STYLES).toMatch(/@keyframes annotation-panel-enter \{\s*from \{ opacity: 0; transform: translateY\(/);
     expect(OVERLAY_STYLES).toContain('@keyframes annotation-badge-pop');
-    expect(ruleBody('[data-annotation-shell] [data-annotation-badge] {')).toContain('animation: annotation-badge-pop');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-badge] {', noPreferenceBlocks(OVERLAY_STYLES))).toContain(
+      'animation: annotation-badge-pop',
+    );
   });
 
-  it('turns off every animation and transition under reduced motion', () => {
-    const media = OVERLAY_STYLES.slice(OVERLAY_STYLES.indexOf('@media (prefers-reduced-motion: reduce)'));
-    for (const selector of [
-      '.annotation-pin-tooltip',
-      '.locate-pulse',
-      '[data-annotation-mount="panel"]',
-      '[data-annotation-badge]',
+  it('only enables motion inside the prefers-reduced-motion: no-preference opt-in', () => {
+    expect(motionOutsideOptIn(OVERLAY_STYLES)).toEqual([]);
+    expect(OVERLAY_STYLES).not.toContain('prefers-reduced-motion: reduce');
+    const optIn = noPreferenceBlocks(OVERLAY_STYLES);
+    for (const declaration of [
+      'animation: annotation-panel-enter',
+      'animation: annotation-badge-pop',
+      'animation: annotation-tooltip-fade-in',
+      'animation: locate-pulse',
+      'transition: opacity',
+      'transition: color',
+      'transform: translateY(1px)',
     ]) {
-      expect(media).toContain(selector);
+      expect(optIn).toContain(declaration);
     }
-    expect(media).toContain('animation: none');
-    expect(media).toContain('transition: none');
-    expect(media).toContain('[data-annotation-mount] button');
-    expect(media).toContain('.annotation-pin');
   });
 
   it('styles the empty state as a muted, centered caption block', () => {
@@ -233,8 +236,39 @@ ${ANNOTATION_DARK_TOKENS}
   });
 });
 
-function ruleBody(selectorLine: string): string {
-  const start = OVERLAY_STYLES.indexOf(`\n${selectorLine}`);
+function ruleBody(selectorLine: string, css = OVERLAY_STYLES): string {
+  const start = css.search(new RegExp(`\\n *${selectorLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   expect(start, selectorLine).toBeGreaterThanOrEqual(0);
-  return OVERLAY_STYLES.slice(start, OVERLAY_STYLES.indexOf('}', start));
+  return css.slice(start, css.indexOf('}', start));
+}
+
+const NO_PREFERENCE = '@media (prefers-reduced-motion: no-preference)';
+
+function stripKeyframes(css: string): string {
+  return css.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
+}
+
+function motionOutsideOptIn(css: string): string[] {
+  const text = stripKeyframes(css);
+  const stack: string[] = [];
+  const outside: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char !== '{' && char !== '}' && char !== ';') continue;
+    const chunk = text.slice(start, i).trim();
+    if (char === '{') stack.push(chunk);
+    else {
+      if (/^(?:animation|animation-name|transition|transform)\s*:/.test(chunk) && !stack.includes(NO_PREFERENCE)) {
+        outside.push(chunk);
+      }
+      if (char === '}') stack.pop();
+    }
+    start = i + 1;
+  }
+  return outside;
+}
+
+function noPreferenceBlocks(css: string): string {
+  return css.split(NO_PREFERENCE).slice(1).join('\n');
 }

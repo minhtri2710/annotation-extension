@@ -48,7 +48,7 @@ describe('page styles', () => {
     expect(PAGE_STYLES).toContain('.annotation-page__card button:hover {\n  border-color: var(--annotation-color-accent);\n  background: var(--annotation-color-surface-raised);');
     expect(PAGE_STYLES).toContain('.annotation-page__card button:focus-visible');
     expect(PAGE_STYLES).toContain('outline: 0.15rem solid var(--annotation-color-accent)');
-    expect(PAGE_STYLES).toMatch(/\.annotation-page__card button:active \{\n  transform: /);
+    expect(PAGE_STYLES).toMatch(/\.annotation-page__card button:active \{\n +transform: /);
     const transitions = [...PAGE_STYLES.matchAll(/transition: ([^;]+);/g)].map((match) => match[1] ?? '');
     expect(transitions.length).toBeGreaterThan(0);
     for (const transition of transitions.filter((value) => value !== 'none')) {
@@ -58,6 +58,36 @@ describe('page styles', () => {
         expect(Number.parseInt(duration ?? '', 10)).toBeLessThanOrEqual(150);
       }
     }
-    expect(PAGE_STYLES).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\n  \.annotation-page__card button \{\n    transition: none;/);
+  });
+
+  it('only enables motion inside the prefers-reduced-motion: no-preference opt-in', () => {
+    expect(motionOutsideOptIn(PAGE_STYLES)).toEqual([]);
+    expect(PAGE_STYLES).not.toContain('prefers-reduced-motion: reduce');
+    const optIn = PAGE_STYLES.split(NO_PREFERENCE).slice(1).join('\n');
+    expect(optIn).toContain('transition: background 120ms');
+    expect(optIn).toContain('transform: translateY(1px)');
   });
 });
+
+const NO_PREFERENCE = '@media (prefers-reduced-motion: no-preference)';
+
+function motionOutsideOptIn(css: string): string[] {
+  const text = css.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
+  const stack: string[] = [];
+  const outside: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char !== '{' && char !== '}' && char !== ';') continue;
+    const chunk = text.slice(start, i).trim();
+    if (char === '{') stack.push(chunk);
+    else {
+      if (/^(?:animation|animation-name|transition|transform)\s*:/.test(chunk) && !stack.includes(NO_PREFERENCE)) {
+        outside.push(chunk);
+      }
+      if (char === '}') stack.pop();
+    }
+    start = i + 1;
+  }
+  return outside;
+}

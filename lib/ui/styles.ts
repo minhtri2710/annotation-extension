@@ -62,10 +62,6 @@ ${ANNOTATION_DARK_TOKENS}
   display: none;
 }
 
-[data-annotation-shell] [data-annotation-mount="panel"]:not(:empty) {
-  animation: annotation-panel-enter 160ms ease-out;
-}
-
 @keyframes annotation-panel-enter {
   from { opacity: 0; transform: translateY(0.5rem); }
   to { opacity: 1; transform: none; }
@@ -73,7 +69,6 @@ ${ANNOTATION_DARK_TOKENS}
 
 [data-annotation-shell] [data-annotation-badge] {
   font-weight: var(--annotation-font-weight-medium);
-  animation: annotation-badge-pop 150ms ease-out;
 }
 
 @keyframes annotation-badge-pop {
@@ -104,7 +99,6 @@ ${ANNOTATION_DARK_TOKENS}
   font-family: inherit;
   font-size: var(--annotation-font-size-caption);
   font-weight: var(--annotation-font-weight-bold);
-  transition: opacity 120ms ease-out;
 }
 
 [data-annotation-shell] .annotation-pin:hover {
@@ -135,7 +129,6 @@ ${ANNOTATION_DARK_TOKENS}
   font-size: var(--annotation-font-size-caption);
   line-height: 1.3;
   pointer-events: none;
-  animation: annotation-tooltip-fade-in 120ms ease-out;
 }
 
 @keyframes annotation-tooltip-fade-in {
@@ -148,37 +141,11 @@ ${ANNOTATION_DARK_TOKENS}
   50% { transform: translate(-50%, -50%) scale(1.18); }
 }
 
-[data-annotation-shell] .locate-pulse {
-  animation: locate-pulse 500ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-annotation-shell] .annotation-pin-tooltip,
-  [data-annotation-shell] .locate-pulse,
-  [data-annotation-shell] [data-annotation-mount="panel"],
-  [data-annotation-shell] [data-annotation-badge] {
-    animation: none;
-  }
-
-  [data-annotation-shell] [data-annotation-mount] button,
-  [data-annotation-shell] .annotation-pin {
-    transition: none;
-  }
-
-  [data-annotation-shell] [data-annotation-mount] button:active {
-    transform: none;
-  }
-}
-
 [data-annotation-shell] [data-annotation-mount] button,
 [data-annotation-shell] [data-annotation-mount] input,
 [data-annotation-shell] [data-annotation-mount] textarea,
 [data-annotation-shell] [data-annotation-mount] select {
   max-width: 100%;
-}
-
-[data-annotation-shell] [data-annotation-mount] button {
-  transition: color 120ms ease-out, background 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
 }
 
 [data-annotation-shell] [data-annotation-mount] button:hover {
@@ -191,7 +158,33 @@ ${ANNOTATION_DARK_TOKENS}
   outline-offset: 2px;
 }
 
-[data-annotation-shell] [data-annotation-mount] button:active {
-  transform: translateY(1px);
+@media (prefers-reduced-motion: no-preference) {
+  [data-annotation-shell] [data-annotation-mount="panel"]:not(:empty) {
+    animation: annotation-panel-enter 160ms ease-out;
+  }
+
+  [data-annotation-shell] [data-annotation-badge] {
+    animation: annotation-badge-pop 150ms ease-out;
+  }
+
+  [data-annotation-shell] .annotation-pin {
+    transition: opacity 120ms ease-out;
+  }
+
+  [data-annotation-shell] .annotation-pin-tooltip {
+    animation: annotation-tooltip-fade-in 120ms ease-out;
+  }
+
+  [data-annotation-shell] .locate-pulse {
+    animation: locate-pulse 500ms ease-out;
+  }
+
+  [data-annotation-shell] [data-annotation-mount] button {
+    transition: color 120ms ease-out, background 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
+  }
+
+  [data-annotation-shell] [data-annotation-mount] button:active {
+    transform: translateY(1px);
+  }
 }
 `;
