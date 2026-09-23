@@ -36,6 +36,15 @@ describe('devtools helpers', () => {
     );
   });
 
+  it('builds an inspect expression that walks open shadow roots', () => {
+    expect(buildInspectExpression('x-card >>> div > "b"')).toBe(
+      'inspect(document.querySelector("x-card")?.shadowRoot?.querySelector("div > \\"b\\""))',
+    );
+    expect(buildInspectExpression('a >>> b >>> #c')).toBe(
+      'inspect(document.querySelector("a")?.shadowRoot?.querySelector("b")?.shadowRoot?.querySelector("#c"))',
+    );
+  });
+
   it('maps annotations to note and selector rows', () => {
     expect(buildAnnotationRows([annotation('First note', '#first'), annotation('Second', '.second')])).toEqual([
       { note: 'First note', selector: '#first' },

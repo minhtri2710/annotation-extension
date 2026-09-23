@@ -3,7 +3,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
-import { createPinsController, RERESOLVE_DEBOUNCE_MS, RERESOLVE_MAX_WAIT_MS, resolveElement } from './pins';
+import { buildSelector } from '../capture/selector';
+import { createPinsController, RERESOLVE_DEBOUNCE_MS, RERESOLVE_MAX_WAIT_MS } from './pins';
 
 const pageUrl = 'https://example.com/article';
 const context: ElementContext = {
@@ -37,27 +38,6 @@ function setup() {
   const overlay = document.querySelector('#overlay') as HTMLDivElement;
   return { toolbar, overlay, target: document.querySelector('#target') as HTMLElement };
 }
-
-describe('resolveElement', () => {
-  it('resolves a valid selector', () => {
-    setup();
-
-    expect(resolveElement(document, '#target')).toBe(document.querySelector('#target'));
-  });
-
-  it('returns null for a missing element', () => {
-    setup();
-
-    expect(resolveElement(document, '#missing')).toBeNull();
-  });
-
-  it('returns null for an invalid selector without throwing', () => {
-    setup();
-
-    expect(() => resolveElement(document, '[')).not.toThrow();
-    expect(resolveElement(document, '[')).toBeNull();
-  });
-});
 
 describe('pins controller', () => {
   it('renders one marker for each annotation with a resolvable selector', () => {
@@ -178,6 +158,28 @@ describe('pins controller', () => {
     expect(marker.style.top).toBe('34px');
     expect(marker.style.width).toBe('18px');
     expect(marker.style.height).toBe('18px');
+    controller.destroy();
+  });
+
+  it('positions a pin for a shadow-deep annotation from the deep element rect', () => {
+    const { toolbar, overlay } = setup();
+    const host = document.createElement('x-card');
+    document.body.append(host);
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = '<span>a</span><span>b</span>';
+    const deep = root.querySelectorAll('span')[1] as HTMLElement;
+    vi.spyOn(deep, 'getBoundingClientRect').mockReturnValue({
+      x: 21, y: 43, left: 21, top: 43, right: 71, bottom: 93, width: 50, height: 50, toJSON: () => ({}),
+    });
+    const controller = createPinsController({ document, container: overlay, toolbar });
+
+    controller.setAnnotations([annotation('annotation-1', buildSelector(deep))]);
+    controller.reanchor();
+
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLElement;
+    expect(marker).not.toBeNull();
+    expect(marker.style.left).toBe('21px');
+    expect(marker.style.top).toBe('43px');
     controller.destroy();
   });
 

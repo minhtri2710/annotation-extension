@@ -1,9 +1,37 @@
-export function buildSelector(element: Element): string {
-  const document = element.ownerDocument;
+export const SHADOW_SELECTOR_DELIMITER = ' >>> ';
 
+// One CSS selector per root, outermost first: the first part resolves in the document and each later
+// part in the open shadowRoot of the element the previous part matched.
+export function buildSelector(element: Element): string {
+  const parts: string[] = [];
+  for (let current: Element | null = element; current; ) {
+    const root = current.getRootNode() as Document | ShadowRoot;
+    parts.unshift(buildScopedSelector(current, root));
+    current = root instanceof ShadowRoot ? root.host : null;
+  }
+  return parts.join(SHADOW_SELECTOR_DELIMITER);
+}
+
+export function resolveSelector(document: Document, selector: string): Element | null {
+  let root: Document | ShadowRoot | null = document;
+  let element: Element | null = null;
+  for (const part of selector.split(SHADOW_SELECTOR_DELIMITER)) {
+    if (!root || !part.trim()) return null;
+    try {
+      element = root.querySelector(part);
+    } catch {
+      return null;
+    }
+    if (!element) return null;
+    root = element.shadowRoot;
+  }
+  return element;
+}
+
+function buildScopedSelector(element: Element, root: Document | ShadowRoot): string {
   if (element.id) {
     const idSelector = `#${escapeCssIdentifier(element.id)}`;
-    if (document.querySelectorAll(idSelector).length === 1) return idSelector;
+    if (root.querySelectorAll(idSelector).length === 1) return idSelector;
   }
 
   const segments: string[] = [];
@@ -13,9 +41,11 @@ export function buildSelector(element: Element): string {
     const currentElement: Element = current;
     let segment = currentElement.localName;
     const parent: Element | null = currentElement.parentElement;
+    // A shadow root's top-level elements have no parentElement but still need sibling disambiguation.
+    const container = parent ?? (currentElement.parentNode === root ? root : null);
 
-    if (parent) {
-      const sameTagSiblings = Array.from(parent.children).filter(
+    if (container) {
+      const sameTagSiblings = Array.from(container.children).filter(
         (sibling: Element) => sibling.localName === currentElement.localName,
       );
       const position = sameTagSiblings.indexOf(currentElement) + 1;
@@ -26,7 +56,7 @@ export function buildSelector(element: Element): string {
 
     segments.unshift(segment);
     const selector = segments.join(' > ');
-    if (document.querySelector(selector) === element) return selector;
+    if (root.querySelector(selector) === element) return selector;
 
     current = parent;
   }

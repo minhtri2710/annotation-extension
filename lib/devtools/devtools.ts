@@ -1,4 +1,5 @@
 import type { Annotation } from '../annotation';
+import { SHADOW_SELECTOR_DELIMITER } from '../capture/selector';
 
 export interface AnnotationRow {
   note: string;
@@ -6,7 +7,11 @@ export interface AnnotationRow {
 }
 
 export function buildInspectExpression(selector: string): string {
-  return `inspect(document.querySelector(${JSON.stringify(selector)}))`;
+  const path = selector
+    .split(SHADOW_SELECTOR_DELIMITER)
+    .map((part) => `querySelector(${JSON.stringify(part)})`)
+    .join('?.shadowRoot?.');
+  return `inspect(document.${path})`;
 }
 
 export function buildAnnotationRows(annotations: Annotation[]): AnnotationRow[] {

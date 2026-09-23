@@ -148,27 +148,87 @@ describe('commit on pointerdown', () => {
 });
 
 describe('deep target', () => {
-  it('highlights, labels and commits the outermost light-DOM host for a pointer inside nested open shadow roots', () => {
+  function nested() {
     const outer = document.createElement('x-card');
     outer.id = 'card';
     const outerRoot = outer.attachShadow({ mode: 'open' });
     const inner = document.createElement('x-chip');
     outerRoot.append(inner);
     const innerRoot = inner.attachShadow({ mode: 'open' });
-    innerRoot.innerHTML = '<span id="deep" class="inner">deep</span>';
+    innerRoot.innerHTML = '<p id="para"><span id="deep" class="inner">deep</span></p>';
     document.body.append(outer);
-    const deep = innerRoot.querySelector('#deep')!;
+    return { outer, inner, para: innerRoot.querySelector('#para')!, deep: innerRoot.querySelector('#deep')! };
+  }
+
+  it('highlights, labels and commits the deep element for a pointer inside nested open shadow roots', () => {
+    const { outer, deep } = nested();
     stubRect(outer, 100);
     stubRect(deep, 300);
     controller.activate();
 
     pointer('pointermove', deep);
     expect(highlight().hidden).toBe(false);
-    expect(highlight().style.top).toBe('100px');
-    expect(label().textContent).toBe('x-card#card');
+    expect(highlight().style.top).toBe('300px');
+    expect(label().textContent).toBe('span#deep.inner');
 
     pointer('pointerdown', deep);
-    expect(selected.map((context) => context.id)).toEqual(['card']);
+    expect(selected.map((context) => context.id)).toEqual(['deep']);
+    expect(selected[0]!.selector).toBe('#card >>> x-chip >>> #deep');
+  });
+
+  it('ArrowUp crosses shadow boundaries to hosts and ArrowDown retraces back', () => {
+    const { outer, inner, para, deep } = nested();
+    for (const element of [outer, inner, para, deep]) stubRect(element, 100);
+    controller.activate();
+    pointer('pointermove', deep);
+
+    key('ArrowUp');
+    expect(label().textContent).toBe('p#para');
+    key('ArrowUp');
+    expect(label().textContent).toBe('x-chip');
+    key('ArrowUp');
+    expect(label().textContent).toBe('x-card#card');
+    key('ArrowUp');
+    expect(label().textContent).toBe('x-card#card');
+
+    key('ArrowDown');
+    expect(label().textContent).toBe('x-chip');
+    key('ArrowDown');
+    expect(label().textContent).toBe('p#para');
+    key('ArrowDown');
+    expect(label().textContent).toBe('span#deep.inner');
+    key('Enter');
+    expect(selected.map((context) => context.id)).toEqual(['deep']);
+  });
+
+  it('commits the host for a pointer inside a closed shadow root', () => {
+    const closedHost = document.createElement('x-sealed');
+    closedHost.id = 'sealed';
+    const root = closedHost.attachShadow({ mode: 'closed' });
+    root.innerHTML = '<span id="hidden">x</span>';
+    document.body.append(closedHost);
+    stubRect(closedHost, 100);
+    controller.activate();
+
+    // happy-dom does not retarget composedPath() at a closed root; a browser presents the host as
+    // composedPath()[0] to a document listener, so the event is dispatched at the host here.
+    pointer('pointermove', closedHost);
+    expect(label().textContent).toBe('x-sealed#sealed');
+    pointer('pointerdown', closedHost);
+    expect(selected.map((context) => context.id)).toEqual(['sealed']);
+  });
+
+  it('still never highlights or commits the extension UI', () => {
+    const button = document.createElement('button');
+    host.shadowRoot!.append(button);
+    stubRect(button, 100);
+    controller.activate();
+
+    pointer('pointermove', button);
+    expect(highlight().hidden).toBe(true);
+    pointer('pointerdown', button);
+    expect(selected).toEqual([]);
+    expect(controller.active).toBe(true);
   });
 });
 

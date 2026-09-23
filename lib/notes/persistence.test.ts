@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { createNotePanelPersistence } from './persistence';
+import { buildSelector } from '../capture/selector';
 
 const pageUrl = 'https://example.com/article';
 const elementContext: ElementContext = {
@@ -57,6 +58,27 @@ describe('note panel persistence css edits', () => {
     expect(element.style.getPropertyValue('color')).toBe('');
     expect(element.style.getPropertyValue('display')).toBe('');
     expect(element.style.getPropertyValue('background-color')).toBe('yellow');
+  });
+
+  it('applies and reverts css edits on a shadow-deep element', () => {
+    const host = document.createElement('x-card');
+    document.body.append(host);
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = '<div id="target"></div>';
+    const light = document.createElement('div');
+    light.id = 'target';
+    document.body.append(light);
+    const deep = root.querySelector('#target') as HTMLElement;
+    const existing = annotation('annotation-1', buildSelector(deep));
+    const persistence = createNotePanelPersistence();
+
+    const edits = persistence.applyCssEdits(existing, [{ property: 'color', value: 'red' }]);
+    expect(edits?.map((edit) => edit.property)).toEqual(['color']);
+    expect(deep.style.getPropertyValue('color')).toBe('red');
+    expect(light.style.getPropertyValue('color')).toBe('');
+
+    persistence.revertCssEdits(existing);
+    expect(deep.style.getPropertyValue('color')).toBe('');
   });
 
   it('reverts all tracked properties across annotations', () => {

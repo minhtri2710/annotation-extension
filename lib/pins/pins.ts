@@ -1,4 +1,5 @@
 import type { Annotation } from '../annotation';
+import { resolveSelector } from '../capture/selector';
 
 export interface PinsController {
   setAnnotations(annotations: Annotation[]): void;
@@ -172,7 +173,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   }
 
   function track(annotation: Annotation, index: number): void {
-    const element = resolveElement(options.document, annotation.selector);
+    const element = resolveSelector(options.document, annotation.selector);
     if (!element) {
       unresolved.push({ annotation, index });
       return;
@@ -265,12 +266,4 @@ function truncateNote(note: string): string {
   return note.length > NOTE_PREVIEW_LENGTH
     ? `${note.slice(0, NOTE_PREVIEW_LENGTH)}…`
     : note;
-}
-
-export function resolveElement(document: Document, selector: string): Element | null {
-  try {
-    return document.querySelector(selector);
-  } catch {
-    return null;
-  }
 }

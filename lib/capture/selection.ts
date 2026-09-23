@@ -213,19 +213,16 @@ function swallow(event: Event) {
   event.stopImmediatePropagation();
 }
 
-// Highlight and commit the light-DOM element: selectors are document-scoped, so a target inside an
-// open shadow root resolves to its outermost host (shadow-aware selectors: backlog qa7b-shadow-select).
+// composedPath()[0] is the deepest element the page can see: inside open shadow roots it is the
+// deep target; a closed root retargets it to the host.
 function resolveTarget(event: MouseEvent, document: Document): Element | null {
   const deep = event.composedPath()[0];
-  let element = deep instanceof Element ? deep : document.elementFromPoint(event.clientX, event.clientY);
-  for (let root = element?.getRootNode(); element && root instanceof ShadowRoot; root = element.getRootNode()) {
-    element = root.host;
-  }
-  return element;
+  return deep instanceof Element ? deep : document.elementFromPoint(event.clientX, event.clientY);
 }
 
 function parentOf(element: Element, document: Document): Element | null {
-  const parent = element.parentElement;
+  const root = element.getRootNode();
+  const parent = element.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
   if (!parent || parent === document.documentElement || parent === document.body) return null;
   return parent;
 }

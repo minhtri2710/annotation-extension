@@ -5,6 +5,7 @@ import { sendScreenshotCapture, sendBlobRead } from '../screenshot/messages';
 import type { AttachmentMetadata } from '../annotation';
 import { sendAttachmentAdd, sendAttachmentDelete } from '../attachments/messages';
 import type { ElementContext } from '../capture/context';
+import { resolveSelector } from '../capture/selector';
 
 export interface NotePanelPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
@@ -22,7 +23,7 @@ async function captureScreenshot(
   annotation: Annotation,
   context: ElementContext,
 ): Promise<Annotation['screenshot'] | undefined> {
-  const element = document.querySelector(annotation.selector);
+  const element = resolveSelector(document, annotation.selector);
   if (!element) return undefined;
 
   const rect = element.getBoundingClientRect();
@@ -43,7 +44,7 @@ function createCssEditRegistry() {
   const applied = new Map<string, AppliedCssEdits>();
 
   function applyCssEdits(annotation: Annotation, declarations: CssDeclaration[]): CssEdit[] | undefined {
-    const element = document.querySelector(annotation.selector);
+    const element = resolveSelector(document, annotation.selector);
     if (!element) return undefined;
 
     const target = element as HTMLElement;
@@ -80,7 +81,7 @@ function createCssEditRegistry() {
   }
 
   function revertCssEdits(annotation: Annotation): void {
-    if (!document.querySelector(annotation.selector)) return;
+    if (!resolveSelector(document, annotation.selector)) return;
     const tracked = applied.get(annotation.id);
     if (!tracked) return;
 
