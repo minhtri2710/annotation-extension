@@ -48,6 +48,7 @@ const LABEL_STYLE = [
 // Upper bound for a committed gesture's trailing events (pointerup/mouseup/click) when no click ever arrives.
 const GESTURE_TIMEOUT_MS = 1000;
 const GESTURE_EVENTS = ['mousedown', 'pointerup', 'mouseup', 'click'] as const;
+const KEYBOARD_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter']);
 
 export function createCaptureController(options: CaptureControllerOptions): CaptureController {
   const bus = options.bus ?? createEventBus<CaptureEvents>();
@@ -102,25 +103,71 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
       deactivate();
       return;
     }
-    if (!hoveredElement) return;
+    if (!KEYBOARD_KEYS.has(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    // The first key with nothing highlighted only sets the starting point.
+    if (!hoveredElement) {
+      moveTo(startElement());
+      return;
+    }
 
     if (event.key === 'ArrowUp') {
       const parent = parentOf(hoveredElement, options.document);
-      if (parent && !isExtensionElement(parent, options.shadowHost)) {
+      if (parent && isSelectable(parent)) {
         retrace.push(hoveredElement);
-        setHoveredElement(parent);
+        moveTo(parent);
       }
     } else if (event.key === 'ArrowDown') {
-      const previous = retrace.pop();
-      if (previous) setHoveredElement(previous);
-    } else if (event.key === 'Enter') {
-      commit(hoveredElement);
+      moveTo(retrace.pop() ?? hoveredElement.firstElementChild);
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const sibling = siblingOf(hoveredElement, event.key === 'ArrowRight');
+      if (sibling) {
+        retrace = [];
+        moveTo(sibling);
+      }
     } else {
-      return;
+      commit(hoveredElement);
     }
-    event.preventDefault();
-    event.stopPropagation();
   };
+
+  function startElement(): Element | null {
+    const view = options.document.defaultView;
+    const x = (view?.innerWidth ?? 0) / 2;
+    const y = (view?.innerHeight ?? 0) / 2;
+    let element = options.document.elementsFromPoint(x, y).find((hit) => !isExtensionElement(hit, options.shadowHost));
+    while (element?.shadowRoot) {
+      const inner = element.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === element) break;
+      element = inner;
+    }
+    if (element && isSelectable(element)) return element;
+    return [...options.document.body.children].find(isSelectable) ?? null;
+  }
+
+  function siblingOf(element: Element, next: boolean): Element | null {
+    let sibling = next ? element.nextElementSibling : element.previousElementSibling;
+    while (sibling && !isSelectable(sibling)) sibling = next ? sibling.nextElementSibling : sibling.previousElementSibling;
+    return sibling;
+  }
+
+  function isSelectable(element: Element): boolean {
+    const document = options.document;
+    return (
+      element !== document.documentElement &&
+      element !== document.head &&
+      element !== document.body &&
+      !isExtensionElement(element, options.shadowHost)
+    );
+  }
+
+  // A keyboard move with no target is a no-op.
+  function moveTo(element: Element | null | undefined) {
+    if (!element || !isSelectable(element)) return;
+    const reduce = options.document.defaultView?.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    element.scrollIntoView(reduce ? { block: 'nearest', behavior: 'instant' } : { block: 'nearest' });
+    setHoveredElement(element);
+  }
 
   function commit(element: Element) {
     const context = extractElementContext(element);

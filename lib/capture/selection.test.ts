@@ -319,7 +319,7 @@ describe('keyboard navigation', () => {
     pointer('pointermove', outer);
 
     key('ArrowDown');
-    expect(label().textContent).toBe('main#outer.wrap');
+    expect(label().textContent).toBe('section#mid');
   });
 
   it('Escape still deactivates', () => {
@@ -328,10 +328,150 @@ describe('keyboard navigation', () => {
     expect(controller.active).toBe(false);
     expect(selected).toEqual([]);
   });
+});
 
-  it('leaves keys alone when nothing is highlighted', () => {
+describe('keyboard-only capture', () => {
+  let pointHits: Element[];
+  let scrolled: Array<{ element: Element; options: unknown }>;
+
+  beforeEach(() => {
+    document.body.insertAdjacentHTML('afterbegin', '<p id="first">a</p>');
+    document.querySelector('#outer')!.insertAdjacentHTML('beforeend', '<aside id="side">b</aside>');
+    for (const element of document.querySelectorAll('*')) stubRect(element, 100);
+    pointHits = [];
+    scrolled = [];
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: vi.fn(() => pointHits),
+    });
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element, options) {
+      scrolled.push({ element: this, options });
+    });
+  });
+
+  afterEach(() => {
+    delete (document as { elementsFromPoint?: unknown }).elementsFromPoint;
+  });
+
+  it('Enter with nothing highlighted only highlights the start point and never commits', () => {
     controller.activate();
-    expect(key('Enter').defaultPrevented).toBe(false);
+    expect(key('Enter').defaultPrevented).toBe(true);
     expect(selected).toEqual([]);
+    expect(controller.active).toBe(true);
+    expect(label().textContent).toBe('p#first');
+  });
+
+  it('starts at the element under the viewport centre, skipping the extension host', () => {
+    const mid = document.querySelector('#mid')!;
+    pointHits = [host, mid, document.body, document.documentElement];
+    controller.activate();
+
+    expect(key('ArrowUp').defaultPrevented).toBe(true);
+    expect(document.elementsFromPoint).toHaveBeenCalledWith(window.innerWidth / 2, window.innerHeight / 2);
+    expect(label().textContent).toBe('section#mid');
+    expect(highlight().hidden).toBe(false);
+  });
+
+  it('resolves the viewport centre into open shadow roots', () => {
+    const card = document.createElement('x-card');
+    const root = card.attachShadow({ mode: 'open' });
+    root.innerHTML = '<span id="inside">x</span>';
+    document.body.append(card);
+    const inside = root.querySelector('#inside')!;
+    stubRect(card, 100);
+    stubRect(inside, 100);
+    Object.defineProperty(root, 'elementFromPoint', { configurable: true, value: () => inside });
+    pointHits = [card];
+    controller.activate();
+
+    key('ArrowDown');
+    expect(label().textContent).toBe('span#inside');
+  });
+
+  it('falls back to the first element child of body when the centre hits nothing selectable', () => {
+    pointHits = [host, document.body, document.documentElement];
+    controller.activate();
+
+    key('ArrowRight');
+    expect(label().textContent).toBe('p#first');
+  });
+
+  it('ArrowDown goes to the first child, ArrowLeft and ArrowRight walk siblings and clear the retrace', () => {
+    pointHits = [document.querySelector('#outer')!];
+    controller.activate();
+    key('ArrowLeft');
+    expect(label().textContent).toBe('main#outer.wrap');
+
+    key('ArrowDown');
+    expect(label().textContent).toBe('section#mid');
+    key('ArrowRight');
+    expect(label().textContent).toBe('aside#side');
+    expect(key('ArrowRight').defaultPrevented).toBe(true);
+    expect(label().textContent).toBe('aside#side');
+    key('ArrowLeft');
+    expect(label().textContent).toBe('section#mid');
+    key('ArrowLeft');
+    expect(label().textContent).toBe('section#mid');
+
+    key('ArrowRight');
+    key('ArrowUp');
+    key('ArrowLeft');
+    expect(label().textContent).toBe('p#first');
+    key('ArrowRight');
+    expect(label().textContent).toBe('main#outer.wrap');
+    key('ArrowDown');
+    expect(label().textContent).toBe('section#mid');
+    key('ArrowDown');
+    expect(label().textContent).toBe('button#target.primary.big');
+    key('ArrowDown');
+    expect(label().textContent).toBe('button#target.primary.big');
+  });
+
+  it('never moves onto the extension host or into its shadow root', () => {
+    host.shadowRoot!.append(document.createElement('button'));
+    pointHits = [document.querySelector('#outer')!];
+    controller.activate();
+    key('ArrowDown');
+
+    key('ArrowRight');
+    expect(label().textContent).toBe('main#outer.wrap');
+    key('ArrowRight');
+    expect(label().textContent).toBe('main#outer.wrap');
+    key('ArrowUp');
+    expect(label().textContent).toBe('main#outer.wrap');
+    expect(highlight().hidden).toBe(false);
+  });
+
+  it('scrolls each keyboard move into view, instantly under reduced motion', () => {
+    const target = document.querySelector('#target')!;
+    pointHits = [target];
+    controller.activate();
+    key('ArrowDown');
+    expect(scrolled).toEqual([{ element: target, options: { block: 'nearest' } }]);
+
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query) => ({ matches: query === '(prefers-reduced-motion: reduce)' }) as MediaQueryList,
+    );
+    key('ArrowUp');
+    expect(scrolled[1]).toEqual({ element: document.querySelector('#mid'), options: { block: 'nearest', behavior: 'instant' } });
+  });
+
+  it('a keyboard-only flow from activation to Enter commits the chosen element', () => {
+    pointHits = [document.querySelector('#mid')!];
+    controller.activate();
+
+    key('ArrowDown');
+    key('ArrowDown');
+    expect(key('Enter').defaultPrevented).toBe(true);
+    expect(selected.map((context) => context.id)).toEqual(['target']);
+    expect(controller.active).toBe(false);
+  });
+
+  it('a pointer move after keyboard use takes over', () => {
+    pointHits = [document.querySelector('#mid')!];
+    controller.activate();
+    key('ArrowDown');
+    pointer('pointermove', document.querySelector('#first')!);
+    expect(label().textContent).toBe('p#first');
   });
 });
