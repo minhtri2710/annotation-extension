@@ -4,6 +4,7 @@ import { revealSweep } from '../../scan-panel/reveal-sweep';
 import { colorRules } from './color';
 import { imageryRules } from './imagery';
 import { hiddenAtRestRules } from './hidden-at-rest';
+import { ALL_RULES } from './index';
 import { liveStateRules } from './live-state';
 import { motionRules } from './motion';
 import { visualDetailsRules } from './visual-details';
@@ -154,17 +155,33 @@ describe('text-occlusion on floating labels in a real browser', () => {
     '<div class="field"><input id="dest"><label for="dest">Destination</label></div>',
   );
 
+  const hitTestable = (html: string) => html.replace('</style>', '.field label{pointer-events:auto}</style>');
+
+  async function expectUnchecked(win: Window, count: number) {
+    expect(await findings(win, liveStateRules, 'text-occlusion')).toEqual([]);
+    const unchecked = await findings(win, liveStateRules, 'text-occlusion-unchecked');
+    expect(unchecked).toHaveLength(1);
+    expect(unchecked[0]!.el).toBeUndefined();
+    expect(unchecked[0]!.detail).toBe(`${count} text element${count === 1 ? '' : 's'} with pointer-events:none ${count === 1 ? 'was' : 'were'} not checked for occlusion`);
+  }
+
   it('skips a pointer-events:none label painted above its input', async () => {
     const win = await load(field(''));
-    expect(await findings(win, liveStateRules, 'text-occlusion')).toEqual([]);
+    await expectUnchecked(win, 1);
+    frame!.remove();
+    const auto = await load(hitTestable(field('')));
+    expect(await findings(auto, liveStateRules, 'text-occlusion')).toEqual([]);
+    expect(await findings(auto, liveStateRules, 'text-occlusion-unchecked')).toEqual([]);
   });
 
   it('still flags the same label when the input paints over it', async () => {
-    const win = await load(field(';position:relative;z-index:1;background:#fff'));
+    const win = await load(hitTestable(field(';position:relative;z-index:1;background:#fff')));
     const hits = await findings(win, liveStateRules, 'text-occlusion');
     expect(hits).toHaveLength(1);
     expect(hits[0]!.el).toBe(win.document.querySelector('label'));
     expect(hits[0]!.detail).toContain('covered by an opaque element (input)');
+    frame!.remove();
+    await expectUnchecked(await load(field(';position:relative;z-index:1;background:#fff')), 1);
   });
 
   const covers: Array<[string, string, string, string]> = [
@@ -194,17 +211,17 @@ describe('text-occlusion on floating labels in a real browser', () => {
       const truthLabel = truthWin.document.querySelector('label')!;
       const rect = truthLabel.getBoundingClientRect();
       const covered = truthWin.document.elementFromPoint(rect.left + 5, rect.top + rect.height / 2) !== truthLabel;
-      frame!.remove();
-
-      const win = await load(html(''));
-      const hits = await findings(win, liveStateRules, 'text-occlusion');
+      const hits = await findings(truthWin, liveStateRules, 'text-occlusion');
       if (covered) {
         expect(hits).toHaveLength(1);
-        expect(hits[0]!.el).toBe(win.document.querySelector('label'));
+        expect(hits[0]!.el).toBe(truthLabel);
         expect(hits[0]!.detail).toContain('covered by an opaque element (input)');
       } else {
         expect(hits).toEqual([]);
       }
+      frame!.remove();
+
+      await expectUnchecked(await load(html('')), 1);
     },
   );
 
@@ -224,17 +241,17 @@ describe('text-occlusion on floating labels in a real browser', () => {
     expect(coverRect.left <= rect.left && coverRect.right >= rect.right && coverRect.top <= rect.top && coverRect.bottom >= rect.bottom).toBe(true);
     const covered = truthWin.document.elementFromPoint(rect.left + 5, rect.top + rect.height / 2) !== truthLabel;
     if (expected !== undefined) expect(covered).toBe(expected);
-    frame!.remove();
-
-    const win = await load(html(''));
-    const hits = await findings(win, liveStateRules, 'text-occlusion');
+    const hits = await findings(truthWin, liveStateRules, 'text-occlusion');
     if (covered) {
       expect(hits).toHaveLength(1);
-      expect(hits[0]!.el).toBe(win.document.querySelector('label'));
+      expect(hits[0]!.el).toBe(truthLabel);
       expect(hits[0]!.detail).toContain('covered by an opaque element (div.cover)');
     } else {
       expect(hits).toEqual([]);
     }
+    frame!.remove();
+
+    await expectUnchecked(await load(html('')), 1);
   }
 
   it('reports a z-indexed dropdown in a z-auto positioned wrapper painted over a later label', async () => {
@@ -272,6 +289,34 @@ describe('text-occlusion on floating labels in a real browser', () => {
       await expectOccludedExactlyWhenPainted(outside(`.field label{z-index:${z}}`, after ? outsideField + coverHtml : coverHtml + outsideField));
     },
   );
+
+  const triggers = ['clip-path:inset(0)', 'mask-image:linear-gradient(#000,#000)', '-webkit-mask-image:linear-gradient(#000,#000)', 'content-visibility:auto', 'view-transition-name:x'];
+  const triggerRows = triggers.flatMap((trigger) => [
+    [`a ${trigger} cover before the field`, `<div class="cover" style="margin-bottom:-60px;${trigger}"></div>${outsideField}`],
+    [`a ${trigger} cover after the field`, `${outsideField}<div class="cover" style="margin-top:-56px;${trigger}"></div>`],
+  ]).concat([
+    ['a z-indexed dropdown in a will-change:z-index wrapper before the field', `<div style="will-change:z-index;height:0"><div class="cover" style="position:absolute;z-index:1000"></div></div>${outsideField}`],
+    ['a z-indexed dropdown in a will-change:z-index wrapper after the field', `${outsideField}<div style="will-change:z-index;height:0;margin-top:-56px"><div class="cover" style="position:absolute;z-index:1000"></div></div>`],
+    ['a z-2 grid item under a display:contents parent after a z-1 field item', `<div style="display:grid"><div style="grid-area:1/1;z-index:1">${outsideField}</div><div style="display:contents"><div class="cover" style="grid-area:1/1;z-index:2"></div></div></div>`],
+    ['a z-2 grid item under a display:contents parent before a z-1 field item', `<div style="display:grid"><div style="display:contents"><div class="cover" style="grid-area:1/1;z-index:2"></div></div><div style="grid-area:1/1;z-index:1">${outsideField}</div></div>`],
+  ]);
+
+  it.each(triggerRows)('reports the label exactly when the browser paints %s over it', async (_name, body) => {
+    await expectOccludedExactlyWhenPainted(outside('', body));
+  });
+
+  it('never writes to the page during a full scan', async () => {
+    const covered = `${outsideField}<div class="cover" style="position:relative;margin-top:-56px"></div>`.replace('<label for="dest">', '<label for="dest" style="pointer-events:auto">');
+    const win = await load(outside('', `${outsideField}<div style="height:40px"></div>${covered}`)(''));
+    const observer = new MutationObserver(() => undefined);
+    observer.observe(win.document.documentElement, { subtree: true, attributes: true, childList: true, characterData: true });
+    const all = await collectFindings([...ALL_RULES], createScanContext(win), new AbortController().signal);
+    const records = observer.takeRecords();
+    observer.disconnect();
+    expect(records).toEqual([]);
+    expect(all.filter((finding) => finding.ruleId === 'text-occlusion').map((finding) => finding.el)).toEqual([win.document.querySelectorAll('label')[1]]);
+    expect(all.filter((finding) => finding.ruleId === 'text-occlusion-unchecked').map((finding) => finding.detail)).toEqual(['1 text element with pointer-events:none was not checked for occlusion']);
+  });
 });
 
 describe('first-viewport-column-overflow on sidebar layouts at tablet width in a real browser', () => {

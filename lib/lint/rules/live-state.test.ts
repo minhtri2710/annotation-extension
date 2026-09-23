@@ -58,14 +58,22 @@ function first<T>(values: T[]): T {
   return values[0]!;
 }
 
-beforeEach(resetDocument);
-afterEach(() => vi.restoreAllMocks());
+// happy-dom has no elementsFromPoint; an empty stack means no point is hit.
+beforeEach(() => {
+  resetDocument();
+  Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: (): Element[] => [] });
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(document, 'elementsFromPoint');
+});
 
 describe('live-state lint rules through the real engine', () => {
-  it('exports the six rules in registry order with faithful metadata', () => {
+  it('exports the seven rules in registry order with faithful metadata', () => {
     expect(liveStateRules.map((rule) => rule.id)).toEqual([
       'edge-flush-cards',
       'text-occlusion',
+      'text-occlusion-unchecked',
       'first-viewport-column-overflow',
       'text-overflow',
       'repeated-container-text',
@@ -103,7 +111,13 @@ describe('live-state lint rules through the real engine', () => {
       name: 'Positioned child clipped by overflow container',
       scope: 'element',
     });
-    expect(liveStateRules.every((rule) => rule.severity === undefined)).toBe(true);
+    expect(liveStateRules.find((rule) => rule.id === 'text-occlusion-unchecked')).toMatchObject({
+      category: 'quality',
+      severity: 'advisory',
+      name: 'Text not checked for occlusion',
+      scope: 'page',
+    });
+    expect(liveStateRules.filter((rule) => rule.id !== 'text-occlusion-unchecked').every((rule) => rule.severity === undefined)).toBe(true);
   });
 
   it('detects edge-flush cards and accepts the 8px right-gap boundary', async () => {
@@ -138,7 +152,8 @@ describe('live-state lint rules through the real engine', () => {
     const cover = document.querySelector('.cover')!;
     stubRect(headline, { left: 100, top: 100, width: 240, height: 28 });
     stubRect(cover, { left: 100, top: 100, width: 240, height: 28 });
-    const point = vi.spyOn(document, 'elementFromPoint').mockImplementation(() => cover);
+    const point = vi.fn((_x: number, _y: number) => [cover, headline]);
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: point });
     const positive = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'text-occlusion',
     );
@@ -148,12 +163,33 @@ describe('live-state lint rules through the real engine', () => {
       detail: 'div.headline "Readable headline" is 100% covered by an opaque element (div.cover)',
     });
 
-    point.mockImplementation((x) => x < 150 ? cover : headline);
+    point.mockImplementation((x) => x < 150 ? [cover, headline] : [headline, cover]);
     const negative = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'text-occlusion',
     );
     expect(negative).toHaveLength(0);
-    point.mockRestore();
+  });
+
+  it('counts pointer-events:none text as unchecked for occlusion in one page-level advisory hit', async () => {
+    const point = vi.fn((_x: number, _y: number): Element[] => []);
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: point });
+    const labels = (pointerEvents: string) => ['one', 'two', 'three'].map((name) => `<div class="${name}" style="pointer-events: ${pointerEvents}">Floating label ${name}</div>`).join('');
+    const place = () => document.querySelectorAll('div').forEach((el, i) => stubRect(el, { left: 100, top: 100 + i * 40, width: 240, height: 28 }));
+
+    document.body.innerHTML = labels('auto');
+    place();
+    const none = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'text-occlusion-unchecked');
+    expect(none).toEqual([]);
+    expect(point).toHaveBeenCalled();
+
+    point.mockClear();
+    document.body.innerHTML = labels('none');
+    place();
+    const several = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'text-occlusion-unchecked');
+    expect(several).toHaveLength(1);
+    expect(first(several)).toMatchObject({ severity: 'advisory', advisory: true, category: 'quality', detail: '3 text elements with pointer-events:none were not checked for occlusion' });
+    expect(first(several).el).toBeUndefined();
+    expect(point).not.toHaveBeenCalled();
   });
 
   it('detects a first-viewport column running past the fold and accepts 140% height', async () => {

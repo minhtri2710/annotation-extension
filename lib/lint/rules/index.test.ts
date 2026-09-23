@@ -12,7 +12,7 @@ import { typographyStructureRules } from './typography-structure';
 import { visualDetailsRules } from './visual-details';
 
 describe('rule registry', () => {
-  it('registers all 55 rules of the nine packs in pack order with unique ids', () => {
+  it('registers all 56 rules of the nine packs in pack order with unique ids', () => {
     const packs = [
       typographySizeRules,
       typographyStructureRules,
@@ -24,19 +24,19 @@ describe('rule registry', () => {
       imageryRules,
       copyRules,
     ];
-    expect(ALL_RULES).toHaveLength(55);
-    expect(new Set(ALL_RULES.map((rule) => rule.id)).size).toBe(55);
+    expect(ALL_RULES).toHaveLength(56);
+    expect(new Set(ALL_RULES.map((rule) => rule.id)).size).toBe(56);
     expect(ALL_RULES).toEqual(packs.flat());
     for (const pack of packs) for (const rule of pack) expect(ALL_RULES).toContain(rule);
   });
 
   it('keeps the deep-scan rule out of ALL_RULES and registers it alone in DEEP_SCAN_RULES', () => {
-    expect(ALL_RULES).toHaveLength(55);
+    expect(ALL_RULES).toHaveLength(56);
     expect(ALL_RULES.map((rule) => rule.id)).not.toContain('content-hidden-at-rest');
     expect(DEEP_SCAN_RULES).toHaveLength(1);
     expect(DEEP_SCAN_RULES).toEqual(hiddenAtRestRules);
     expect(DEEP_SCAN_RULES[0]?.id).toBe('content-hidden-at-rest');
     const ids = [...ALL_RULES, ...DEEP_SCAN_RULES].map((rule) => rule.id);
-    expect(new Set(ids).size).toBe(56);
+    expect(new Set(ids).size).toBe(57);
   });
 });

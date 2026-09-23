@@ -433,87 +433,34 @@ async function textElementsForOcclusion(ctx: ScanContext, checkpoint: Checkpoint
   return textElements;
 }
 
-function isPositioned(ctx: ScanContext, el: Element): boolean {
-  return (styleValue(ctx, el, 'position').toLowerCase() || 'static') !== 'static';
+async function occlusionVictims(ctx: ScanContext, checkpoint: Checkpoint): Promise<Array<{ el: Element; rect: DOMRect; text: string }>> {
+  return (await textElementsForOcclusion(ctx, checkpoint)).filter((victim) => !isScreenReaderOnly(ctx, victim.el));
 }
 
-const STACKING_WILL_CHANGE = new Set(['position', 'transform', 'translate', 'rotate', 'scale', 'filter', 'perspective', 'backdrop-filter', 'opacity', 'isolation', 'mix-blend-mode', 'contain', 'z-index']);
-const STACKING_CONTAIN = new Set(['paint', 'layout', 'strict', 'content']);
-
-// z-index applies to a positioned element or a flex or grid item.
-function zIndexApplies(ctx: ScanContext, el: Element): boolean {
-  if (isPositioned(ctx, el)) return true;
-  const parentDisplay = el.parentElement ? styleValue(ctx, el.parentElement, 'display').toLowerCase() : '';
-  return /\b(?:flex|grid)\b/.test(parentDisplay);
+// Hit testing skips a pointer-events:none element, so its occlusion cannot be read off the page.
+function isHitTestable(ctx: ScanContext, el: Element): boolean {
+  return styleValue(ctx, el, 'pointer-events') !== 'none';
 }
 
-// A positioned element with z-index auto does not create a stacking context; its z-indexed
-// descendants compete in the enclosing one.
-function formsStackingContext(ctx: ScanContext, el: Element): boolean {
-  const value = (property: string) => styleValue(ctx, el, property).toLowerCase();
-  if ((value('z-index') || 'auto') !== 'auto' && zIndexApplies(ctx, el)) return true;
-  if (value('position') === 'fixed' || value('position') === 'sticky') return true;
-  if (['transform', 'translate', 'rotate', 'scale', 'filter', 'perspective', 'backdrop-filter'].some((property) => (value(property) || 'none') !== 'none')) return true;
-  if (numberValue(value('opacity'), 1) < 1 || value('isolation') === 'isolate') return true;
-  if ((value('mix-blend-mode') || 'normal') !== 'normal') return true;
-  return value('contain').split(/\s+/).some((keyword) => STACKING_CONTAIN.has(keyword))
-    || value('will-change').split(',').some((ident) => STACKING_WILL_CHANGE.has(ident.trim()));
-}
-
-// The flow layer sits below every z 0 layer and above every negative z.
-const FLOW_LAYER_KEY = -0.5;
-
-// Walking down from the child of ancestor that holds el, the participant is the first element
-// that creates a stacking context, keyed by its z-index (auto or not applying counts as 0).
-// Without one, the first positioned element paints at z 0, else the side paints in the flow layer.
-function participantBelow(ctx: ScanContext, el: Element, ancestor: Element): { participant: Element; key: number } {
-  const path: Element[] = [];
-  for (let current: Element | null = el; current && current !== ancestor; current = current.parentElement) path.unshift(current);
-  const stacking = path.find((current) => formsStackingContext(ctx, current));
-  if (stacking) return { participant: stacking, key: zIndexApplies(ctx, stacking) ? numberValue(styleValue(ctx, stacking, 'z-index'), 0) : 0 };
-  const positioned = path.find((current) => isPositioned(ctx, current));
-  return positioned ? { participant: positioned, key: 0 } : { participant: path[0]!, key: FLOW_LAYER_KEY };
-}
-
-// Hit testing skips pointer-events:none, so such a victim never shows in the stack. Within the
-// stacking context of the common ancestor, the side with the higher key paints above; equal keys
-// of 0 or more paint in tree order of the participants.
-function paintsAbove(ctx: ScanContext, victim: Element, candidate: Element): boolean {
-  if (styleValue(ctx, victim, 'pointer-events') !== 'none') return false;
-  let positioned = false;
-  for (let current: Element | null = victim; current && current !== ctx.doc.body; current = current.parentElement) {
-    if (!isPositioned(ctx, current)) continue;
-    positioned = true;
-    if (numberValue(styleValue(ctx, current, 'z-index'), 0) < 0) return false;
-  }
-  if (!positioned) return false;
-  let common = victim.parentElement;
-  while (common && !common.contains(candidate)) common = common.parentElement;
-  if (!common) return false;
-  const victimSide = participantBelow(ctx, victim, common);
-  const candidateSide = participantBelow(ctx, candidate, common);
-  if (victimSide.key !== candidateSide.key) return victimSide.key > candidateSide.key;
-  return victimSide.key >= 0 && (candidateSide.participant.compareDocumentPosition(victimSide.participant) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-}
-
-// The topmost element over the point, or undefined when the victim, its descendant or its
-// ancestor is on top or the victim paints above it.
+// The topmost element painted above the victim at the point that is not its descendant or
+// ancestor, or undefined when the victim is not hit there or nothing else is above it.
 function occluderAt(ctx: ScanContext, victim: Element, x: number, y: number): Element | undefined {
-  const top = ctx.doc.elementFromPoint(x, y);
-  if (!top || top === victim || victim.contains(top) || top.contains(victim)) return undefined;
-  return paintsAbove(ctx, victim, top) ? undefined : top;
+  const stack = ctx.doc.elementsFromPoint(x, y);
+  const index = stack.findIndex((el) => victim.contains(el));
+  if (index < 0) return undefined;
+  return stack.slice(0, index).find((el) => !el.contains(victim));
 }
 
 async function textOcclusion(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const findings: PageHit[] = [];
   const seenVictims = new Set<Element>();
-  const textElements = await textElementsForOcclusion(ctx, checkpoint);
+  const textElements = (await occlusionVictims(ctx, checkpoint)).filter((victim) => isHitTestable(ctx, victim.el));
   const viewportWidth = ctx.innerWidth || 1280;
   const viewportHeight = ctx.innerHeight || 800;
 
   for (const victim of textElements) {
     await checkpoint();
-    if (seenVictims.has(victim.el) || isScreenReaderOnly(ctx, victim.el)) continue;
+    if (seenVictims.has(victim.el)) continue;
     const cols = Math.max(OCCLUSION_MIN_GRID_COLUMNS, Math.min(OCCLUSION_MAX_GRID_COLUMNS, Math.round(victim.rect.width / OCCLUSION_GRID_COLUMN_DIVISOR)));
     const rows = Math.max(OCCLUSION_MIN_GRID_ROWS, Math.min(OCCLUSION_MAX_GRID_ROWS, Math.round(victim.rect.height / OCCLUSION_GRID_ROW_DIVISOR)));
     let total = 0;
@@ -863,6 +810,12 @@ function clippedOverflowContainer(el: Element, ctx: ScanContext): RuleHit[] {
   return [];
 }
 
+async function textOcclusionUnchecked(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
+  const count = (await occlusionVictims(ctx, checkpoint)).filter((victim) => !isHitTestable(ctx, victim.el)).length;
+  if (count === 0) return [];
+  return [{ detail: `${count} text element${count === 1 ? '' : 's'} with pointer-events:none ${count === 1 ? 'was' : 'were'} not checked for occlusion` }];
+}
+
 const edgeFlushCardsRule: PageRule = {
   id: 'edge-flush-cards',
   category: 'quality',
@@ -879,6 +832,16 @@ const textOcclusionRule: PageRule = {
   description: 'Text is painted under an opaque element or a second text run, so part of it cannot be read. A decorative box, a stacked layer, or an inline element with leaked padding lands on the words instead of beside them. Give overlapping layers room, or move the text out from under the layer above it.',
   scope: 'page',
   test: textOcclusion,
+};
+
+const textOcclusionUncheckedRule: PageRule = {
+  id: 'text-occlusion-unchecked',
+  category: 'quality',
+  severity: 'advisory',
+  name: 'Text not checked for occlusion',
+  description: 'Text with pointer-events:none is skipped by hit testing, so the scan cannot tell whether another element paints over it. Floating form labels are the usual case. Check these by eye.',
+  scope: 'page',
+  test: textOcclusionUnchecked,
 };
 
 const firstViewportColumnOverflowRule: PageRule = {
@@ -920,6 +883,7 @@ const clippedOverflowContainerRule: ElementRule = {
 export const liveStateRules: Rule[] = [
   edgeFlushCardsRule,
   textOcclusionRule,
+  textOcclusionUncheckedRule,
   firstViewportColumnOverflowRule,
   textOverflowRule,
   repeatedContainerTextRule,
