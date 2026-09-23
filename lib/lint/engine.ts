@@ -133,19 +133,18 @@ export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: A
     }
     if (sliceDue()) await yieldSlice();
   }
-  const pageFindings: Finding[] = [];
   for (const rule of pageRules) {
     await checkpoint();
     for (const hit of await rule.test(ctx, checkpoint)) {
-      pageFindings.push(toFinding(rule, hit, hit.el));
+      findings.push(toFinding(rule, hit, hit.el));
     }
   }
-  // Page rules iterate arrays captured before a yield; drop hits on elements the page removed meanwhile.
-  findings.push(...pageFindings.filter((finding) => !finding.el || finding.el.isConnected));
 
   const disabledRules = new Set(ctx.config.disabledRules ?? []);
   const disabledValues = ctx.config.disabledValues ?? [];
   return findings.filter((finding) => {
+    // Hits were collected across yields; drop those on elements the page removed meanwhile.
+    if (finding.el && !finding.el.isConnected) return false;
     if (disabledRules.has(finding.ruleId)) return false;
     return !disabledValues.some(
       (waiver) => waiver.rule === finding.ruleId && waiver.value === finding.ignoreValue,

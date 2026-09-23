@@ -335,6 +335,27 @@ describe('lint engine', () => {
     expect(findings[0]?.el).toBe(kept);
   });
 
+  it('drops an element-phase hit whose element is removed before the scan finishes', async () => {
+    document.body.innerHTML = '<p id="kept"></p><p id="removed"></p>';
+    const kept = document.getElementById('kept')!;
+    const removed = document.getElementById('removed')!;
+    const flag: Rule = {
+      id: 'flag', scope: 'element', category: 'quality', name: 'flag', description: 'flag',
+      test: (el) => (el.tagName === 'P' ? [{ detail: el.id }] : []),
+    };
+    const remover: Rule = {
+      id: 'remover', scope: 'page', category: 'quality', name: 'remover', description: 'remover',
+      test: async () => {
+        removed.remove();
+        return [{ detail: 'page' }];
+      },
+    };
+
+    const findings = await collectFindings([flag, remover], createScanContext(window), new AbortController().signal);
+
+    expect(findings.map((f) => [f.detail, f.el])).toEqual([['kept', kept], ['page', undefined]]);
+  });
+
   it('runs last on the real setTimeout after earlier tests spied on a fake one', async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }, 1000);
