@@ -4,18 +4,18 @@ import { describe, expect, it } from 'vitest';
 import { collectFindings, createScanContext } from '../engine';
 import { typographySizeRules } from './typography-size';
 
-function scan(markup: string) {
+async function scan(markup: string) {
   document.body.innerHTML = markup;
-  return collectFindings(typographySizeRules, createScanContext(window));
+  return await collectFindings(typographySizeRules, createScanContext(window), new AbortController().signal);
 }
 
-function expectFinding(markup: string, ruleId: string, detail: string): void {
-  const finding = scan(markup).find((candidate) => candidate.ruleId === ruleId);
+async function expectFinding(markup: string, ruleId: string, detail: string): Promise<void> {
+  const finding = (await scan(markup)).find((candidate) => candidate.ruleId === ruleId);
   expect(finding).toMatchObject({ ruleId, detail });
 }
 
-function expectNoFinding(markup: string, ruleId: string): void {
-  expect(scan(markup).some((finding) => finding.ruleId === ruleId)).toBe(false);
+async function expectNoFinding(markup: string, ruleId: string): Promise<void> {
+  expect((await scan(markup)).some((finding) => finding.ruleId === ruleId)).toBe(false);
 }
 
 describe('typography-size lint rules', () => {
@@ -72,95 +72,95 @@ describe('typography-size lint rules', () => {
     });
   });
 
-  it('detects tiny body text but accepts the 12px boundary', () => {
-    expectFinding(
+  it('detects tiny body text but accepts the 12px boundary', async () => {
+    await expectFinding(
       '<p style="font-size: 10px">This is small body copy text.</p>',
       'tiny-text',
       '10px body text',
     );
-    expectNoFinding(
+    await expectNoFinding(
       '<p style="font-size: 12px">This is readable body copy text.</p>',
       'tiny-text',
     );
   });
 
-  it('detects undersized UI text but accepts the 11px boundary', () => {
-    expectFinding(
+  it('detects undersized UI text but accepts the 11px boundary', async () => {
+    await expectFinding(
       '<span style="font-size: 9px">Meta 12:00</span>',
       'undersized-ui-text',
       '9px functional text "Meta 12:00" (below 11px floor)',
     );
-    expectNoFinding('<span style="font-size: 11px">Meta 12:00</span>', 'undersized-ui-text');
+    await expectNoFinding('<span style="font-size: 11px">Meta 12:00</span>', 'undersized-ui-text');
   });
 
-  it('detects long all-caps body text but accepts 30 characters', () => {
-    expectFinding(
+  it('detects long all-caps body text but accepts 30 characters', async () => {
+    await expectFinding(
       `<p style="text-transform: uppercase">${'A'.repeat(31)}</p>`,
       'all-caps-body',
       'text-transform: uppercase on 31 chars of body text',
     );
-    expectNoFinding(`<p style="text-transform: uppercase">${'A'.repeat(30)}</p>`, 'all-caps-body');
+    await expectNoFinding(`<p style="text-transform: uppercase">${'A'.repeat(30)}</p>`, 'all-caps-body');
   });
 
-  it('detects wide tracking but accepts exactly 0.05em', () => {
-    expectFinding(
+  it('detects wide tracking but accepts exactly 0.05em', async () => {
+    await expectFinding(
       '<p style="font-size: 16px; letter-spacing: 2px">This body copy has wide tracking.</p>',
       'wide-tracking',
       'letter-spacing: 0.13em on body text',
     );
-    expectNoFinding(
+    await expectNoFinding(
       '<p style="font-size: 16px; letter-spacing: 0.8px">This body copy has normal tracking.</p>',
       'wide-tracking',
     );
   });
 
-  it('detects extreme negative tracking at -0.05em and below only', () => {
+  it('detects extreme negative tracking at -0.05em and below only', async () => {
     const text = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    expectFinding(
+    await expectFinding(
       `<p style="font-size: 16px; letter-spacing: -0.8px">${text}</p>`,
       'extreme-negative-tracking',
       'letter-spacing: -0.05em — "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"',
     );
-    expectNoFinding(
+    await expectNoFinding(
       `<p style="font-size: 16px; letter-spacing: -0.64px">${text}</p>`,
       'extreme-negative-tracking',
     );
   });
 
-  it('detects tight leading below 1.3 and accepts exactly 1.3', () => {
+  it('detects tight leading below 1.3 and accepts exactly 1.3', async () => {
     const text = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    expectFinding(
+    await expectFinding(
       `<p style="font-size: 16px; line-height: 20.64px">${text}</p>`,
       'tight-leading',
       'line-height 1.29x (need >=1.3)',
     );
-    expectNoFinding(
+    await expectNoFinding(
       `<p style="font-size: 16px; line-height: 20.8px">${text}</p>`,
       'tight-leading',
     );
   });
 
-  it('detects unjustified text without hyphenation but accepts hyphens:auto', () => {
+  it('detects unjustified text without hyphenation but accepts hyphens:auto', async () => {
     const text = 'This paragraph is long enough to carry a direct text quality signal.';
-    expectFinding(
+    await expectFinding(
       `<p style="text-align: justify; hyphens: manual">${text}</p>`,
       'justified-text',
       'text-align: justify without hyphens: auto',
     );
-    expectNoFinding(
+    await expectNoFinding(
       `<p style="text-align: justify; hyphens: auto">${text}</p>`,
       'justified-text',
     );
   });
 
-  it('detects a long h1 at the 72px display threshold and accepts 71px', () => {
+  it('detects a long h1 at the 72px display threshold and accepts 71px', async () => {
     const headline = 'This is a full sentence headline that dominates the viewport';
-    expectFinding(
+    await expectFinding(
       `<h1 style="font-size: 72px">${headline}</h1>`,
       'oversized-h1',
       `72px h1, ${headline.length} chars "${headline}"`,
     );
-    expectNoFinding(
+    await expectNoFinding(
       `<h1 style="font-size: 71px">${headline}</h1>`,
       'oversized-h1',
     );

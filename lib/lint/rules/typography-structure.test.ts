@@ -8,16 +8,16 @@ function resetDocument(): void {
   document.documentElement.innerHTML = '<head></head><body></body>';
 }
 
-function scan(config: Parameters<typeof createScanContext>[1] = {}) {
-  return collectFindings(typographyStructureRules, createScanContext(window, config));
+async function scan(config: Parameters<typeof createScanContext>[1] = {}) {
+  return await collectFindings(typographyStructureRules, createScanContext(window, config), new AbortController().signal);
 }
 
-function ruleFindings(ruleId: string, config: Parameters<typeof createScanContext>[1] = {}) {
-  return scan(config).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(ruleId: string, config: Parameters<typeof createScanContext>[1] = {}) {
+  return (await scan(config)).filter((finding) => finding.ruleId === ruleId);
 }
 
-function firstRuleFinding(ruleId: string, config: Parameters<typeof createScanContext>[1] = {}) {
-  return ruleFindings(ruleId, config)[0];
+async function firstRuleFinding(ruleId: string, config: Parameters<typeof createScanContext>[1] = {}) {
+  return (await ruleFindings(ruleId, config))[0];
 }
 
 beforeEach(resetDocument);
@@ -99,11 +99,11 @@ describe('typography-structure lint rules through the real engine', () => {
     });
   });
 
-  it('flags a uniquely dominant overused font and accepts a page below the 20-element floor', () => {
+  it('flags a uniquely dominant overused font and accepts a page below the 20-element floor', async () => {
     document.body.innerHTML = Array.from({ length: 20 }, (_, index) =>
       `<p style="font-family: Inter, sans-serif">Text ${index}</p>`,
     ).join('');
-    expect(firstRuleFinding('overused-font')).toMatchObject({
+    expect(await firstRuleFinding('overused-font')).toMatchObject({
       ruleId: 'overused-font',
       detail: 'Primary font: inter (100% of text)',
     });
@@ -111,16 +111,16 @@ describe('typography-structure lint rules through the real engine', () => {
     document.body.innerHTML = Array.from({ length: 19 }, (_, index) =>
       `<p style="font-family: Inter, sans-serif">Text ${index}</p>`,
     ).join('');
-    expect(ruleFindings('overused-font')).toHaveLength(0);
+    expect(await ruleFindings('overused-font')).toHaveLength(0);
   });
 
-  it('flags a flat hierarchy below the 1.25 ratio and accepts a clear adjacent step', () => {
+  it('flags a flat hierarchy below the 1.25 ratio and accepts a clear adjacent step', async () => {
     document.body.innerHTML = `
       <p style="font-size: 16px">Body</p>
       <h2 style="font-size: 17px">Section</h2>
       <h1 style="font-size: 18px">Title</h1>
     `;
-    expect(firstRuleFinding('flat-type-hierarchy')).toMatchObject({
+    expect(await firstRuleFinding('flat-type-hierarchy')).toMatchObject({
       ruleId: 'flat-type-hierarchy',
       detail: 'Role sizes: body 16px, h2 17px, h1 18px (largest adjacent step 1.06:1; target 1.25:1)',
     });
@@ -130,26 +130,26 @@ describe('typography-structure lint rules through the real engine', () => {
       <h2 style="font-size: 24px">Section</h2>
       <h1 style="font-size: 40px">Title</h1>
     `;
-    expect(ruleFindings('flat-type-hierarchy')).toHaveLength(0);
+    expect(await ruleFindings('flat-type-hierarchy')).toHaveLength(0);
   });
 
-  it('flags an h1 to h3 gap and accepts an h1 to h2 sequence', () => {
+  it('flags an h1 to h3 gap and accepts an h1 to h2 sequence', async () => {
     document.body.innerHTML = '<h1>Title here</h1><h3>Subsection</h3>';
-    expect(firstRuleFinding('skipped-heading')).toMatchObject({
+    expect(await firstRuleFinding('skipped-heading')).toMatchObject({
       ruleId: 'skipped-heading',
       detail: '<h1> "Title here" followed by <h3> "Subsection" (missing h2)',
     });
 
     document.body.innerHTML = '<h1>Title here</h1><h2>Subsection</h2>';
-    expect(ruleFindings('skipped-heading')).toHaveLength(0);
+    expect(await ruleFindings('skipped-heading')).toHaveLength(0);
   });
 
-  it('flags a rounded icon tile above a heading and accepts a pill-shaped tile', () => {
+  it('flags a rounded icon tile above a heading and accepts a pill-shaped tile', async () => {
     document.body.innerHTML = `
       <div id="tile" style="width: 64px; height: 64px; background-color: rgb(245, 245, 245); border-radius: 12px"><svg style="width: 24px; height: 24px"></svg></div>
       <h2 style="font-size: 24px">Feature heading</h2>
     `;
-    expect(firstRuleFinding('icon-tile-stack')).toMatchObject({
+    expect(await firstRuleFinding('icon-tile-stack')).toMatchObject({
       ruleId: 'icon-tile-stack',
       detail: '64x64px icon tile above h2 "Feature heading"',
     });
@@ -158,53 +158,53 @@ describe('typography-structure lint rules through the real engine', () => {
       'style',
       'width: 64px; height: 64px; background-color: rgb(245, 245, 245); border-radius: 32px',
     );
-    expect(ruleFindings('icon-tile-stack')).toHaveLength(0);
+    expect(await ruleFindings('icon-tile-stack')).toHaveLength(0);
   });
 
-  it('flags an italic serif display headline and accepts the 47px boundary', () => {
+  it('flags an italic serif display headline and accepts the 47px boundary', async () => {
     document.body.innerHTML = '<h1 style="font: italic 48px Georgia">Editorial headline</h1>';
-    expect(firstRuleFinding('italic-serif-display')).toMatchObject({
+    expect(await firstRuleFinding('italic-serif-display')).toMatchObject({
       ruleId: 'italic-serif-display',
       detail: 'italic serif h1 (georgia) at 48px "Editorial headline"',
     });
 
     document.body.innerHTML = '<h1 style="font: italic 47px Georgia">Editorial headline</h1>';
-    expect(ruleFindings('italic-serif-display')).toHaveLength(0);
+    expect(await ruleFindings('italic-serif-display')).toHaveLength(0);
   });
 
-  it('flags a tracked uppercase hero eyebrow and accepts tracking below 1.6px', () => {
+  it('flags a tracked uppercase hero eyebrow and accepts tracking below 1.6px', async () => {
     document.body.innerHTML = `
       <p style="font-size: 12px; letter-spacing: 2px; text-transform: uppercase">Our studio</p>
       <h1 style="font-size: 48px">A considered headline</h1>
     `;
-    expect(firstRuleFinding('hero-eyebrow-chip')).toMatchObject({
+    expect(await firstRuleFinding('hero-eyebrow-chip')).toMatchObject({
       ruleId: 'hero-eyebrow-chip',
       detail: 'eyebrow chip (tracked-caps) "Our studio" above h1 "A considered headline"',
     });
 
     document.querySelector('p')!.style.letterSpacing = '1.5px';
-    expect(ruleFindings('hero-eyebrow-chip')).toHaveLength(0);
+    expect(await ruleFindings('hero-eyebrow-chip')).toHaveLength(0);
   });
 
-  it('flags a tracked uppercase kicker above a heading and accepts the 0.06em boundary', () => {
+  it('flags a tracked uppercase kicker above a heading and accepts the 0.06em boundary', async () => {
     document.body.innerHTML = `
       <p style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase">Features</p>
       <h2 style="font-size: 32px">Everything you need</h2>
     `;
-    expect(firstRuleFinding('kicker-above-heading')).toMatchObject({
+    expect(await firstRuleFinding('kicker-above-heading')).toMatchObject({
       ruleId: 'kicker-above-heading',
       detail: 'kicker "Features" above h2 "Everything you need"',
     });
 
     document.querySelector('p')!.style.letterSpacing = '0.71px';
-    expect(ruleFindings('kicker-above-heading')).toHaveLength(0);
+    expect(await ruleFindings('kicker-above-heading')).toHaveLength(0);
   });
 
-  it('keeps design-system font inert without config and flags an undeclared family with config', () => {
+  it('keeps design-system font inert without config and flags an undeclared family with config', async () => {
     document.body.innerHTML = '<p style="font-family: Arial, sans-serif">Target</p>';
-    expect(ruleFindings('design-system-font')).toHaveLength(0);
+    expect(await ruleFindings('design-system-font')).toHaveLength(0);
 
-    const finding = firstRuleFinding('design-system-font', {
+    const finding = await firstRuleFinding('design-system-font', {
       designSystem: { fontFamilies: ['Inter'] },
     });
     expect(finding).toMatchObject({
@@ -214,11 +214,11 @@ describe('typography-structure lint rules through the real engine', () => {
     });
   });
 
-  it('keeps design-system font size inert without config and flags an off-scale size with config', () => {
+  it('keeps design-system font size inert without config and flags an off-scale size with config', async () => {
     document.body.innerHTML = '<p style="font-size: 18px">Target</p>';
-    expect(ruleFindings('design-system-font-size')).toHaveLength(0);
+    expect(await ruleFindings('design-system-font-size')).toHaveLength(0);
 
-    const finding = firstRuleFinding('design-system-font-size', {
+    const finding = await firstRuleFinding('design-system-font-size', {
       designSystem: { fontSizes: [16, 24] },
     });
     expect(finding).toMatchObject({

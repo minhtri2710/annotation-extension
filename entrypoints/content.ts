@@ -59,7 +59,7 @@ export default defineContentScript({
         notePanel = createNotePanel(shell.panel);
         let annotationList = createAnnotationList(shell.panel, url);
         const activeScanPanel = createScanPanel(shell.panel, {
-          scan: () => scanPage(window, shadowHost),
+          scan: (signal) => scanPage(window, shadowHost, signal),
           deepScan: (signal) => deepScanPage(window, shadowHost, signal),
           onUpdate: () => {
             if (panelMode === 'scan') anchorPanel(shell.toolbar.getBoundingClientRect());

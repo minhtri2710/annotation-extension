@@ -9,18 +9,18 @@ function resetDocument(): void {
   document.documentElement.innerHTML = '<head></head><body></body>';
 }
 
-function scan(markup: string, style = '', config = {}) {
+async function scan(markup: string, style = '', config = {}) {
   document.body.innerHTML = markup;
   if (style) {
     const sheet = document.createElement('style');
     sheet.textContent = style;
     document.head.appendChild(sheet);
   }
-  return collectFindings(layoutSpaceRules, createScanContext(window, config));
+  return await collectFindings(layoutSpaceRules, createScanContext(window, config), new AbortController().signal);
 }
 
-function ruleFindings(markup: string, ruleId: string, style = '', config = {}) {
-  return scan(markup, style, config).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(markup: string, ruleId: string, style = '', config = {}) {
+  return (await scan(markup, style, config)).filter((finding) => finding.ruleId === ruleId);
 }
 
 function first<T>(values: T[]): T {
@@ -162,28 +162,28 @@ describe('layout and space lint rules through the real engine', () => {
     expect(layoutSpaceRules.find((rule) => rule.id === 'body-text-viewport-edge')).not.toHaveProperty('skillSection');
   });
 
-  it('detects nested cards and accepts a card-sized non-card boundary', () => {
+  it('detects nested cards and accepts a card-sized non-card boundary', async () => {
     document.body.innerHTML = '<div id="outer" class="border rounded" style="background-color: white"><div id="inner" class="border rounded" style="background-color: white">Inner card content</div></div>';
     const outer = document.querySelector('#outer')!;
     const inner = document.querySelector('#inner')!;
     vi.spyOn(outer, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 400, 240));
     vi.spyOn(inner, 'getBoundingClientRect').mockReturnValue(rect(24, 24, 300, 160));
-    const positive = collectFindings(layoutSpaceRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'nested-cards',
     );
     expect(positive).toHaveLength(1);
     expect(first(positive)).toMatchObject({ ruleId: 'nested-cards', detail: 'Card inside card', el: inner });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div id="negative" class="border rounded" style="background-color: white">A single card only</div>',
       'nested-cards',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('detects monotonous spacing only above the strict 60 percent boundary', () => {
+  it('detects monotonous spacing only above the strict 60 percent boundary', async () => {
     const positiveStyle = '.a{padding:16px;margin:16px;gap:16px;padding-top:16px;margin-left:16px;padding-right:16px;margin-bottom:16px;padding-left:8px;margin-top:12px;margin-right:8px;}';
-    const positive = ruleFindings('<div class="a"></div>', 'monotonous-spacing', positiveStyle);
+    const positive = await ruleFindings('<div class="a"></div>', 'monotonous-spacing', positiveStyle);
     expect(positive).toHaveLength(1);
     expect(first(positive)).toMatchObject({
       ruleId: 'monotonous-spacing',
@@ -191,12 +191,12 @@ describe('layout and space lint rules through the real engine', () => {
     });
 
     const negativeStyle = '.a{padding:16px;margin:16px;gap:16px;padding-top:16px;margin-left:16px;padding-right:16px;padding-left:8px;margin-top:12px;margin-right:20px;margin-bottom:24px;}';
-    const negative = ruleFindings('<div class="a"></div>', 'monotonous-spacing', negativeStyle);
+    const negative = await ruleFindings('<div class="a"></div>', 'monotonous-spacing', negativeStyle);
     expect(negative).toHaveLength(0);
   });
 
-  it('detects repeated numbered labels and rejects a single near-threshold candidate', () => {
-    const positive = ruleFindings(
+  it('detects repeated numbered labels and rejects a single near-threshold candidate', async () => {
+    const positive = await ruleFindings(
       '<section><span style="font-size:11px;letter-spacing:1px;font-weight:700;font-family:monospace">01</span><h2 style="font-size:28px">First section</h2></section><section><span style="font-size:11px;letter-spacing:1px;font-weight:700;font-family:monospace">02</span><h2 style="font-size:28px">Second section</h2></section>',
       'numbered-section-labels',
     );
@@ -208,14 +208,14 @@ describe('layout and space lint rules through the real engine', () => {
     });
     expect(positive[1]).toMatchObject({ detail: 'tiny numbered label "02" beside h2 "Second section" (2 on page)' });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<section><span style="font-size:13.01px;letter-spacing:1px;font-weight:700;font-family:monospace">01</span><h2 style="font-size:28px">Only section</h2></section>',
       'numbered-section-labels',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('charges rendered long lines, merges fragments, and stands down at one long line', () => {
+  it('charges rendered long lines, merges fragments, and stands down at one long line', async () => {
     document.body.innerHTML = `<p id="positive">${'w'.repeat(300)}</p><p id="negative">${'q'.repeat(190)}</p>`;
     vi.spyOn(document.querySelector('#positive')!, 'getBoundingClientRect').mockReturnValue(rect(0, 100, 1000, 72));
     vi.spyOn(document.querySelector('#negative')!, 'getBoundingClientRect').mockReturnValue(rect(0, 300, 1000, 48));
@@ -234,7 +234,7 @@ describe('layout and space lint rules through the real engine', () => {
       }
       return domRectList([rect(0, 300, 1000, 19), rect(0, 324, 120, 19)]);
     });
-    const findings = collectFindings(layoutSpaceRules, createScanContext(window));
+    const findings = await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal);
     const positive = findings.filter((finding) => finding.ruleId === 'line-length');
     expect(positive).toHaveLength(1);
     expect(first(positive)).toMatchObject({
@@ -248,11 +248,11 @@ describe('layout and space lint rules through the real engine', () => {
     vi.spyOn(Range.prototype, 'getClientRects').mockImplementation(function getClientRects(this: Range) {
       return domRectList([rect(200, 974, 995.4, 18), rect(200, 998, 85.5, 18)]);
     });
-    const renderedNotBox = ruleFindings(`<p id="box">${'x'.repeat(158)}</p>`, 'line-length');
+    const renderedNotBox = await ruleFindings(`<p id="box">${'x'.repeat(158)}</p>`, 'line-length');
     expect(renderedNotBox).toHaveLength(0);
   });
 
-  it('merges line fragments, keeps same-row columns separate, and stands down without line geometry', () => {
+  it('merges line fragments, keeps same-row columns separate, and stands down without line geometry', async () => {
     document.body.innerHTML = `<p id="columns">${'x'.repeat(240)}</p>`;
     vi.spyOn(document.querySelector('#columns')!, 'getBoundingClientRect').mockReturnValue(rect(0, 100, 1000, 72));
     vi.spyOn(Range.prototype, 'getClientRects').mockImplementation(function getClientRects(this: Range) {
@@ -262,24 +262,24 @@ describe('layout and space lint rules through the real engine', () => {
         rect(0, 148, 350, 19), rect(650, 148, 350, 19),
       ]);
     });
-    expect(collectFindings(layoutSpaceRules, createScanContext(window)).filter((finding) => finding.ruleId === 'line-length')).toHaveLength(0);
+    expect((await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'line-length')).toHaveLength(0);
 
     document.body.innerHTML = `<p id="missing">${'x'.repeat(300)}</p>`;
     vi.spyOn(document.querySelector('#missing')!, 'getBoundingClientRect').mockReturnValue(rect(0, 100, 1000, 72));
     vi.spyOn(Range.prototype, 'getClientRects').mockImplementation(function getClientRects(this: Range) {
       return domRectList([]);
     });
-    expect(collectFindings(layoutSpaceRules, createScanContext(window)).filter((finding) => finding.ruleId === 'line-length')).toHaveLength(0);
+    expect((await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'line-length')).toHaveLength(0);
 
     document.body.innerHTML = `<p id="leading" style="line-height:10px">${'x'.repeat(300)}</p>`;
     vi.spyOn(document.querySelector('#leading')!, 'getBoundingClientRect').mockReturnValue(rect(0, 100, 1000, 19));
     vi.spyOn(Range.prototype, 'getClientRects').mockImplementation(function getClientRects(this: Range) {
       return domRectList([rect(0, 100, 1000, 19)]);
     });
-    expect(collectFindings(layoutSpaceRules, createScanContext(window)).filter((finding) => finding.ruleId === 'line-length')).toHaveLength(0);
+    expect((await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'line-length')).toHaveLength(0);
   });
 
-  it('detects child text flush against a bordered wrapper and accepts an inset child', () => {
+  it('detects child text flush against a bordered wrapper and accepts an inset child', async () => {
     document.body.innerHTML = '<section id="positive" class="frame" style="position:static;border:1px solid black;padding:28px 0 0"><p id="positive-child" style="margin:0">Wrapper text content</p></section>';
     const positiveFrame = document.querySelector('#positive')!;
     const positiveChild = document.querySelector('#positive-child')!;
@@ -290,7 +290,7 @@ describe('layout and space lint rules through the real engine', () => {
         ? domRectList([rect(0, 28, 400, 20)])
         : domRectList([]);
     });
-    const positive = collectFindings(layoutSpaceRules, createScanContext(window)).filter((finding) => finding.ruleId === 'cramped-padding');
+    const positive = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'cramped-padding');
     expect(positive).toHaveLength(1);
     expect(first(positive)).toMatchObject({
       ruleId: 'cramped-padding',
@@ -308,10 +308,10 @@ describe('layout and space lint rules through the real engine', () => {
         ? domRectList([rect(8, 28, 384, 20)])
         : domRectList([]);
     });
-    expect(collectFindings(layoutSpaceRules, createScanContext(window)).filter((finding) => finding.ruleId === 'cramped-padding')).toHaveLength(0);
+    expect((await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'cramped-padding')).toHaveLength(0);
   });
 
-  it('recovers the outline boundary from the shorthand when outline-width reads zero', () => {
+  it('recovers the outline boundary from the shorthand when outline-width reads zero', async () => {
     document.body.innerHTML = '<section id="frame" class="outline-frame" style="position:static"><p id="child" style="margin:0;padding:0">Wrapper text content</p></section>';
     const frame = document.querySelector('#frame')!;
     const child = document.querySelector('#child')!;
@@ -352,7 +352,7 @@ describe('layout and space lint rules through the real engine', () => {
         'font-size': '16px',
       }],
     ]);
-    const findings = collectFindings(layoutSpaceRules, createScanContext(window)).filter(
+    const findings = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'cramped-padding',
     );
     expect(findings).toHaveLength(1);
@@ -363,7 +363,7 @@ describe('layout and space lint rules through the real engine', () => {
     });
   });
 
-  it('reports only the first class token in the cramped-padding wrapper detail', () => {
+  it('reports only the first class token in the cramped-padding wrapper detail', async () => {
     document.body.innerHTML = '<section id="frame" class="card featured" style="position:static;border:1px solid black;padding:28px 0 0"><p id="child" style="margin:0">Wrapper text content</p></section>';
     const frame = document.querySelector('#frame')!;
     const child = document.querySelector('#child')!;
@@ -374,7 +374,7 @@ describe('layout and space lint rules through the real engine', () => {
         ? domRectList([rect(0, 28, 400, 20)])
         : domRectList([]);
     });
-    const findings = collectFindings(layoutSpaceRules, createScanContext(window)).filter(
+    const findings = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'cramped-padding',
     );
     expect(findings).toHaveLength(1);
@@ -382,7 +382,7 @@ describe('layout and space lint rules through the real engine', () => {
     expect(first(findings).detail).not.toContain('"card featured"');
   });
 
-  it('detects cramped rendered text and accepts the exact safe vertical threshold', () => {
+  it('detects cramped rendered text and accepts the exact safe vertical threshold', async () => {
     document.body.innerHTML = `<div id="positive" style="width:300px;height:60px;background-color:rgb(240,240,240);border:1px solid black;font-size:16px">${'word '.repeat(10)}</div><div id="negative" style="width:300px;height:60px;background-color:rgb(240,240,240);border:1px solid black;font-size:16px">${'word '.repeat(10)}</div>`;
     vi.spyOn(Range.prototype, 'getClientRects').mockImplementation(function getClientRects(this: Range) {
       const element = this.startContainer.parentElement!;
@@ -390,7 +390,7 @@ describe('layout and space lint rules through the real engine', () => {
     });
     vi.spyOn(document.querySelector('#positive')!, 'getBoundingClientRect').mockReturnValue(rect(40, 100, 300, 60));
     vi.spyOn(document.querySelector('#negative')!, 'getBoundingClientRect').mockReturnValue(rect(40, 100, 300, 60));
-    const findings = collectFindings(layoutSpaceRules, createScanContext(window)).filter(
+    const findings = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'cramped-padding',
     );
     expect(findings).toHaveLength(1);
@@ -402,14 +402,14 @@ describe('layout and space lint rules through the real engine', () => {
     expect(findings.some((finding) => finding.el?.id === 'negative')).toBe(false);
   });
 
-  it('detects body text at the viewport edge and accepts a 16px gutter', () => {
-    const positive = ruleFindings(
+  it('detects body text at the viewport edge and accepts a 16px gutter', async () => {
+    const positive = await ruleFindings(
       `<p id="positive" style="background-color:transparent;position:static">${'Body copy '.repeat(7)}</p>`,
       'body-text-viewport-edge',
     );
     const positiveElement = document.querySelector('#positive')!;
     vi.spyOn(positiveElement, 'getBoundingClientRect').mockReturnValue(rect(0, 100, 900, 80));
-    const rescannedPositive = collectFindings(layoutSpaceRules, createScanContext(window)).filter(
+    const rescannedPositive = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'body-text-viewport-edge',
     );
     expect(rescannedPositive).toHaveLength(1);
@@ -421,13 +421,13 @@ describe('layout and space lint rules through the real engine', () => {
 
     document.body.innerHTML = `<p id="negative" style="background-color:transparent;position:static">${'Body copy '.repeat(7)}</p>`;
     vi.spyOn(document.querySelector('#negative')!, 'getBoundingClientRect').mockReturnValue(rect(16, 100, 900, 80));
-    const negative = collectFindings(layoutSpaceRules, createScanContext(window)).filter(
+    const negative = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'body-text-viewport-edge',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('detects two heading-rhythm violations and rejects a deficit below 12px', () => {
+  it('detects two heading-rhythm violations and rejects a deficit below 12px', async () => {
     document.body.innerHTML = `
       <div id="before1">${'Previous block '.repeat(7)}</div><h2 id="h1">First section</h2><div id="after1">First content</div>
       <div id="before2">${'Previous block '.repeat(7)}</div><h2 id="h2">Second section</h2><div id="after2">Second content</div>`;
@@ -438,7 +438,7 @@ describe('layout and space lint rules through the real engine', () => {
     for (const [id, value] of Object.entries(positions)) {
       vi.spyOn(document.querySelector(`#${id}`)!, 'getBoundingClientRect').mockReturnValue(value);
     }
-    const positive = collectFindings(layoutSpaceRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'heading-rhythm',
     );
     expect(positive).toHaveLength(2);
@@ -458,7 +458,7 @@ describe('layout and space lint rules through the real engine', () => {
     for (const [id, value] of Object.entries(near)) {
       vi.spyOn(document.querySelector(`#${id}`)!, 'getBoundingClientRect').mockReturnValue(value);
     }
-    const negative = collectFindings(layoutSpaceRules, createScanContext(window)).filter(
+    const negative = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'heading-rhythm',
     );
     expect(negative).toHaveLength(0);

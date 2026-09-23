@@ -13,8 +13,9 @@ function finding(ruleId: string, name: string, severity: Severity, detail: strin
 }
 
 type DeepScan = (signal: AbortSignal) => Promise<Finding[]>;
+type Scan = (signal: AbortSignal) => Promise<Finding[]>;
 
-function setup(scan: () => Finding[], deepScan: DeepScan = () => new Promise<Finding[]>(() => {})) {
+function setup(scan: Scan, deepScan: DeepScan = () => new Promise<Finding[]>(() => {})) {
   const panel = document.createElement('div');
   const highlightRoot = document.createElement('div');
   document.body.append(panel, highlightRoot);
@@ -55,7 +56,7 @@ afterEach(() => {
 });
 
 describe('scanPage', () => {
-  it('drops findings on the host and its descendants and keeps the rest', () => {
+  it('drops findings on the host and its descendants and keeps the rest', async () => {
     const host = document.createElement('div');
     host.id = 'host';
     const child = document.createElement('span');
@@ -68,7 +69,7 @@ describe('scanPage', () => {
       id: 'stub', category: 'quality', name: 'Stub', description: 'Hits every element', scope: 'element',
       test: (el) => [{ detail: el.id }],
     };
-    const hit = scanPage(window, host, [everything]).map((f) => f.el);
+    const hit = (await scanPage(window, host, new AbortController().signal, [everything])).map((f) => f.el);
     expect(hit).not.toContain(host);
     expect(hit).not.toContain(child);
     expect(hit).toContain(other);
@@ -79,7 +80,7 @@ describe('scanPage', () => {
 describe('scan panel', () => {
   it('shows a scanning status and yields a macrotask before scanning', async () => {
     vi.useFakeTimers();
-    const scan = vi.fn(() => [] as Finding[]);
+    const scan = vi.fn(async () => [] as Finding[]);
     const { panel, scanPanel } = setup(scan);
     const done = scanPanel.render();
     expect(panel.querySelector('h2')?.textContent).toBe('Design scan');
@@ -95,7 +96,7 @@ describe('scan panel', () => {
 
   it('cancels a stale render on clear() or a newer render()', async () => {
     vi.useFakeTimers();
-    const scan = vi.fn(() => [finding('a', 'A', 'error', 'x')]);
+    const scan = vi.fn(async () => [finding('a', 'A', 'error', 'x')]);
     const { panel, scanPanel } = setup(scan);
     const stale = scanPanel.render();
     scanPanel.clear();
@@ -112,9 +113,45 @@ describe('scan panel', () => {
     expect(panel.querySelectorAll('[data-annotation-scan-summary]')).toHaveLength(1);
   });
 
+  it('keeps Scanning… while the scan runs; clear() aborts its signal and nothing late renders', async () => {
+    vi.useFakeTimers();
+    const { deepScan: scan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(scan);
+    const done = scanPanel.render();
+    await flush();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.signal.aborted).toBe(false);
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Scanning…');
+
+    scanPanel.clear();
+    expect(calls[0]?.signal.aborted).toBe(true);
+    calls[0]?.resolve([finding('late', 'Late', 'error', 'late')]);
+    await flush();
+    await done;
+    expect(panel.childElementCount).toBe(0);
+  });
+
+  it('a newer render() aborts the running scan without showing Scan failed', async () => {
+    vi.useFakeTimers();
+    const { deepScan: scan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(scan);
+    const first = scanPanel.render();
+    await flush();
+    const second = scanPanel.render();
+    expect(calls[0]?.signal.aborted).toBe(true);
+    await flush();
+    await first;
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Scanning…');
+    calls[1]?.resolve([]);
+    await flush();
+    await second;
+    expect(panel.textContent).not.toContain('Scan failed');
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('0 findings: 0 errors, 0 warnings, 0 advisory');
+  });
+
   it('fails closed with the error message and no list when the scan throws', async () => {
     vi.useFakeTimers();
-    const { panel, scanPanel } = setup(() => {
+    const { panel, scanPanel } = setup(async () => {
       throw new Error('boom');
     });
     await renderNow(scanPanel.render);
@@ -126,7 +163,7 @@ describe('scan panel', () => {
 
   it('summarizes with a singular for exactly one finding', async () => {
     vi.useFakeTimers();
-    const { panel, scanPanel } = setup(() => [finding('a', 'A', 'warning', 'x')]);
+    const { panel, scanPanel } = setup(async () => [finding('a', 'A', 'warning', 'x')]);
     await renderNow(scanPanel.render);
     expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('1 finding: 0 errors, 1 warnings, 0 advisory');
   });
@@ -142,7 +179,7 @@ describe('scan panel', () => {
       finding('warn-a', 'Alpha warning', 'warning', 'wa1', detached),
       ...Array.from({ length: 12 }, (_, i) => finding('err', 'Error rule', 'error', `e${i}`, target)),
     ];
-    const { panel, scanPanel } = setup(() => findings);
+    const { panel, scanPanel } = setup(async () => findings);
     await renderNow(scanPanel.render);
 
     expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('15 findings: 12 errors, 2 warnings, 1 advisory');
@@ -181,7 +218,7 @@ describe('scan panel', () => {
     b.scrollIntoView = scrollB;
     vi.spyOn(a, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 10, y: 20, width: 30, height: 40 }));
     vi.spyOn(b, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 1, y: 2, width: 3, height: 4 }));
-    const { panel, highlightRoot, scanPanel } = setup(() => [finding('r', 'R', 'error', 'a', a), finding('r', 'R', 'error', 'b', b)]);
+    const { panel, highlightRoot, scanPanel } = setup(async () => [finding('r', 'R', 'error', 'a', a), finding('r', 'R', 'error', 'b', b)]);
     await renderNow(scanPanel.render);
     const [locateA, locateB] = [...panel.querySelectorAll<HTMLButtonElement>('[data-annotation-scan-locate]')];
 
@@ -208,7 +245,7 @@ describe('scan panel', () => {
     const a = document.createElement('p');
     document.body.append(a);
     a.scrollIntoView = vi.fn();
-    const { panel, highlightRoot, scanPanel } = setup(() => [finding('r', 'R', 'error', 'a', a)]);
+    const { panel, highlightRoot, scanPanel } = setup(async () => [finding('r', 'R', 'error', 'a', a)]);
     await renderNow(scanPanel.render);
     panel.querySelector<HTMLButtonElement>('[data-annotation-scan-locate]')?.click();
     expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).not.toBeNull();
@@ -257,7 +294,7 @@ describe('deepScanPage', () => {
 describe('scan panel deep scan', () => {
   it('shows the Deep scan button right after the summary in both result states, and plain render never deep-scans', async () => {
     vi.useFakeTimers();
-    const empty = setup(() => []);
+    const empty = setup(async () => []);
     await renderNow(empty.scanPanel.render);
     const button = deepButton(empty.panel);
     expect(button?.type).toBe('button');
@@ -265,7 +302,7 @@ describe('scan panel deep scan', () => {
     expect(button?.previousElementSibling?.hasAttribute('data-annotation-scan-summary')).toBe(true);
     expect(empty.deepScan).not.toHaveBeenCalled();
 
-    const full = setup(() => [finding('a', 'A', 'error', 'x')]);
+    const full = setup(async () => [finding('a', 'A', 'error', 'x')]);
     await renderNow(full.scanPanel.render);
     expect(deepButton(full.panel)?.previousElementSibling?.hasAttribute('data-annotation-scan-summary')).toBe(true);
     expect(deepButton(full.panel)?.nextElementSibling?.hasAttribute('data-annotation-scan-group')).toBe(true);
@@ -274,7 +311,7 @@ describe('scan panel deep scan', () => {
 
   it('shows no Deep scan button after a failed scan', async () => {
     vi.useFakeTimers();
-    const { panel, scanPanel } = setup(() => {
+    const { panel, scanPanel } = setup(async () => {
       throw new Error('boom');
     });
     await renderNow(scanPanel.render);
@@ -286,7 +323,7 @@ describe('scan panel deep scan', () => {
     const target = document.createElement('p');
     document.body.append(target);
     const { deepScan, calls } = deferredDeepScan();
-    const { panel, scanPanel, onUpdate, deepScan: spy } = setup(() => [], deepScan);
+    const { panel, scanPanel, onUpdate, deepScan: spy } = setup(async () => [], deepScan);
     await renderNow(scanPanel.render);
     deepButton(panel)?.click();
 
@@ -314,7 +351,7 @@ describe('scan panel deep scan', () => {
 
   it('shows the prefixed empty state for a deep scan with no findings', async () => {
     vi.useFakeTimers();
-    const { panel, scanPanel } = setup(() => [], () => Promise.resolve([]));
+    const { panel, scanPanel } = setup(async () => [], () => Promise.resolve([]));
     await renderNow(scanPanel.render);
     deepButton(panel)?.click();
     await flush();
@@ -327,7 +364,7 @@ describe('scan panel deep scan', () => {
     vi.useFakeTimers();
     const removeListener = vi.spyOn(document, 'removeEventListener');
     const { deepScan, calls } = deferredDeepScan();
-    const { panel, scanPanel, onUpdate } = setup(() => [], deepScan);
+    const { panel, scanPanel, onUpdate } = setup(async () => [], deepScan);
     await renderNow(scanPanel.render);
     deepButton(panel)?.click();
     panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]')?.click();
@@ -345,7 +382,7 @@ describe('scan panel deep scan', () => {
   it('Escape on the document aborts, and a later Escape does nothing', async () => {
     vi.useFakeTimers();
     const { deepScan, calls } = deferredDeepScan();
-    const { panel, scanPanel, onUpdate } = setup(() => [], deepScan);
+    const { panel, scanPanel, onUpdate } = setup(async () => [], deepScan);
     await renderNow(scanPanel.render);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(onUpdate).not.toHaveBeenCalled();
@@ -369,7 +406,7 @@ describe('scan panel deep scan', () => {
 
   it('fails closed with the error message and no list when the deep scan throws', async () => {
     vi.useFakeTimers();
-    const { panel, scanPanel, onUpdate } = setup(() => [], () => Promise.reject(new Error('sweep broke')));
+    const { panel, scanPanel, onUpdate } = setup(async () => [], () => Promise.reject(new Error('sweep broke')));
     await renderNow(scanPanel.render);
     deepButton(panel)?.click();
     await flush();
@@ -385,7 +422,7 @@ describe('scan panel deep scan', () => {
     vi.useFakeTimers();
     const calls: { signal: AbortSignal; resolve: (findings: Finding[]) => void }[] = [];
     const deepScan: DeepScan = (signal) => new Promise<Finding[]>((resolve) => calls.push({ signal, resolve }));
-    const { panel, scanPanel, onUpdate } = setup(() => [], deepScan);
+    const { panel, scanPanel, onUpdate } = setup(async () => [], deepScan);
     await renderNow(scanPanel.render);
     deepButton(panel)?.click();
     scanPanel.clear();
@@ -402,7 +439,7 @@ describe('scan panel deep scan', () => {
     vi.useFakeTimers();
     const calls: { signal: AbortSignal; resolve: (findings: Finding[]) => void }[] = [];
     const deepScan: DeepScan = (signal) => new Promise<Finding[]>((resolve) => calls.push({ signal, resolve }));
-    const { panel, scanPanel, onUpdate } = setup(() => [], deepScan);
+    const { panel, scanPanel, onUpdate } = setup(async () => [], deepScan);
     await renderNow(scanPanel.render);
     deepButton(panel)?.click();
     const rerender = scanPanel.render();

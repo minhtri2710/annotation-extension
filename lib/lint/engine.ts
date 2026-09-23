@@ -99,8 +99,11 @@ export function createScanContext(win: Window, config: ScanConfig = {}): ScanCon
   };
 }
 
+export const SCAN_SLICE_MS = 12;
+
 // This single live-DOM engine intentionally drops impeccable's multi-engine Dom trait.
-export function collectFindings(rules: Rule[], ctx: ScanContext): Finding[] {
+export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: AbortSignal): Promise<Finding[]> {
+  signal.throwIfAborted();
   if (ctx.config.skipScan) return [];
 
   const findings: Finding[] = [];
@@ -108,11 +111,18 @@ export function collectFindings(rules: Rule[], ctx: ScanContext): Finding[] {
   const elementRules = rules.filter((rule): rule is ElementRule => rule.scope === 'element');
   const pageRules = rules.filter((rule): rule is PageRule => rule.scope === 'page');
 
+  let sliceStart = performance.now();
   for (const el of elements) {
+    if (!el.isConnected) continue;
     for (const rule of elementRules) {
       for (const hit of rule.test(el, ctx)) {
         findings.push(toFinding(rule, hit, el));
       }
+    }
+    if (performance.now() - sliceStart >= SCAN_SLICE_MS) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      signal.throwIfAborted();
+      sliceStart = performance.now();
     }
   }
   for (const rule of pageRules) {

@@ -9,18 +9,18 @@ function resetDocument(): void {
   document.documentElement.innerHTML = '<head></head><body></body>';
 }
 
-function scan(markup: string, style = '') {
+async function scan(markup: string, style = '') {
   document.body.innerHTML = markup;
   if (style) {
     const sheet = document.createElement('style');
     sheet.textContent = style;
     document.head.appendChild(sheet);
   }
-  return collectFindings(motionRules, createScanContext(window));
+  return await collectFindings(motionRules, createScanContext(window), new AbortController().signal);
 }
 
-function ruleFindings(markup: string, ruleId: string, style = '') {
-  return scan(markup, style).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(markup: string, ruleId: string, style = '') {
+  return (await scan(markup, style)).filter((finding) => finding.ruleId === ruleId);
 }
 
 function first<T>(values: T[]): T {
@@ -84,8 +84,8 @@ describe('motion lint rules through the real engine', () => {
     });
   });
 
-  it('detects bounce easing and accepts the overshoot boundary', () => {
-    const positive = ruleFindings(
+  it('detects bounce easing and accepts the overshoot boundary', async () => {
+    const positive = await ruleFindings(
       '<div id="positive" style="animation-name: spring; animation-timing-function: ease"></div>',
       'bounce-easing',
     );
@@ -95,16 +95,16 @@ describe('motion lint rules through the real engine', () => {
       detail: 'animation: spring',
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div id="negative" style="transition-timing-function: cubic-bezier(0.2, -0.1, 0.8, 1.1)"></div>',
       'bounce-easing',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('detects an infinite pulsing dot and rejects finite iteration counts', () => {
+  it('detects an infinite pulsing dot and rejects finite iteration counts', async () => {
     const style = '@keyframes pulse { 50% { opacity: 0.5; transform: scale(1.2); } }';
-    const positive = ruleFindings(
+    const positive = await ruleFindings(
       '<div id="positive" style="width: 8px; height: 8px; border-radius: 50%; animation-name: pulse; animation-iteration-count: infinite"></div>',
       'pulsing-dot',
       style,
@@ -115,14 +115,14 @@ describe('motion lint rules through the real engine', () => {
       detail: 'div — 8x8px dot with infinite "pulse" animation',
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div id="negative" style="width: 8px; height: 8px; border-radius: 50%; animation-name: pulse; animation-iteration-count: 2"></div>',
       'pulsing-dot',
       style,
     );
     expect(negative).toHaveLength(0);
 
-    const tailwind = ruleFindings(
+    const tailwind = await ruleFindings(
       '<div id="tailwind" class="animate-pulse rounded-full w-2 h-2"></div>',
       'pulsing-dot',
     );
@@ -133,7 +133,7 @@ describe('motion lint rules through the real engine', () => {
     });
   });
 
-  it('detects an opacity-blinking cursor and rejects a near-threshold block', () => {
+  it('detects an opacity-blinking cursor and rejects a near-threshold block', async () => {
     const style = '@keyframes caret-fade { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }';
     document.body.innerHTML = '<header><span id="positive" style="width: 2px; height: 24px; background-color: rgb(0, 0, 0); animation-name: caret-fade; animation-iteration-count: infinite"></span></header>';
     const positiveElement = document.querySelector('#positive') as HTMLElement;
@@ -148,7 +148,7 @@ describe('motion lint rules through the real engine', () => {
       y: 200,
       toJSON: () => ({}),
     });
-    const positive = collectFindings(motionRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(motionRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'blinking-cursor',
     );
     expect(positive).toHaveLength(1);
@@ -171,15 +171,15 @@ describe('motion lint rules through the real engine', () => {
       y: 200,
       toJSON: () => ({}),
     });
-    const negative = collectFindings(motionRules, createScanContext(window)).filter(
+    const negative = (await collectFindings(motionRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'blinking-cursor',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('detects a marquee element and rejects a finite horizontal animation', () => {
+  it('detects a marquee element and rejects a finite horizontal animation', async () => {
     const style = '@keyframes slide-loop { from { transform: translateX(0%); } to { transform: translateX(-50%); } }';
-    const positive = ruleFindings('<marquee id="positive">Moving content</marquee>', 'marquee', style);
+    const positive = await ruleFindings('<marquee id="positive">Moving content</marquee>', 'marquee', style);
     expect(positive).toHaveLength(1);
     expect(first(positive)).toMatchObject({
       ruleId: 'marquee',
@@ -187,7 +187,7 @@ describe('motion lint rules through the real engine', () => {
       el: document.querySelector('#positive'),
     });
 
-    const horizontal = ruleFindings(
+    const horizontal = await ruleFindings(
       '<div id="horizontal" style="animation-name: slide-loop; animation-iteration-count: infinite"></div>',
       'marquee',
       style,
@@ -199,7 +199,7 @@ describe('motion lint rules through the real engine', () => {
       el: document.querySelector('#horizontal'),
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div id="negative" style="animation-name: slide-loop; animation-iteration-count: 2"></div>',
       'marquee',
       style,
@@ -207,8 +207,8 @@ describe('motion lint rules through the real engine', () => {
     expect(negative).toHaveLength(0);
   });
 
-  it('detects a layout transition and accepts a non-layout property', () => {
-    const positive = ruleFindings(
+  it('detects a layout transition and accepts a non-layout property', async () => {
+    const positive = await ruleFindings(
       '<div id="positive" style="transition-property: width, opacity"></div>',
       'layout-transition',
     );
@@ -218,16 +218,16 @@ describe('motion lint rules through the real engine', () => {
       detail: 'transition: width',
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div id="negative" style="transition-property: color"></div>',
       'layout-transition',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('detects an image hover transform and rejects a non-transform hover transition', () => {
+  it('detects an image hover transform and rejects a non-transform hover transition', async () => {
     const style = 'img:hover { transform: scale(1.08); }';
-    const positive = ruleFindings('<img id="positive" src="photo.png">', 'image-hover-transform', style);
+    const positive = await ruleFindings('<img id="positive" src="photo.png">', 'image-hover-transform', style);
     expect(positive).toHaveLength(1);
     expect(first(positive)).toMatchObject({
       ruleId: 'image-hover-transform',
@@ -236,7 +236,7 @@ describe('motion lint rules through the real engine', () => {
     });
 
     resetDocument();
-    const negative = ruleFindings('<img id="negative" src="photo.png">', 'image-hover-transform', 'img:hover { opacity: 0.8; }');
+    const negative = await ruleFindings('<img id="negative" src="photo.png">', 'image-hover-transform', 'img:hover { opacity: 0.8; }');
     expect(negative).toHaveLength(0);
   });
 });

@@ -3,7 +3,7 @@ import { ALL_RULES, DEEP_SCAN_RULES } from '../lint/rules';
 import { revealSweep } from './reveal-sweep';
 
 export interface ScanPanelOptions {
-  scan: () => Finding[];
+  scan: (signal: AbortSignal) => Promise<Finding[]>;
   deepScan: (signal: AbortSignal) => Promise<Finding[]>;
   onUpdate: () => void;
   highlightRoot: HTMLElement;
@@ -19,27 +19,43 @@ const SEVERITY_LABEL: Record<Severity, string> = { error: 'Error', warning: 'War
 const MAX_ROWS = 10;
 const HIGHLIGHT_MS = 1500;
 
-export function scanPage(win: Window, host: Element, rules: readonly Rule[] = ALL_RULES): Finding[] {
-  return collectFindings([...rules], createScanContext(win)).filter(
+export async function scanPage(
+  win: Window,
+  host: Element,
+  signal: AbortSignal,
+  rules: readonly Rule[] = ALL_RULES,
+): Promise<Finding[]> {
+  return (await collectFindings([...rules], createScanContext(win), signal)).filter(
     (finding) => !finding.el || !host.contains(finding.el),
   );
 }
 
 export async function deepScanPage(win: Window, host: Element, signal: AbortSignal): Promise<Finding[]> {
   await revealSweep(win, signal);
-  return scanPage(win, host, [...ALL_RULES, ...DEEP_SCAN_RULES]);
+  return scanPage(win, host, signal, [...ALL_RULES, ...DEEP_SCAN_RULES]);
 }
 
 export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): ScanPanel {
   let renderVersion = 0;
   let highlight: HTMLElement | undefined;
   let highlightTimer: ReturnType<typeof setTimeout> | undefined;
-  let stopDeepScan: (() => void) | undefined;
+  let stopScan: (() => void) | undefined;
 
-  function begin(statusText: string): { version: number; document: Document; heading: HTMLElement; status: HTMLElement } {
+  function begin(statusText: string): {
+    version: number;
+    controller: AbortController;
+    document: Document;
+    heading: HTMLElement;
+    status: HTMLElement;
+  } {
     const version = ++renderVersion;
-    stopDeepScan?.();
+    stopScan?.();
     removeHighlight();
+    const controller = new AbortController();
+    stopScan = () => {
+      stopScan = undefined;
+      controller.abort();
+    };
     const document = panel.ownerDocument;
     const heading = document.createElement('h2');
     heading.textContent = 'Design scan';
@@ -47,30 +63,33 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     status.dataset.annotationStatus = '';
     status.textContent = statusText;
     panel.replaceChildren(heading, status);
-    return { version, document, heading, status };
+    return { version, controller, document, heading, status };
   }
 
   async function render(): Promise<void> {
-    const { version, document, status } = begin('Scanning…');
+    const { version, controller, document, status } = begin('Scanning…');
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     if (version !== renderVersion) return;
 
     let findings: Finding[];
     try {
-      findings = options.scan();
+      findings = await options.scan(controller.signal);
     } catch (error) {
+      if (version !== renderVersion) return;
+      stopScan = undefined;
       status.textContent = `Scan failed: ${error instanceof Error ? error.message : String(error)}`;
       return;
     }
 
+    if (version !== renderVersion) return;
+    stopScan = undefined;
     status.remove();
     showFindings(document, findings, '');
   }
 
   async function runDeepScan(): Promise<void> {
-    const { version, document, heading, status } = begin('Deep scan running…');
-    const controller = new AbortController();
+    const { version, controller, document, heading, status } = begin('Deep scan running…');
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.dataset.annotationDeepScanCancel = '';
@@ -80,13 +99,10 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       if (event.key === 'Escape') controller.abort();
     };
     document.addEventListener('keydown', onKeydown);
+    controller.signal.addEventListener('abort', () => document.removeEventListener('keydown', onKeydown));
     const finish = () => {
-      stopDeepScan = undefined;
+      stopScan = undefined;
       document.removeEventListener('keydown', onKeydown);
-    };
-    stopDeepScan = () => {
-      finish();
-      controller.abort();
     };
     panel.append(cancel);
     cancel.focus();
@@ -224,7 +240,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
 
   function clear(): void {
     renderVersion += 1;
-    stopDeepScan?.();
+    stopScan?.();
     removeHighlight();
     panel.replaceChildren();
   }

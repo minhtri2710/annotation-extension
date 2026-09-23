@@ -8,7 +8,7 @@ function resetDocument(): void {
   document.documentElement.innerHTML = '<head></head><body></body>';
 }
 
-function scan(markup: string, config = {}, style = '') {
+async function scan(markup: string, config = {}, style = '') {
   document.querySelectorAll('style').forEach((sheet) => sheet.remove());
   document.body.innerHTML = markup;
   if (style) {
@@ -16,11 +16,11 @@ function scan(markup: string, config = {}, style = '') {
     sheet.textContent = style;
     document.head.appendChild(sheet);
   }
-  return collectFindings(visualDetailsRules, createScanContext(window, config));
+  return await collectFindings(visualDetailsRules, createScanContext(window, config), new AbortController().signal);
 }
 
-function ruleFindings(markup: string, ruleId: string, config = {}, style = '') {
-  return scan(markup, config, style).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(markup: string, ruleId: string, config = {}, style = '') {
+  return (await scan(markup, config, style)).filter((finding) => finding.ruleId === ruleId);
 }
 
 function first<T>(values: T[]): T {
@@ -88,7 +88,7 @@ describe('visual-details lint rules through the real engine', () => {
     });
   });
 
-  it('detects a chromatic side stripe, inset shadow stripe, and rejects near-threshold stripes', () => {
+  it('detects a chromatic side stripe, inset shadow stripe, and rejects near-threshold stripes', async () => {
     document.body.innerHTML = '<div id="positive" style="border-left: 4px solid rgb(0, 128, 255)"></div>';
     const positiveElement = document.querySelector('#positive') as HTMLElement;
     vi.spyOn(positiveElement, 'getBoundingClientRect').mockReturnValue({
@@ -102,7 +102,7 @@ describe('visual-details lint rules through the real engine', () => {
       y: 0,
       toJSON: () => ({}),
     });
-    const positive = collectFindings(visualDetailsRules, createScanContext(window))
+    const positive = (await collectFindings(visualDetailsRules, createScanContext(window), new AbortController().signal))
       .filter((finding) => finding.ruleId === 'side-tab');
     expect(positive).toHaveLength(1);
     expect(first(positive)).toMatchObject({
@@ -123,11 +123,11 @@ describe('visual-details lint rules through the real engine', () => {
       y: 0,
       toJSON: () => ({}),
     });
-    expect(collectFindings(visualDetailsRules, createScanContext(window))
+    expect((await collectFindings(visualDetailsRules, createScanContext(window), new AbortController().signal))
       .filter((finding) => finding.ruleId === 'side-tab')).toHaveLength(0);
 
     document.body.innerHTML = '<div class="card"></div>';
-    const insetPositive = ruleFindings(
+    const insetPositive = await ruleFindings(
       '<div class="card"></div>',
       'side-tab',
       {},
@@ -139,7 +139,7 @@ describe('visual-details lint rules through the real engine', () => {
       detail: '.card — inset box-shadow 4px stripe (left)',
     });
 
-    const insetNegative = ruleFindings(
+    const insetNegative = await ruleFindings(
       '<div class="card"></div>',
       'side-tab',
       {},
@@ -148,8 +148,8 @@ describe('visual-details lint rules through the real engine', () => {
     expect(insetNegative).toHaveLength(0);
   });
 
-  it('skips inset stripes on boxes declared 40px wide or narrower and fires above the gate', () => {
-    const narrow = ruleFindings(
+  it('skips inset stripes on boxes declared 40px wide or narrower and fires above the gate', async () => {
+    const narrow = await ruleFindings(
       '<div class="card"></div>',
       'side-tab',
       {},
@@ -157,7 +157,7 @@ describe('visual-details lint rules through the real engine', () => {
     );
     expect(narrow).toHaveLength(0);
 
-    const wide = ruleFindings(
+    const wide = await ruleFindings(
       '<div class="card"></div>',
       'side-tab',
       {},
@@ -170,14 +170,14 @@ describe('visual-details lint rules through the real engine', () => {
     });
   });
 
-  it('parses inset-shadow candidates once for many matching elements', () => {
+  it('parses inset-shadow candidates once for many matching elements', async () => {
     document.body.innerHTML = '<div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>';
     const sheet = document.createElement('style');
     sheet.textContent = '.card { width: 80px; box-shadow: inset 4px 0 0 0 rgb(0, 128, 255); }';
     document.head.appendChild(sheet);
     const querySelectorAll = vi.spyOn(document, 'querySelectorAll');
 
-    const findings = collectFindings(visualDetailsRules, createScanContext(window))
+    const findings = (await collectFindings(visualDetailsRules, createScanContext(window), new AbortController().signal))
       .filter((finding) => finding.ruleId === 'side-tab');
     expect(findings).toHaveLength(4);
     expect(querySelectorAll.mock.calls.filter(([selector]) => selector === 'style' || selector === '[style]')).toHaveLength(2);
@@ -185,7 +185,7 @@ describe('visual-details lint rules through the real engine', () => {
     expect(querySelectorAll.mock.calls.filter(([selector]) => selector === '[style]')).toHaveLength(1);
   });
 
-  it('detects an accent top border on a rounded element and rejects 1.5px', () => {
+  it('detects an accent top border on a rounded element and rejects 1.5px', async () => {
     document.body.innerHTML = '<div style="border-top: 2px solid rgb(0, 128, 255); border-radius: 8px"></div>';
     vi.spyOn(document.querySelector('div')!, 'getBoundingClientRect').mockReturnValue({
       width: 80,
@@ -198,7 +198,7 @@ describe('visual-details lint rules through the real engine', () => {
       y: 0,
       toJSON: () => ({}),
     });
-    const positive = collectFindings(visualDetailsRules, createScanContext(window))
+    const positive = (await collectFindings(visualDetailsRules, createScanContext(window), new AbortController().signal))
       .filter((finding) => finding.ruleId === 'border-accent-on-rounded');
     expect(positive).toHaveLength(1);
     expect(first(positive)).toMatchObject({
@@ -206,15 +206,15 @@ describe('visual-details lint rules through the real engine', () => {
       detail: 'border-top: 2px + border-radius: 8px',
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div style="border-top: 1.5px solid rgb(0, 128, 255); border-radius: 8px"></div>',
       'border-accent-on-rounded',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('detects a thin multi-side border with a 16px shadow and rejects 15.9px', () => {
-    const positive = ruleFindings(
+  it('detects a thin multi-side border with a 16px shadow and rejects 15.9px', async () => {
+    const positive = await ruleFindings(
       '<div style="border-top: 1px solid rgba(0, 0, 0, 0.5); border-left: 1px solid rgba(0, 0, 0, 0.5); box-shadow: 0 0 16px rgba(0, 0, 0, 0.2)"></div>',
       'gpt-thin-border-wide-shadow',
     );
@@ -225,15 +225,15 @@ describe('visual-details lint rules through the real engine', () => {
       detail: '1px border + 16px shadow blur',
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div style="border-top: 1px solid rgba(0, 0, 0, 0.5); border-left: 1px solid rgba(0, 0, 0, 0.5); box-shadow: 0 0 15.9px rgba(0, 0, 0, 0.2)"></div>',
       'gpt-thin-border-wide-shadow',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('detects repeating gradient stripes and rejects a non-repeating gradient', () => {
-    const positive = ruleFindings(
+  it('detects repeating gradient stripes and rejects a non-repeating gradient', async () => {
+    const positive = await ruleFindings(
       '<div></div>',
       'repeating-stripes-gradient',
       {},
@@ -246,7 +246,7 @@ describe('visual-details lint rules through the real engine', () => {
       detail: 'repeating-gradient decorative stripes',
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div></div>',
       'repeating-stripes-gradient',
       {},
@@ -255,8 +255,8 @@ describe('visual-details lint rules through the real engine', () => {
     expect(negative).toHaveLength(0);
   });
 
-  it('detects a two-axis hairline grid and rejects a single hairline', () => {
-    const positive = ruleFindings(
+  it('detects a two-axis hairline grid and rejects a single hairline', async () => {
+    const positive = await ruleFindings(
       '<div></div>',
       'codex-grid-background',
       {},
@@ -269,7 +269,7 @@ describe('visual-details lint rules through the real engine', () => {
       detail: 'two-axis grid-line gradient background',
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div></div>',
       'codex-grid-background',
       {},
@@ -278,8 +278,8 @@ describe('visual-details lint rules through the real engine', () => {
     expect(negative).toHaveLength(0);
   });
 
-  it('detects a radius outside the configured scale, carries ignoreValue, and is inert without config', () => {
-    const positive = ruleFindings(
+  it('detects a radius outside the configured scale, carries ignoreValue, and is inert without config', async () => {
+    const positive = await ruleFindings(
       '<div style="border-radius: 10px"></div>',
       'design-system-radius',
       { designSystem: { radii: [8] } },
@@ -292,12 +292,12 @@ describe('visual-details lint rules through the real engine', () => {
       ignoreValue: '10px',
     });
 
-    const negative = ruleFindings(
+    const negative = await ruleFindings(
       '<div style="border-radius: 8px"></div>',
       'design-system-radius',
       { designSystem: { radii: [8] } },
     );
     expect(negative).toHaveLength(0);
-    expect(ruleFindings('<div style="border-radius: 10px"></div>', 'design-system-radius')).toHaveLength(0);
+    expect(await ruleFindings('<div style="border-radius: 10px"></div>', 'design-system-radius')).toHaveLength(0);
   });
 });

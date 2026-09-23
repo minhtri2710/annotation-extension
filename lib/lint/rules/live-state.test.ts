@@ -45,13 +45,13 @@ function stubMetric(el: Element, name: 'clientWidth' | 'clientHeight' | 'clientL
   Object.defineProperty(el, name, { configurable: true, value });
 }
 
-function scan(markup: string) {
+async function scan(markup: string) {
   document.body.innerHTML = markup;
-  return collectFindings(liveStateRules, createScanContext(window));
+  return await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal);
 }
 
-function ruleFindings(markup: string, ruleId: string) {
-  return scan(markup).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(markup: string, ruleId: string) {
+  return (await scan(markup)).filter((finding) => finding.ruleId === ruleId);
 }
 
 function first<T>(values: T[]): T {
@@ -110,7 +110,7 @@ describe('live-state lint rules through the real engine', () => {
     expect(liveStateRules.every((rule) => rule.severity === undefined)).toBe(true);
   });
 
-  it('detects edge-flush cards and accepts the 8px right-gap boundary', () => {
+  it('detects edge-flush cards and accepts the 8px right-gap boundary', async () => {
     document.body.innerHTML = '<div class="scroller" style="overflow-x: auto"><article class="card" style="background: rgb(255, 255, 255)"></article></div>';
     const scroller = document.querySelector('.scroller')!;
     const card = document.querySelector('.card')!;
@@ -120,7 +120,7 @@ describe('live-state lint rules through the real engine', () => {
     stubMetric(scroller, 'clientWidth', 600);
     stubMetric(scroller, 'scrollLeft', 0);
     stubMetric(scroller, 'clientLeft', 0);
-    const positive = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'edge-flush-cards',
     );
     expect(positive).toHaveLength(1);
@@ -130,20 +130,20 @@ describe('live-state lint rules through the real engine', () => {
     });
 
     stubRect(card, { left: 24, top: 20, width: 568, height: 120 });
-    const negative = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const negative = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'edge-flush-cards',
     );
     expect(negative).toHaveLength(0);
   });
 
-  it('detects live hit-test occlusion and accepts a 29% opaque-box coverage', () => {
+  it('detects live hit-test occlusion and accepts a 29% opaque-box coverage', async () => {
     document.body.innerHTML = '<div class="headline">Readable headline</div><div class="cover" style="background: rgb(255, 255, 255)"></div>';
     const headline = document.querySelector('.headline')!;
     const cover = document.querySelector('.cover')!;
     stubRect(headline, { left: 100, top: 100, width: 240, height: 28 });
     stubRect(cover, { left: 100, top: 100, width: 240, height: 28 });
     const point = vi.spyOn(document, 'elementFromPoint').mockImplementation(() => cover);
-    const positive = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'text-occlusion',
     );
     expect(positive).toHaveLength(1);
@@ -153,14 +153,14 @@ describe('live-state lint rules through the real engine', () => {
     });
 
     point.mockImplementation((x) => x < 150 ? cover : headline);
-    const negative = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const negative = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'text-occlusion',
     );
     expect(negative).toHaveLength(0);
     point.mockRestore();
   });
 
-  it('detects a first-viewport column running past the fold and accepts 140% height', () => {
+  it('detects a first-viewport column running past the fold and accepts 140% height', async () => {
     document.body.innerHTML = '<section class="opening" style="display: grid; position: relative"><div class="tall" style="display: block"></div><div class="short" style="display: block"></div></section>';
     const currentSection = document.querySelector('.opening')!;
     const currentTall = document.querySelector('.tall')!;
@@ -174,7 +174,7 @@ describe('live-state lint rules through the real engine', () => {
     currentShort.appendChild(shortContent);
     stubRect(tallContent, { left: 0, top: 0, width: 480, height: 1200 });
     stubRect(shortContent, { left: 520, top: 0, width: 480, height: 300 });
-    const findings = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const findings = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'first-viewport-column-overflow',
     );
     expect(findings).toHaveLength(1);
@@ -184,24 +184,24 @@ describe('live-state lint rules through the real engine', () => {
     });
 
     stubRect(tallContent, { left: 0, top: 0, width: 480, height: 1120 });
-    expect(collectFindings(liveStateRules, createScanContext(window)).filter(
+    expect((await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'first-viewport-column-overflow',
     )).toHaveLength(0);
   });
 
-  it('detects text overflow and accepts the 15px delta boundary', () => {
+  it('detects text overflow and accepts the 15px delta boundary', async () => {
     document.body.innerHTML = '<div class="overflowing">A long direct text run</div>';
     const overflowing = document.querySelector('.overflowing')!;
     stubRect(overflowing, { left: 0, top: 0, width: 100, height: 24 });
     stubMetric(overflowing, 'clientWidth', 100);
     stubMetric(overflowing, 'scrollWidth', 115);
-    const positive = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'text-overflow',
     );
     expect(positive).toHaveLength(0);
 
     stubMetric(overflowing, 'scrollWidth', 116);
-    const findings = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const findings = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'text-overflow',
     );
     expect(findings).toHaveLength(1);
@@ -211,9 +211,9 @@ describe('live-state lint rules through the real engine', () => {
     });
   });
 
-  it('detects repeated container text and rejects two occurrences', () => {
+  it('detects repeated container text and rejects two occurrences', async () => {
     document.body.innerHTML = '<div class="card" style="background-color: rgb(255, 255, 255); border-top: 1px solid rgb(0, 0, 0); border-right: 1px solid rgb(0, 0, 0); border-bottom: 1px solid rgb(0, 0, 0); border-radius: 8px"><div class="slot-one">Active</div><div class="slot-two">Active</div><div class="slot-three">Active</div></div>';
-    const positive = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'repeated-container-text',
     );
     expect(positive).toHaveLength(1);
@@ -223,19 +223,19 @@ describe('live-state lint rules through the real engine', () => {
     });
 
     document.body.innerHTML = '<div class="card" style="background-color: rgb(255, 255, 255); border-top: 1px solid rgb(0, 0, 0); border-right: 1px solid rgb(0, 0, 0); border-bottom: 1px solid rgb(0, 0, 0); border-radius: 8px"><div class="slot-one">Active</div><div class="slot-two">Active</div></div>';
-    expect(collectFindings(liveStateRules, createScanContext(window)).filter(
+    expect((await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'repeated-container-text',
     )).toHaveLength(0);
   });
 
-  it('detects a positioned child escaping a clip and accepts the 2px threshold', () => {
+  it('detects a positioned child escaping a clip and accepts the 2px threshold', async () => {
     document.body.innerHTML = '<div class="card" style="overflow-x: hidden; overflow-y: hidden; position: relative"><div class="menu" style="position: absolute">Menu item</div></div>';
     const card = document.querySelector('.card')!;
     const menu = document.querySelector('.menu')!;
     stubRect(card, { left: 100, top: 100, width: 200, height: 100 });
     stubRect(menu, { left: 97, top: 110, width: 120, height: 40 });
 
-    const positive = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'clipped-overflow-container',
     );
     expect(positive).toHaveLength(1);
@@ -245,12 +245,12 @@ describe('live-state lint rules through the real engine', () => {
     });
 
     stubRect(menu, { left: 98, top: 110, width: 120, height: 40 });
-    expect(collectFindings(liveStateRules, createScanContext(window)).filter(
+    expect((await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'clipped-overflow-container',
     )).toHaveLength(0);
   });
 
-  it('ignores a zero-width-bordered card without background at the flush edge', () => {
+  it('ignores a zero-width-bordered card without background at the flush edge', async () => {
     document.body.innerHTML = '<div class="scroller" style="overflow-x: auto"><article class="card" style="background-color: transparent; border-top: 0px solid rgb(0, 0, 0); border-right: 0px solid rgb(0, 0, 0); border-bottom: 0px solid rgb(0, 0, 0); border-left: 0px solid rgb(0, 0, 0)"></article></div>';
     const scroller = document.querySelector('.scroller')!;
     const card = document.querySelector('.card')!;
@@ -260,18 +260,18 @@ describe('live-state lint rules through the real engine', () => {
     stubMetric(scroller, 'clientWidth', 600);
     stubMetric(scroller, 'scrollLeft', 0);
     stubMetric(scroller, 'clientLeft', 0);
-    expect(collectFindings(liveStateRules, createScanContext(window)).filter(
+    expect((await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'edge-flush-cards',
     )).toHaveLength(0);
   });
 
-  it('keeps a partially clipped element eligible for text-overflow findings', () => {
+  it('keeps a partially clipped element eligible for text-overflow findings', async () => {
     document.body.innerHTML = '<div class="peek" style="clip-path: inset(50% 0 0 0)">A long direct text run</div>';
     const peek = document.querySelector('.peek')!;
     stubRect(peek, { left: 0, top: 0, width: 100, height: 24 });
     stubMetric(peek, 'clientWidth', 100);
     stubMetric(peek, 'scrollWidth', 116);
-    const findings = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const findings = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'text-overflow',
     );
     expect(findings).toHaveLength(1);
@@ -281,19 +281,19 @@ describe('live-state lint rules through the real engine', () => {
     });
   });
 
-  it('skips icon-classified slots when collecting repeated container text', () => {
+  it('skips icon-classified slots when collecting repeated container text', async () => {
     document.body.innerHTML = '<div class="card" style="background-color: rgb(255, 255, 255); border-top: 1px solid rgb(0, 0, 0); border-right: 1px solid rgb(0, 0, 0); border-bottom: 1px solid rgb(0, 0, 0); border-radius: 8px"><div class="iconic-slot-one">Active</div><div class="iconic-slot-two">Active</div><div class="iconic-slot-three">Active</div></div>';
-    expect(collectFindings(liveStateRules, createScanContext(window)).filter(
+    expect((await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'repeated-container-text',
     )).toHaveLength(0);
   });
 
-  it('falls back to the inset style when positioned-child geometry is unavailable', () => {
+  it('falls back to the inset style when positioned-child geometry is unavailable', async () => {
     document.body.innerHTML = '<div class="card" style="overflow: hidden; position: relative"><div class="menu" style="position: absolute; left: -10px">Menu item</div></div>';
     const card = document.querySelector('.card')!;
     const menu = document.querySelector('.menu')!;
     stubRect(card, { left: 100, top: 100, width: 200, height: 100 });
-    const positive = collectFindings(liveStateRules, createScanContext(window)).filter(
+    const positive = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'clipped-overflow-container',
     );
     expect(positive).toHaveLength(1);
@@ -303,7 +303,7 @@ describe('live-state lint rules through the real engine', () => {
     });
 
     menu.setAttribute('style', 'position: absolute; left: 10px');
-    expect(collectFindings(liveStateRules, createScanContext(window)).filter(
+    expect((await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
       (finding) => finding.ruleId === 'clipped-overflow-container',
     )).toHaveLength(0);
   });

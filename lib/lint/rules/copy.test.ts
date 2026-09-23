@@ -14,8 +14,8 @@ function setBodyText(text: string, innerText: string = text): void {
   Object.defineProperty(document.body, 'innerText', { configurable: true, get: () => innerText });
 }
 
-function ruleFindings(ruleId: string) {
-  return collectFindings(copyRules, createScanContext(window)).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(ruleId: string) {
+  return (await collectFindings(copyRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === ruleId);
 }
 
 beforeEach(resetDocument);
@@ -45,36 +45,36 @@ describe('copy lint rules through the real engine', () => {
     );
   });
 
-  it('flags em-dash saturation at the floor of 8, counting -- only before non-space', () => {
+  it('flags em-dash saturation at the floor of 8, counting -- only before non-space', async () => {
     setBodyText('a—b—c—d—e—f—g --h i\n\n--j and -- k');
-    const findings = ruleFindings('em-dash-overuse');
+    const findings = await ruleFindings('em-dash-overuse');
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ detail: '8 em-dashes in body text', severity: 'advisory', advisory: true });
     expect(findings[0]?.ignoreValue).toBeUndefined();
   });
 
-  it('does not flag 7 em-dashes, or 8 spread thinner than one per 500 characters', () => {
+  it('does not flag 7 em-dashes, or 8 spread thinner than one per 500 characters', async () => {
     setBodyText('a—b—c—d—e—f—g—h -- i');
-    expect(ruleFindings('em-dash-overuse')).toEqual([]);
+    expect(await ruleFindings('em-dash-overuse')).toEqual([]);
 
     const dashes = '—'.repeat(8);
     setBodyText(dashes + 'x'.repeat(4000 - 8));
-    expect(ruleFindings('em-dash-overuse')).toHaveLength(1);
+    expect(await ruleFindings('em-dash-overuse')).toHaveLength(1);
     setBodyText(dashes + 'x'.repeat(4001 - 8));
-    expect(ruleFindings('em-dash-overuse')).toEqual([]);
+    expect(await ruleFindings('em-dash-overuse')).toEqual([]);
   });
 
-  it('reads rendered innerText, falling back to textContent when innerText is empty', () => {
+  it('reads rendered innerText, falling back to textContent when innerText is empty', async () => {
     const dashes = 'a—'.repeat(8);
     setBodyText(dashes, 'visible text only');
-    expect(ruleFindings('em-dash-overuse')).toEqual([]);
+    expect(await ruleFindings('em-dash-overuse')).toEqual([]);
     setBodyText(dashes, '');
-    expect(ruleFindings('em-dash-overuse')[0]?.detail).toBe('8 em-dashes in body text');
+    expect((await ruleFindings('em-dash-overuse'))[0]?.detail).toBe('8 em-dashes in body text');
   });
 
-  it('flags buzzword phrases with a count and a sample around the first listed phrase', () => {
+  it('flags buzzword phrases with a count and a sample around the first listed phrase', async () => {
     setBodyText('We  World-Class teams streamline your workflow.');
-    const findings = ruleFindings('marketing-buzzword');
+    const findings = await ruleFindings('marketing-buzzword');
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({
       detail: '2 buzzword phrases: "Class teams streamline your workflow."',
@@ -83,17 +83,17 @@ describe('copy lint rules through the real engine', () => {
     expect(findings[0]?.ignoreValue).toBeUndefined();
 
     setBodyText('Our cutting-edge lab.');
-    expect(ruleFindings('marketing-buzzword')[0]?.detail).toBe('1 buzzword phrase: "Our cutting-edge lab."');
+    expect((await ruleFindings('marketing-buzzword'))[0]?.detail).toBe('1 buzzword phrase: "Our cutting-edge lab."');
   });
 
-  it('does not flag near-miss buzzword wording', () => {
+  it('does not flag near-miss buzzword wording', async () => {
     setBodyText('We streamline the workflow for world class teams with a next generation cutting edge.');
-    expect(ruleFindings('marketing-buzzword')).toEqual([]);
+    expect(await ruleFindings('marketing-buzzword')).toEqual([]);
   });
 
-  it('flags three aphoristic constructions', () => {
+  it('flags three aphoristic constructions', async () => {
     setBodyText('Not a tool. A platform. Not a feature! A system. Fast deploys ship. No waiting around.');
-    const findings = ruleFindings('aphoristic-cadence');
+    const findings = await ruleFindings('aphoristic-cadence');
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({
       detail: '3 aphoristic constructions: "Not a tool. A platform."',
@@ -102,27 +102,27 @@ describe('copy lint rules through the real engine', () => {
     expect(findings[0]?.ignoreValue).toBeUndefined();
   });
 
-  it('does not flag two aphoristic constructions or case near-misses', () => {
+  it('does not flag two aphoristic constructions or case near-misses', async () => {
     setBodyText('Not a tool. A platform. Fast deploys ship. No waiting around. not a feature. A system. Fast. No waiting.');
-    expect(ruleFindings('aphoristic-cadence')).toEqual([]);
+    expect(await ruleFindings('aphoristic-cadence')).toEqual([]);
   });
 
-  it('flags "X theater" framing with the first match as detail', () => {
+  it('flags "X theater" framing with the first match as detail', async () => {
     setBodyText('This is security\n Theater at best, and compliance theater too.');
-    const findings = ruleFindings('theater-slop-phrase');
+    const findings = await ruleFindings('theater-slop-phrase');
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ detail: '"security Theater"', severity: 'advisory', advisory: true });
     expect(findings[0]?.ignoreValue).toBeUndefined();
   });
 
-  it('does not flag theater without a preceding word or as a word prefix', () => {
+  it('does not flag theater without a preceding word or as a word prefix', async () => {
     setBodyText('Theater tickets: theatergoers love the theaters.');
-    expect(ruleFindings('theater-slop-phrase')).toEqual([]);
+    expect(await ruleFindings('theater-slop-phrase')).toEqual([]);
   });
 
-  it('honors disabledRules through the engine', () => {
+  it('honors disabledRules through the engine', async () => {
     setBodyText('This is security theater.');
     const ctx = createScanContext(window, { disabledRules: ['theater-slop-phrase'] });
-    expect(collectFindings(copyRules, ctx)).toEqual([]);
+    expect(await collectFindings(copyRules, ctx, new AbortController().signal)).toEqual([]);
   });
 });
