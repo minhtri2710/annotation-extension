@@ -43,8 +43,12 @@ const sender = {
   },
 };
 
+/** Real signatures, so the image gate accepts the fixture bytes. */
+const PNG = '\x89PNG\r\n\x1a\n';
+const WEBP = 'RIFF\0\0\0\0WEBP';
+
 function start(store: MemoryBlobStore, processor = vi.fn().mockResolvedValue({
-  blob: new Blob(['processed'], { type: 'image/webp' }),
+  blob: new Blob([WEBP + 'processed'], { type: 'image/webp' }),
   width: 800,
   height: 400,
 })) {
@@ -199,7 +203,7 @@ describe('background message routing', () => {
       sendResponse,
     );
 
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ mimeType: 'image/webp', width: 800, height: 400, byteLength: 9 }));
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ mimeType: 'image/webp', width: 800, height: 400, byteLength: 21 }));
     expect(browser.tabs.captureVisibleTab).toHaveBeenCalledWith(42);
     expect(processor).toHaveBeenCalledWith('data:image/png;base64,capture', elementContext.boundingBox, 2);
     expect(await store.get(`screenshot:${created.id}`)).toBeDefined();
@@ -267,8 +271,8 @@ describe('background message routing', () => {
     const store = new MemoryBlobStore();
     const processor = start(store);
     processor
-      .mockResolvedValueOnce({ blob: new Blob(['old'], { type: 'image/webp' }), width: 800, height: 400 })
-      .mockResolvedValueOnce({ blob: new Blob(['new'], { type: 'image/webp' }), width: 640, height: 320 });
+      .mockResolvedValueOnce({ blob: new Blob([WEBP + 'old'], { type: 'image/webp' }), width: 800, height: 400 })
+      .mockResolvedValueOnce({ blob: new Blob([WEBP + 'new'], { type: 'image/webp' }), width: 640, height: 320 });
     vi.spyOn(browser.tabs, 'captureVisibleTab').mockResolvedValue('data:image/png;base64,capture' as never);
     const createdResponse = vi.fn();
     await fakeBrowser.runtime.onMessage.trigger(
@@ -285,7 +289,7 @@ describe('background message routing', () => {
       sender,
       firstResponse,
     );
-    await vi.waitFor(() => expect(firstResponse).toHaveBeenCalledWith({ mimeType: 'image/webp', width: 800, height: 400, byteLength: 3 }));
+    await vi.waitFor(() => expect(firstResponse).toHaveBeenCalledWith({ mimeType: 'image/webp', width: 800, height: 400, byteLength: 15 }));
     const oldBlob = await store.get(`screenshot:${created.id}`);
     expect(oldBlob).toBeDefined();
 
@@ -300,11 +304,11 @@ describe('background message routing', () => {
     await vi.waitFor(() => expect(secondResponse).toHaveBeenCalledWith(captureFailed('metadata unavailable')));
     const restoredBlob = await store.get(`screenshot:${created.id}`);
     expect(restoredBlob).toBe(oldBlob);
-    expect(await restoredBlob?.text()).toBe('old');
+    expect(await restoredBlob?.text()).toBe(WEBP + 'old');
     await expect(listAnnotations(pageUrl)).resolves.toEqual([
       expect.objectContaining({
         id: created.id,
-        screenshot: { mimeType: 'image/webp', width: 800, height: 400, byteLength: 3 },
+        screenshot: { mimeType: 'image/webp', width: 800, height: 400, byteLength: 15 },
       }),
     ]);
   });
@@ -362,14 +366,43 @@ describe('background message routing', () => {
     await vi.waitFor(() => expect(createdResponse).toHaveBeenCalledTimes(1));
     const created = createdResponse.mock.calls[0]?.[0] as { id: string };
     const addResponse = vi.fn();
-    await fakeBrowser.runtime.onMessage.trigger({ type: 'attachment.add', pageUrl, annotationId: created.id, name: 'photo.png', mimeType: 'image/png', base64: btoa('bytes') }, {}, addResponse);
-    await vi.waitFor(() => expect(addResponse).toHaveBeenCalledWith(expect.objectContaining({ name: 'photo.png', mimeType: 'image/png', byteLength: 5 })));
+    await fakeBrowser.runtime.onMessage.trigger({ type: 'attachment.add', pageUrl, annotationId: created.id, name: 'photo.png', mimeType: 'image/png', base64: btoa(PNG + 'bytes') }, {}, addResponse);
+    await vi.waitFor(() => expect(addResponse).toHaveBeenCalledWith(expect.objectContaining({ name: 'photo.png', mimeType: 'image/png', byteLength: 13 })));
     const attachment = addResponse.mock.calls[0]?.[0] as { id: string };
     expect(await store.get(`attachment:${attachment.id}`)).toBeDefined();
     const deleteResponse = vi.fn();
     await fakeBrowser.runtime.onMessage.trigger({ type: 'attachment.delete', pageUrl, annotationId: created.id, attachmentId: attachment.id }, {}, deleteResponse);
     await vi.waitFor(() => expect(deleteResponse).toHaveBeenCalledWith(true));
     expect(await store.get(`attachment:${attachment.id}`)).toBeUndefined();
+  });
+
+  it('refuses attachment bytes that are not the declared type and stores nothing', async () => {
+    const store = new MemoryBlobStore();
+    start(store);
+    const createdResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger({ type: 'annotation.add', pageUrl, input: { note: 'created', selector: '#target', elementContext } }, {}, createdResponse);
+    await vi.waitFor(() => expect(createdResponse).toHaveBeenCalledTimes(1));
+    const created = createdResponse.mock.calls[0]?.[0] as { id: string };
+    const response = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger({ type: 'attachment.add', pageUrl, annotationId: created.id, name: 'shot.png', mimeType: 'image/png', base64: btoa('\xff\xd8\xff\xe0jpeg') }, {}, response);
+    await vi.waitFor(() => expect(response).toHaveBeenCalledWith({ ok: false, error: 'Image bytes are not image/png.' }));
+    expect(store.blobs.size).toBe(0);
+    expect((await listAnnotations(pageUrl))[0]?.attachments).toBeUndefined();
+  });
+
+  it('refuses a processed screenshot whose bytes are not its type and stores nothing', async () => {
+    const store = new MemoryBlobStore();
+    start(store, vi.fn().mockResolvedValue({ blob: new Blob(['not webp'], { type: 'image/webp' }), width: 800, height: 400 }));
+    vi.spyOn(browser.tabs, 'captureVisibleTab').mockResolvedValue('data:image/png;base64,capture' as never);
+    const createdResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger({ type: 'annotation.add', pageUrl, input: { note: 'created', selector: '#target', elementContext } }, {}, createdResponse);
+    await vi.waitFor(() => expect(createdResponse).toHaveBeenCalledTimes(1));
+    const created = createdResponse.mock.calls[0]?.[0] as { id: string };
+    const response = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger({ type: 'screenshot.capture', pageUrl, annotationId: created.id, rect: elementContext.boundingBox, devicePixelRatio: 1 }, sender, response);
+    await vi.waitFor(() => expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: 'Image bytes are not image/webp.' })));
+    expect(store.blobs.size).toBe(0);
+    expect((await listAnnotations(pageUrl))[0]?.screenshot).toBeUndefined();
   });
 
   it('rejects invalid attachments without leaving a Blob', async () => {
@@ -395,7 +428,7 @@ describe('background message routing', () => {
       return response.mock.calls[0]?.[0];
     };
 
-    await expect(sendAttachment('missing', 'photo.png', 'image/png', btoa('data'))).resolves.toEqual(
+    await expect(sendAttachment('missing', 'photo.png', 'image/png', btoa(PNG + 'data'))).resolves.toEqual(
       { ok: false, error: 'Annotation was not found' },
     );
     await expect(sendAttachment('missing', 'photo.svg', 'image/svg+xml', btoa('data'))).resolves.toMatchObject({ ok: false });
@@ -412,11 +445,11 @@ describe('background message routing', () => {
     await vi.waitFor(() => expect(createdResponse).toHaveBeenCalled());
     const created = createdResponse.mock.calls[0]?.[0] as { id: string };
     for (let index = 0; index < 5; index += 1) {
-      await expect(sendAttachment(created.id, `photo-${index}.png`, 'image/png', btoa(`data-${index}`))).resolves.toEqual(
+      await expect(sendAttachment(created.id, `photo-${index}.png`, 'image/png', btoa(`${PNG}data-${index}`))).resolves.toEqual(
         expect.objectContaining({ name: `photo-${index}.png` }),
       );
     }
-    await expect(sendAttachment(created.id, 'sixth.png', 'image/png', btoa('sixth'))).resolves.toMatchObject({ ok: false });
+    await expect(sendAttachment(created.id, 'sixth.png', 'image/png', btoa(PNG + 'sixth'))).resolves.toMatchObject({ ok: false });
     expect(store.blobs.size).toBe(5);
   });
 
@@ -434,7 +467,7 @@ describe('background message routing', () => {
     vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('metadata unavailable'));
     const response = vi.fn();
     await fakeBrowser.runtime.onMessage.trigger(
-      { type: 'attachment.add', pageUrl, annotationId: created.id, name: 'photo.png', mimeType: 'image/png', base64: btoa('data') },
+      { type: 'attachment.add', pageUrl, annotationId: created.id, name: 'photo.png', mimeType: 'image/png', base64: btoa(PNG + 'data') },
       {},
       response,
     );

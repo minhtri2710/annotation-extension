@@ -113,7 +113,7 @@ async function captureScreenshot(
 ) {
   const capture = await captureVisibleTab(windowId);
   const processed = await screenshotProcessor(capture, message.rect, message.devicePixelRatio);
-  validateImageBlob(processed.blob);
+  await validateImageBlob(processed.blob);
   const key = screenshotKey(message.annotationId);
   const previousBlob = await blobStore.get(key);
   await blobStore.put(key, processed.blob);
@@ -175,7 +175,6 @@ async function addAttachmentMessage(
   blobStore: BlobStore,
 ) {
   const blob = base64ToBlob(message.base64, message.mimeType);
-  validateImageBlob(blob, message.mimeType);
   const metadata = {
     id: crypto.randomUUID(),
     name: validateAttachmentName(message.name),

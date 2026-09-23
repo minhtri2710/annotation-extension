@@ -95,4 +95,36 @@ describe('note panel in a real browser', () => {
     expect(notePanel.live.textContent).toContain('Ctrl+Shift+Period');
     expect(notePanel.live.textContent).not.toContain('permission is required');
   });
+
+  it('sniffs a picked file by its bytes: a JPEG named .png attaches as image/jpeg, non-image bytes are refused', async () => {
+    const { shell } = mountShadowPanel();
+    const annotation: Annotation = {
+      id: 'a1', pageUrl, note: 'Files', selector: context.selector, elementContext: context,
+      createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z', status: 'open',
+    };
+    const addAttachment = vi.fn().mockResolvedValue({ id: 'b1', name: 'photo.png', mimeType: 'image/jpeg', byteLength: 7 });
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => [annotation],
+      sendAnnotationWrite: vi.fn(), captureScreenshot: vi.fn(), readBlob: vi.fn(), addAttachment, deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    await notePanel.render(context);
+    const pick = (file: File) => {
+      const input = shell.panel.querySelector<HTMLInputElement>('[data-annotation-attachment-input]')!;
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change'));
+    };
+
+    pick(new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])], 'photo.png', { type: 'image/png' }));
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    expect(addAttachment.mock.calls[0]?.[0]).toMatchObject({ name: 'photo.png', mimeType: 'image/jpeg' });
+
+    pick(new File(['<svg onload=alert(1)>'], 'fake.png', { type: 'image/png' }));
+    await vi.waitFor(() =>
+      expect(shell.panel.querySelector('[data-annotation-status]')?.textContent).toBe('fake.png is not a PNG, JPEG or WebP image.'),
+    );
+    expect(addAttachment).toHaveBeenCalledTimes(1);
+  });
 });

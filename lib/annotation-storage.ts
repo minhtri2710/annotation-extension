@@ -28,7 +28,7 @@ export async function addAnnotationWithScreenshot(
   dimensions: Pick<ScreenshotMetadata, 'width' | 'height'>,
   blobStore: BlobStore,
 ): Promise<Annotation> {
-  validateImageBlob(blob);
+  await validateImageBlob(blob);
   return withPageWrite(pageUrl, async (key) => {
     const annotation = {
       ...createAnnotation(pageUrl, input),
@@ -52,6 +52,7 @@ export async function restoreAnnotation(
   blobs: ReadonlyArray<readonly [string, Blob]>,
   blobStore: BlobStore,
 ): Promise<boolean> {
+  for (const [, blob] of blobs) await validateImageBlob(blob);
   return withPageWrite(annotation.pageUrl, async (key) => {
     const annotations = await readPage(key);
     if (annotations.some((existing) => existing.id === annotation.id)) return false;
@@ -136,7 +137,7 @@ export async function addAttachment(
   blobStore: BlobStore,
 ): Promise<AttachmentMetadata> {
   validateAttachmentName(metadata.name);
-  validateImageBlob(blob, metadata.mimeType);
+  await validateImageBlob(blob, metadata.mimeType);
   if (metadata.byteLength !== blob.size) throw new Error('Attachment byte length does not match its Blob.');
   return withPageWrite(pageUrl, async (key) => {
     const annotations = await readPage(key);

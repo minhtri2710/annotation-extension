@@ -4,6 +4,7 @@ import type { Annotation } from '../annotation';
 import { exportJson, importAll, importFileSizeError, importJson, JsonImportError, MAX_IMPORT_LENGTH, parseImport, serialize } from './index';
 import { annotationWriteError, MAX_LIST_LENGTH, MAX_TEXT_LENGTH, sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
+import { addAnnotationWithScreenshot, addAttachment } from '../annotation-storage';
 import { attachmentKey, screenshotKey, type BlobStore } from '../blob-store';
 import { attachmentAssetFilename, screenshotAssetFilename } from '../export/format';
 
@@ -508,9 +509,9 @@ describe('strict JSON import', () => {
       [rawEntry({ id: 'e', repro: { steps: [long], expected: '', actual: '' } }), 'has invalid reproduction steps'],
       [rawEntry({ id: 'e', repro: { steps: Array.from({ length: 1001 }, () => 's'), expected: '', actual: '' } }), 'has invalid reproduction steps'],
       [rawEntry({ id: 'e', cssEdits: [{ property: 'color', value: long, original: '' }] }), 'has invalid CSS edits'],
-      [rawEntry({ id: 'e', screenshot: { mimeType: 'image/png', base64: image('x', 'image/jpeg') } }), 'has an invalid screenshot: its bytes are not image/png'],
-      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.png', mimeType: 'image/png', base64: btoa('<svg onload=alert(1)>') }] }), 'has an invalid attachment: its bytes are not image/png'],
-      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.webp', mimeType: 'image/webp', base64: btoa('RIFF\0\0\0\0WAVE') }] }), 'has an invalid attachment: its bytes are not image/webp'],
+      [rawEntry({ id: 'e', screenshot: { mimeType: 'image/png', base64: image('x', 'image/jpeg') } }), 'has an invalid screenshot: image bytes are not image/png'],
+      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.png', mimeType: 'image/png', base64: btoa('<svg onload=alert(1)>') }] }), 'has an invalid attachment: image bytes are not image/png'],
+      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.webp', mimeType: 'image/webp', base64: btoa('RIFF\0\0\0\0WAVE') }] }), 'has an invalid attachment: image bytes are not image/webp'],
     ];
     for (const [entry, reason] of cases) {
       await expect(importJson(JSON.stringify([valid, entry]), new MemoryBlobStore(), dimensions), reason).resolves.toBe(
@@ -567,6 +568,23 @@ describe('write path and import share one set of caps', () => {
       const second = await serialize(plan.map((entry) => entry.annotation), new MemoryBlobStore());
       expect(second.json, name).toBe(first.json);
     }
+  });
+
+  it('imports and byte-identically re-exports an annotation whose screenshot and attachments the storage functions wrote', async () => {
+    fakeBrowser.reset();
+    const store = new MemoryBlobStore();
+    const written = await addAnnotationWithScreenshot(firstPage, annotation(), imageBlob('shot', 'image/webp'), { width: 10, height: 20 }, store);
+    await addAttachment(firstPage, written.id, { id: 'att-png', name: 'a.png', mimeType: 'image/png', byteLength: imageBlob('a', 'image/png').size }, imageBlob('a', 'image/png'), store);
+    // A JPEG saved as .png: the picker stores it as image/jpeg under its own name.
+    await addAttachment(firstPage, written.id, { id: 'att-jpeg', name: 'photo.png', mimeType: 'image/jpeg', byteLength: imageBlob('j', 'image/jpeg').size }, imageBlob('j', 'image/jpeg'), store);
+    const first = await serialize(await storedAnnotations(), store);
+    expect(first.missing).toBe(0);
+
+    fakeBrowser.reset();
+    const fresh = new MemoryBlobStore();
+    await expect(importJson(first.json, fresh, dimensions)).resolves.toBe('Imported 1 annotation, skipped 0 already present.');
+    const second = await serialize(await storedAnnotations(), fresh);
+    expect(second.json).toBe(first.json);
   });
 
   it('refuses one past every cap at the write guard, before import could see it', async () => {

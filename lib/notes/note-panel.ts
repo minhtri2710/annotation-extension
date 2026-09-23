@@ -1,7 +1,7 @@
 import type { Annotation, CssDeclaration } from '../annotation';
 import { annotationWriteError, MAX_TEXT_LENGTH, type AnnotationWriteMessage } from '../annotation-messages';
 import {
-  isSupportedImageMimeType,
+  imageTypeOf,
   normalizeAttachmentName,
   validateImageBlob,
   MAX_ATTACHMENTS,
@@ -176,15 +176,17 @@ export function createNotePanel(
       throw new Error('An annotation can have at most 5 attachments.');
     }
     for (const file of files) {
-      if (!isSupportedImageMimeType(file.type)) throw new Error(`Unsupported image mime type: ${file.type}.`);
-      validateImageBlob(file, file.type);
-      const name = normalizeAttachmentName(file.name, file.type);
+      // file.type comes from the extension; the bytes decide what is stored.
+      const mimeType = await imageTypeOf(file);
+      if (!mimeType) throw new Error(`${file.name} is not a PNG, JPEG or WebP image.`);
+      await validateImageBlob(file, mimeType);
+      const name = normalizeAttachmentName(file.name, mimeType);
       const base64 = await fileToBase64(file);
       await persistence.addAttachment({
         pageUrl: context.url,
         annotationId: annotation.id,
         name,
-        mimeType: file.type,
+        mimeType,
         base64,
       });
     }

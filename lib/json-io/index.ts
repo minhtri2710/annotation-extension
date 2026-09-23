@@ -4,15 +4,16 @@ import { deleteAnnotation, restoreAnnotation } from '../annotation-storage';
 import {
   ID_PATTERN,
   isAnnotationStatus,
+  isBlankNote,
   isCssEdits,
   isElementContext,
+  isPageUrl,
   isRepro,
   isText,
   MAX_TEXT_LENGTH,
 } from '../annotation-messages';
 import type { Annotation, AttachmentMetadata } from '../annotation';
 import { attachmentKey, createBlobStore, screenshotKey, type BlobStore } from '../blob-store';
-import { pageKey } from '../../utils/page-key';
 import { clipboardFailure } from '../export/delivery';
 import {
   isSupportedImageMimeType,
@@ -46,7 +47,6 @@ export interface JsonExportDependencies {
 /** In UTF-16 code units of the file text, so a file over it is also over it in bytes. */
 export const MAX_IMPORT_LENGTH = 200 * 1024 * 1024;
 const TOO_LARGE = 'Import failed: the file is larger than 200 MB. Nothing was imported.';
-const PAGE_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
 
 export async function serialize(
   annotations: Annotation[],
@@ -202,10 +202,10 @@ async function parseEntry(
   const id = entry.id as string;
   if (annotationIds.has(id)) fail(`repeats annotation id ${id}`);
   annotationIds.add(id);
-  if (typeof entry.pageUrl !== 'string' || !isPageUrl(entry.pageUrl)) fail('has an invalid page URL');
+  if (!isPageUrl(entry.pageUrl)) fail('has an invalid page URL');
   if (typeof entry.note !== 'string') fail('has no note');
   const note = entry.note as string;
-  if (!note.trim()) fail('has an empty note');
+  if (isBlankNote(note)) fail('has an empty note');
   if (!isText(note)) fail(`has a note longer than ${MAX_TEXT_LENGTH} characters`);
   if (typeof entry.selector !== 'string') fail('has no selector');
   const selector = entry.selector as string;
@@ -233,7 +233,7 @@ async function parseEntry(
   const blobs: [string, Blob][] = [];
 
   if (entry.screenshot !== undefined) {
-    const blob = parseImage(entry.screenshot, 'screenshot', fail);
+    const blob = await parseImage(entry.screenshot, 'screenshot', fail);
     let size: { width: number; height: number };
     try {
       size = await dimensions(blob);
@@ -263,7 +263,7 @@ async function parseEntry(
       } catch {
         fail('has an attachment with an invalid name');
       }
-      const blob = parseImage(record, 'attachment', fail);
+      const blob = await parseImage(record, 'attachment', fail);
       metadata.push({ id: attachmentId, name: record.name as string, mimeType: blob.type, byteLength: blob.size });
       blobs.push([attachmentKey(attachmentId), blob]);
     }
@@ -273,7 +273,7 @@ async function parseEntry(
   return { annotation, blobs };
 }
 
-function parseImage(value: unknown, label: 'screenshot' | 'attachment', fail: (reason: string) => never): Blob {
+async function parseImage(value: unknown, label: 'screenshot' | 'attachment', fail: (reason: string) => never): Promise<Blob> {
   if (!isRecord(value) || typeof value.mimeType !== 'string' || typeof value.base64 !== 'string') {
     return fail(`has an invalid ${label}`);
   }
@@ -287,33 +287,11 @@ function parseImage(value: unknown, label: 'screenshot' | 'attachment', fail: (r
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   const blob = new Blob([bytes], { type: value.mimeType });
   try {
-    validateImageBlob(blob, value.mimeType);
+    await validateImageBlob(blob, value.mimeType);
   } catch (error) {
     fail(`has an invalid ${label}: ${error instanceof Error ? lowerFirst(error.message.replace(/\.$/, '')) : 'unreadable'}`);
   }
-  if (!hasImageSignature(bytes, value.mimeType)) fail(`has an invalid ${label}: its bytes are not ${value.mimeType}`);
   return blob;
-}
-
-function hasImageSignature(bytes: Uint8Array, mimeType: string): boolean {
-  const startsWith = (signature: string, offset = 0) =>
-    [...signature].every((character, index) => bytes[offset + index] === character.charCodeAt(0));
-  switch (mimeType) {
-    case 'image/png': return startsWith('\x89PNG\r\n\x1a\n');
-    case 'image/jpeg': return startsWith('\xff\xd8\xff');
-    case 'image/webp': return startsWith('RIFF') && startsWith('WEBP', 8);
-    default: return false;
-  }
-}
-
-function isPageUrl(value: string): boolean {
-  if (!isText(value)) return false;
-  try {
-    pageKey(value);
-    return PAGE_PROTOCOLS.has(new URL(value).protocol);
-  } catch {
-    return false;
-  }
 }
 
 /**

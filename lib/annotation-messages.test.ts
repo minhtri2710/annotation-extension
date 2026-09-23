@@ -270,7 +270,7 @@ describe('shared caps on write messages', () => {
     for (const message of [
       add({ note: cap }),
       add({ selector: cap }),
-      add({}, cap),
+      add({}, `https://example.com/${'x'.repeat(MAX_TEXT_LENGTH - 'https://example.com/'.length)}`),
       add({ elementContext: { ...elementContext, text: cap, classList: list(MAX_LIST_LENGTH) } }),
       add({ repro: { steps: list(MAX_LIST_LENGTH), expected: cap, actual: cap } }),
       add({ cssEdits: Array.from({ length: MAX_LIST_LENGTH }, () => ({ property: cap, value: cap, original: cap })) }),
@@ -309,6 +309,32 @@ describe('shared caps on write messages', () => {
     expect(annotationWriteError({ type: 'annotation.update', pageUrl, id: 'a b', changes: {} })).toBe('The annotation id is not valid.');
     expect(annotationWriteError({ type: 'annotation.add', pageUrl })).toBe('The annotation change is not valid.');
     expect(annotationWriteError({ type: 'annotation.add', pageUrl: 3, input: {} })).toBe('The page URL is missing.');
+  });
+
+  it('refuses a blank note on add and on an update that sets one', () => {
+    for (const note of ['', '   ', '\n\t ']) {
+      expect(annotationWriteError({ type: 'annotation.add', pageUrl, input: { note, selector: '#target', elementContext } })).toBe('The note is empty.');
+      expect(annotationWriteError({ type: 'annotation.update', pageUrl, id: 'annotation-1', changes: { note } })).toBe('The note is empty.');
+    }
+    expect(isAnnotationWriteMessage({ type: 'annotation.update', pageUrl, id: 'annotation-1', changes: { status: 'resolved' } })).toBe(true);
+  });
+
+  it('accepts only http, https and file page URLs on every write', () => {
+    for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'about:blank', 'ftp://example.com/', 'chrome-extension://abc/page.html', 'not a url']) {
+      expect(annotationWriteError({ type: 'annotation.clear', pageUrl: bad }), bad).toBe('The page URL is not an http, https or file URL.');
+      expect(annotationWriteError({ type: 'annotation.add', pageUrl: bad, input: { note: 'x', selector: '#target', elementContext } }), bad)
+        .toBe('The page URL is not an http, https or file URL.');
+    }
+    for (const good of ['http://example.com/', pageUrl, 'file:///tmp/page.html']) {
+      expect(annotationWriteError({ type: 'annotation.clear', pageUrl: good }), good).toBeUndefined();
+    }
+  });
+
+  it('answers a javascript: page URL with an error response and stores nothing', async () => {
+    const bad = 'javascript:alert(1)';
+    await expect(sendAnnotationWrite({ type: 'annotation.add', pageUrl: bad, input: { note: 'x', selector: '#target', elementContext } }))
+      .rejects.toThrow('The page URL is not an http, https or file URL.');
+    expect(Object.keys(await fakeBrowser.storage.local.get(null))).toEqual([]);
   });
 
   it('answers an over-cap write with an error response and stores nothing', async () => {

@@ -536,7 +536,7 @@ describe('note panel', () => {
 
     const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
     Object.defineProperty(input, 'files', {
-      value: [new File(['x'], `  ${'a'.repeat(130)}.png  `, { type: 'image/png' })],
+      value: [new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], `  ${'a'.repeat(130)}.png  `, { type: 'image/png' })],
     });
     input.dispatchEvent(new Event('change'));
 
@@ -545,6 +545,41 @@ describe('note panel', () => {
     expect(sentName).toHaveLength(120);
     expect(sentName).toMatch(/\.png$/);
     expect(sentName).not.toContain('  ');
+  });
+
+  it('attaches a JPEG named .png as image/jpeg under its own name', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Renamed JPEG');
+    const addAttachment = vi.fn().mockResolvedValue({ id: 'attachment-2', name: 'photo.png', mimeType: 'image/jpeg', byteLength: 7 });
+    await render(panel, [existing], { listAnnotations: vi.fn().mockResolvedValue([existing]), addAttachment });
+
+    const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    Object.defineProperty(input, 'files', { value: [new File([jpeg], 'photo.png', { type: 'image/png' })] });
+    input.dispatchEvent(new Event('change'));
+
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    expect(addAttachment.mock.calls[0]?.[0]).toMatchObject({
+      name: 'photo.png',
+      mimeType: 'image/jpeg',
+      base64: btoa(String.fromCharCode(...jpeg)),
+    });
+  });
+
+  it('refuses non-image bytes named .png with a status and writes nothing', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Fake PNG');
+    const addAttachment = vi.fn();
+    await render(panel, [existing], { listAnnotations: vi.fn().mockResolvedValue([existing]), addAttachment });
+
+    const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['<svg onload=alert(1)>'], 'fake.png', { type: 'image/png' })] });
+    input.dispatchEvent(new Event('change'));
+
+    await vi.waitFor(() =>
+      expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('fake.png is not a PNG, JPEG or WebP image.'),
+    );
+    expect(addAttachment).not.toHaveBeenCalled();
   });
 
   it('reports screenshot read errors and continues rendering without a preview', async () => {
@@ -573,7 +608,7 @@ describe('note panel', () => {
     const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
     Object.defineProperty(input, 'files', { value: [new File(['x'], 'bad.svg', { type: 'image/svg+xml' })] });
     input.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')?.textContent).toContain('Unsupported image mime type'));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')?.textContent).toContain('bad.svg is not a PNG, JPEG or WebP image.'));
     await expect(createNotePanel(panel).render(context)).resolves.toBeUndefined();
   });
 
@@ -888,7 +923,7 @@ describe('note panel screenshot outcome, fresh status, labels, announcements and
     const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
     Object.defineProperty(input, 'files', {
       configurable: true,
-      value: [new File([new Uint8Array([137, 80, 78, 71])], 'b.png', { type: 'image/png' })],
+      value: [new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'b.png', { type: 'image/png' })],
     });
     input.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));

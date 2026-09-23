@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { isRecord } from './guards';
+import { pageKey } from '../utils/page-key';
 import type { ElementContext } from './capture/context';
 import type {
   Annotation,
@@ -52,9 +53,25 @@ export const MAX_TEXT_LENGTH = 10_000;
 export const MAX_LIST_LENGTH = 1_000;
 const LIMITS = `each text is at most ${MAX_TEXT_LENGTH} characters and each list at most ${MAX_LIST_LENGTH} items`;
 const INVALID_CHANGE = 'The annotation change is not valid.';
+const PAGE_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
 
 export function isText(value: unknown): value is string {
   return typeof value === 'string' && value.length <= MAX_TEXT_LENGTH;
+}
+
+/** A page the storage can key: an http, https or file URL within the text cap. */
+export function isPageUrl(value: unknown): value is string {
+  if (!isText(value)) return false;
+  try {
+    pageKey(value);
+    return PAGE_PROTOCOLS.has(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+export function isBlankNote(value: string): boolean {
+  return !value.trim();
 }
 
 function isTextList(value: unknown): value is string[] {
@@ -73,7 +90,8 @@ export function isAnnotationWriteType(value: unknown): boolean {
 /** Why a write message is refused, in words for the user; undefined when it is valid. */
 export function annotationWriteError(value: unknown): string | undefined {
   if (!isRecord(value) || !isAnnotationWriteType(value)) return INVALID_CHANGE;
-  const pageUrlError = textError(value.pageUrl, 'The page URL');
+  const pageUrlError = textError(value.pageUrl, 'The page URL') ??
+    (isPageUrl(value.pageUrl) ? undefined : 'The page URL is not an http, https or file URL.');
   if (pageUrlError) return pageUrlError;
 
   switch (value.type) {
@@ -106,7 +124,7 @@ function annotationFieldsError(value: unknown, required: boolean): string | unde
   const shape = (field: unknown, valid: (field: unknown) => boolean, label: string) =>
     field === undefined || valid(field) ? undefined : `${label} are not valid: ${LIMITS}.`;
   return (
-    check(value.note, () => textError(value.note, 'The note')) ??
+    check(value.note, () => textError(value.note, 'The note') ?? (isBlankNote(value.note as string) ? 'The note is empty.' : undefined)) ??
     check(value.selector, () => textError(value.selector, 'The selector')) ??
     check(value.elementContext, () => isElementContext(value.elementContext) ? undefined : `The element details are not valid: ${LIMITS}.`) ??
     shape(value.repro, isRepro, 'The reproduction steps') ??
