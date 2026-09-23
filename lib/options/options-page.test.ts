@@ -80,6 +80,17 @@ describe('options page', () => {
     expect(storage.write).not.toHaveBeenCalled();
   });
 
+  it('rejects an entry outside the hostname grammar and saves nothing invalid', async () => {
+    const { elements, storage, add, entries, save } = setup({ enabled: true, allowlist: ['%2a.example.com'] });
+    await mountOptionsPage(elements, storage);
+    add('under_score.example');
+    expect(elements.entryError.textContent).toBe('"under_score.example" is not a valid site. Use a hostname like docs.example.com or a URL.');
+    expect(entries()).toEqual(['%2a.example.com']);
+    await save();
+    expect(elements.status.textContent).toBe('"%2a.example.com" is not a valid site. Use a hostname like docs.example.com or a URL.');
+    expect(storage.write).not.toHaveBeenCalled();
+  });
+
   it('saves the toggle and allowlist and says so', async () => {
     const { elements, storage, add, save } = setup();
     await mountOptionsPage(elements, storage);

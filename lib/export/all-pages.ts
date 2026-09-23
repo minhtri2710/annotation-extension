@@ -1,6 +1,6 @@
 import type { Annotation } from '../annotation';
 import { attachmentKey, screenshotKey } from '../blob-store';
-import type { AnnotationExportDelivery } from './delivery';
+import { clipboardFailure, type AnnotationExportDelivery } from './delivery';
 import { attachmentAssetFilename, formatAllPages, screenshotAssetFilename } from './format';
 
 export interface AllPagesExportDependencies {
@@ -16,8 +16,8 @@ export async function exportAllPages({ collect, readBlob, delivery }: AllPagesEx
     if (annotations.length === 0) return 'No annotations to export.';
 
     const markdown = formatAllPages(annotations);
-    await delivery.copy(markdown);
     delivery.download(markdown, 'annotations-all.md');
+    const copyFailure = await clipboardFailure(() => delivery.copy(markdown));
 
     let exported = 0;
     let skipped = 0;
@@ -43,7 +43,8 @@ export async function exportAllPages({ collect, readBlob, delivery }: AllPagesEx
     }
 
     const summary = `Exported ${plural(annotations.length, 'annotation')} and ${plural(exported, 'asset')}`;
-    return skipped > 0 ? `${summary}; skipped ${plural(skipped, 'missing asset')}.` : `${summary}.`;
+    const status = skipped > 0 ? `${summary}; skipped ${plural(skipped, 'missing asset')}.` : `${summary}.`;
+    return copyFailure ? `${status} ${copyFailure}` : status;
   } catch (error) {
     return `Export failed: ${error instanceof Error ? error.message : String(error)}`;
   }

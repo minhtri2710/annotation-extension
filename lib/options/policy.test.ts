@@ -87,6 +87,34 @@ describe('allowlist entry validation', () => {
     );
     expect(allowlistEntryError('docs.example.com')).toBeUndefined();
   });
+
+  it('accepts only hosts in the hostname grammar after normalization', () => {
+    for (const [entry, host] of [
+      ['127.0.0.1', '127.0.0.1'],
+      ['http://[::1]:8080/x', '[::1]'],
+      ['LOCALHOST', 'localhost'],
+      ['xn--bcher-kva.example', 'xn--bcher-kva.example'],
+      ['a-b.c1.example', 'a-b.c1.example'],
+    ]) {
+      expect(parseAllowlistEntry(entry!)).toBe(host);
+    }
+    for (const entry of [
+      '*.example.com',
+      'exa mple.com',
+      'not a host!!',
+      'under_score.example',
+      '-lead.example',
+      'trail-.example',
+      'a..b.example',
+      'example.com.',
+      'xn--',
+      `${'a'.repeat(64)}.example`,
+      'example.123',
+    ]) {
+      expect(parseAllowlistEntry(entry), entry).toBeUndefined();
+      expect(allowlistEntryError(entry)).toBe(`"${entry}" is not a valid site. Use a hostname like docs.example.com or a URL.`);
+    }
+  });
 });
 
 beforeEach(() => {

@@ -1,10 +1,12 @@
 import { browser } from 'wxt/browser';
 import { isRecord } from '../guards';
 import { deleteAnnotation, restoreAnnotation } from '../annotation-storage';
-import { isAnnotationStatus, isCssEdits, isElementContext, isRepro } from '../annotation-messages';
-import type { Annotation, AttachmentMetadata } from '../annotation';
+import { isAnnotationStatus } from '../annotation-messages';
+import type { Annotation, AttachmentMetadata, CssEdit, Repro } from '../annotation';
+import type { ElementContext } from '../capture/context';
 import { attachmentKey, createBlobStore, screenshotKey, type BlobStore } from '../blob-store';
 import { pageKey } from '../../utils/page-key';
+import { clipboardFailure } from '../export/delivery';
 import {
   isSupportedImageMimeType,
   MAX_ATTACHMENTS,
@@ -30,10 +32,17 @@ export type ImageDimensions = (blob: Blob) => Promise<{ width: number; height: n
 export interface JsonExportDependencies {
   collect(): Promise<Annotation[]>;
   blobStore: BlobStore;
-  deliver(json: string): Promise<void>;
+  download(json: string): void;
+  copy(json: string): Promise<void>;
 }
 
-const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+// Import caps: ids fit the minted UUIDs with room to spare; any other text field and any list is bounded.
+const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const MAX_TEXT_LENGTH = 10_000;
+const MAX_LIST_LENGTH = 1_000;
+/** In UTF-16 code units of the file text, so a file over it is also over it in bytes. */
+export const MAX_IMPORT_LENGTH = 200 * 1024 * 1024;
+const PAGE_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
 
 export async function serialize(
   annotations: Annotation[],
@@ -67,14 +76,16 @@ export async function serialize(
 }
 
 /** Returns the status message for the popup. */
-export async function exportJson({ collect, blobStore, deliver }: JsonExportDependencies): Promise<string> {
+export async function exportJson({ collect, blobStore, download, copy }: JsonExportDependencies): Promise<string> {
   try {
     const annotations = await collect();
     if (annotations.length === 0) return 'No annotations to export.';
     const { json, missing } = await serialize(annotations, blobStore);
-    await deliver(json);
+    download(json);
+    const copyFailure = await clipboardFailure(() => copy(json));
     const summary = `Exported ${plural(annotations.length, 'annotation')}`;
-    return missing > 0 ? `${summary}; ${plural(missing, 'missing file')} ${missing === 1 ? 'was' : 'were'} left out.` : `${summary}.`;
+    const status = missing > 0 ? `${summary}; ${plural(missing, 'missing file')} ${missing === 1 ? 'was' : 'were'} left out.` : `${summary}.`;
+    return copyFailure ? `${status} ${copyFailure}` : status;
   } catch (error) {
     return `Export failed: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -85,6 +96,9 @@ export async function parseImport(
   json: string,
   dimensions: ImageDimensions = imageDimensions,
 ): Promise<JsonImportEntry[]> {
+  if (json.length > MAX_IMPORT_LENGTH) {
+    throw new JsonImportError('Import failed: the file is larger than 200 MB. Nothing was imported.');
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -183,26 +197,32 @@ async function parseEntry(
   annotationIds.add(id);
   if (typeof entry.pageUrl !== 'string' || !isPageUrl(entry.pageUrl)) fail('has an invalid page URL');
   if (typeof entry.note !== 'string') fail('has no note');
+  const note = entry.note as string;
+  if (!note.trim()) fail('has an empty note');
+  if (note.length > MAX_TEXT_LENGTH) fail(`has a note longer than ${MAX_TEXT_LENGTH} characters`);
   if (typeof entry.selector !== 'string') fail('has no selector');
-  if (!isElementContext(entry.elementContext)) fail('has invalid element details');
+  const selector = entry.selector as string;
+  if (selector.length > MAX_TEXT_LENGTH) fail(`has a selector longer than ${MAX_TEXT_LENGTH} characters`);
+  const elementContext = readElementContext(entry.elementContext) ?? fail('has invalid element details');
   if (!isAnnotationStatus(entry.status)) fail('has an invalid status');
   if (!isTimestamp(entry.createdAt)) fail('has an invalid creation date');
   if (!isTimestamp(entry.updatedAt)) fail('has an invalid update date');
-  if (entry.repro !== undefined && !isRepro(entry.repro)) fail('has invalid reproduction steps');
-  if (entry.cssEdits !== undefined && !isCssEdits(entry.cssEdits)) fail('has invalid CSS edits');
+  const repro = entry.repro === undefined ? undefined : readRepro(entry.repro) ?? fail('has invalid reproduction steps');
+  const cssEdits = entry.cssEdits === undefined ? undefined : readCssEdits(entry.cssEdits) ?? fail('has invalid CSS edits');
 
-  const annotation = {
+  // Rebuilt from known fields only: unknown keys, including an own `__proto__`, are never stored or re-exported.
+  const annotation: Annotation = {
     id,
-    pageUrl: entry.pageUrl,
-    note: entry.note,
-    selector: entry.selector,
-    elementContext: entry.elementContext,
-    createdAt: entry.createdAt,
-    updatedAt: entry.updatedAt,
-    status: entry.status,
-    ...(entry.repro === undefined ? {} : { repro: entry.repro }),
-    ...(entry.cssEdits === undefined ? {} : { cssEdits: entry.cssEdits }),
-  } as Annotation;
+    pageUrl: entry.pageUrl as string,
+    note,
+    selector,
+    elementContext,
+    createdAt: entry.createdAt as string,
+    updatedAt: entry.updatedAt as string,
+    status: entry.status as Annotation['status'],
+    ...(repro === undefined ? {} : { repro }),
+    ...(cssEdits === undefined ? {} : { cssEdits }),
+  };
   const blobs: [string, Blob][] = [];
 
   if (entry.screenshot !== undefined) {
@@ -257,22 +277,98 @@ function parseImage(value: unknown, label: 'screenshot' | 'attachment', fail: (r
   } catch {
     fail(`has ${label} data that is not valid base64`);
   }
-  const blob = new Blob([Uint8Array.from(binary, (character) => character.charCodeAt(0))], { type: value.mimeType });
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const blob = new Blob([bytes], { type: value.mimeType });
   try {
     validateImageBlob(blob, value.mimeType);
   } catch (error) {
     fail(`has an invalid ${label}: ${error instanceof Error ? lowerFirst(error.message.replace(/\.$/, '')) : 'unreadable'}`);
   }
+  if (!hasImageSignature(bytes, value.mimeType)) fail(`has an invalid ${label}: its bytes are not ${value.mimeType}`);
   return blob;
 }
 
+function hasImageSignature(bytes: Uint8Array, mimeType: string): boolean {
+  const startsWith = (signature: string, offset = 0) =>
+    [...signature].every((character, index) => bytes[offset + index] === character.charCodeAt(0));
+  switch (mimeType) {
+    case 'image/png': return startsWith('\x89PNG\r\n\x1a\n');
+    case 'image/jpeg': return startsWith('\xff\xd8\xff');
+    case 'image/webp': return startsWith('RIFF') && startsWith('WEBP', 8);
+    default: return false;
+  }
+}
+
 function isPageUrl(value: string): boolean {
+  if (value.length > MAX_TEXT_LENGTH) return false;
   try {
     pageKey(value);
-    return true;
+    return PAGE_PROTOCOLS.has(new URL(value).protocol);
   } catch {
     return false;
   }
+}
+
+function isText(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_TEXT_LENGTH;
+}
+
+function isTextList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= MAX_LIST_LENGTH && value.every(isText);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function readElementContext(value: unknown): ElementContext | undefined {
+  if (!isRecord(value)) return undefined;
+  const { boundingBox, viewport, sourcePath } = value;
+  if (
+    !isRecord(boundingBox) || !isRecord(viewport) ||
+    !isText(value.selector) || !isText(value.tagName) || !isText(value.id) || !isTextList(value.classList) ||
+    !isText(value.text) || !isText(value.url) ||
+    !isFiniteNumber(boundingBox.x) || !isFiniteNumber(boundingBox.y) ||
+    !isFiniteNumber(boundingBox.width) || !isFiniteNumber(boundingBox.height) ||
+    !isFiniteNumber(viewport.width) || !isFiniteNumber(viewport.height)
+  ) {
+    return undefined;
+  }
+  if (sourcePath !== null) {
+    if (!isRecord(sourcePath) || !isText(sourcePath.fileName) || !sourcePath.fileName) return undefined;
+    if (sourcePath.lineNumber !== undefined && !isFiniteNumber(sourcePath.lineNumber)) return undefined;
+  }
+  return {
+    selector: value.selector,
+    tagName: value.tagName,
+    id: value.id,
+    classList: [...value.classList],
+    text: value.text,
+    boundingBox: { x: boundingBox.x, y: boundingBox.y, width: boundingBox.width, height: boundingBox.height },
+    url: value.url,
+    viewport: { width: viewport.width, height: viewport.height },
+    sourcePath: sourcePath === null
+      ? null
+      : {
+          fileName: sourcePath.fileName as string,
+          ...(sourcePath.lineNumber === undefined ? {} : { lineNumber: sourcePath.lineNumber as number }),
+        },
+  };
+}
+
+function readRepro(value: unknown): Repro | undefined {
+  if (!isRecord(value) || !isTextList(value.steps) || !isText(value.expected) || !isText(value.actual)) return undefined;
+  return { steps: [...value.steps], expected: value.expected, actual: value.actual };
+}
+
+function readCssEdits(value: unknown): CssEdit[] | undefined {
+  if (!Array.isArray(value) || value.length > MAX_LIST_LENGTH) return undefined;
+  const edits: CssEdit[] = [];
+  for (const edit of value) {
+    if (!isRecord(edit) || !isText(edit.property) || !isText(edit.value) || !isText(edit.original)) return undefined;
+    edits.push({ property: edit.property, value: edit.value, original: edit.original });
+  }
+  return edits;
 }
 
 function isTimestamp(value: unknown): value is string {

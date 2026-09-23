@@ -83,8 +83,8 @@ describe('exportAllPages', () => {
 
     expect(copied).toEqual([formatAllPages(withAssets)]);
     expect(events).toEqual([
-      'copy',
       'download:annotations-all.md',
+      'copy',
       'asset:annotations-one.webp:3',
       'asset:annotations-one-attachment-1.png:1',
       'asset:annotations-one-attachment-2.jpeg:2',
@@ -98,7 +98,7 @@ describe('exportAllPages', () => {
 
     const status = await exportAllPages({ collect: async () => withAssets, readBlob: async (key) => blobs[key], delivery });
 
-    expect(events).toEqual(['copy', 'download:annotations-all.md', 'asset:annotations-one-attachment-2.jpeg:2']);
+    expect(events).toEqual(['download:annotations-all.md', 'copy', 'asset:annotations-one-attachment-2.jpeg:2']);
     expect(status).toBe('Exported 2 annotations and 1 asset; skipped 2 missing assets.');
   });
 
@@ -112,7 +112,27 @@ describe('exportAllPages', () => {
     const status = await exportAllPages({ collect: async () => withAssets, readBlob, delivery });
 
     expect(status).toBe('Export failed: Blob transaction failed');
-    expect(events).toEqual(['copy', 'download:annotations-all.md', 'asset:annotations-one.webp:1']);
+    expect(events).toEqual(['download:annotations-all.md', 'copy', 'asset:annotations-one.webp:1']);
     expect(readBlob).toHaveBeenCalledTimes(2);
+  });
+
+  it('downloads the Markdown and every asset when the clipboard write fails, and reports the copy failure', async () => {
+    const { delivery, events } = recordingDelivery();
+    delivery.copy = async () => { throw new Error('Document is not focused.'); };
+    const blobs: Record<string, Blob> = {
+      'screenshot:one': new Blob(['abc']),
+      'attachment:att-a': new Blob(['a']),
+      'attachment:att-b': new Blob(['bb']),
+    };
+
+    const status = await exportAllPages({ collect: async () => withAssets, readBlob: async (key) => blobs[key], delivery });
+
+    expect(events).toEqual([
+      'download:annotations-all.md',
+      'asset:annotations-one.webp:3',
+      'asset:annotations-one-attachment-1.png:1',
+      'asset:annotations-one-attachment-2.jpeg:2',
+    ]);
+    expect(status).toBe('Exported 2 annotations and 3 assets. Downloaded; copy to clipboard failed: Document is not focused.');
   });
 });

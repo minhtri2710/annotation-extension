@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { Annotation } from '../annotation';
-import { exportJson, importAll, importJson, JsonImportError, parseImport, serialize } from './index';
+import { exportJson, importAll, importJson, JsonImportError, MAX_IMPORT_LENGTH, parseImport, serialize } from './index';
 import { attachmentKey, screenshotKey, type BlobStore } from '../blob-store';
 import { attachmentAssetFilename, screenshotAssetFilename } from '../export/format';
 
@@ -66,6 +66,19 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
 
 const dimensions = async () => ({ width: 10, height: 20 });
 
+const SIGNATURES: Record<string, string> = { 'image/png': '\x89PNG\r\n\x1a\n', 'image/jpeg': '\xff\xd8\xff', 'image/webp': 'RIFF\0\0\0\0WEBP' };
+/** Base64 of a payload behind the image signature the import checks. */
+function image(payload: string, mimeType = 'image/png'): string {
+  return btoa(SIGNATURES[mimeType] + payload);
+}
+function imageBlob(payload: string, mimeType: string): Blob {
+  return new Blob([Uint8Array.from(SIGNATURES[mimeType] + payload, (character) => character.charCodeAt(0))], { type: mimeType });
+}
+/** The payload after the signature, for byte comparisons. */
+async function payload(blob: Blob | undefined): Promise<string | undefined> {
+  return blob?.slice(SIGNATURES[blob.type]!.length).text();
+}
+
 function rawEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 'entry-1',
@@ -89,7 +102,7 @@ beforeEach(() => fakeBrowser.reset());
 describe('JSON annotation I/O', () => {
   it('round-trips annotations across pages with their ids and timestamps', async () => {
     const store = new MemoryBlobStore();
-    const blob = new Blob(['shot'], { type: 'image/webp' });
+    const blob = imageBlob('shot', 'image/webp');
     await store.put('screenshot:annotation-first', blob);
     const firstAnnotation = annotation({
       screenshot: { mimeType: 'image/webp', width: 800, height: 400, byteLength: blob.size },
@@ -117,7 +130,7 @@ describe('JSON annotation I/O', () => {
         blobs: [],
       },
     ]);
-    expect(await plan[0]!.blobs[0]![1].text()).toBe('shot');
+    expect(await payload(plan[0]!.blobs[0]![1])).toBe('shot');
     expect(plan[0]!.blobs[0]![1].type).toBe('image/webp');
   });
 
@@ -154,7 +167,7 @@ describe('JSON annotation I/O', () => {
     store.failPut = true;
     const plan = await parseImport(JSON.stringify([rawEntry({
       note: 'With image', selector: '#target',
-      screenshot: { mimeType: 'image/png', base64: btoa('shot') },
+      screenshot: { mimeType: 'image/png', base64: image('shot') },
     })]), async () => ({ width: 10, height: 10 }));
 
     await expect(importAll(plan, store)).rejects.toThrow('Import failed while saving entry 1. Nothing was imported.');
@@ -165,19 +178,19 @@ describe('JSON annotation I/O', () => {
     const store = new MemoryBlobStore();
     const plan = await parseImport(JSON.stringify([rawEntry({
       note: 'With image', selector: '#target',
-      screenshot: { mimeType: 'image/png', base64: btoa('shot') },
+      screenshot: { mimeType: 'image/png', base64: image('shot') },
     })]), async () => ({ width: 10, height: 20 }));
     await importAll(plan, store);
     const entries = await storedAnnotations();
     expect(entries).toHaveLength(1);
     const imported = entries[0] as Annotation;
-    expect(imported.screenshot).toEqual({ mimeType: 'image/png', width: 10, height: 20, byteLength: 4 });
+    expect(imported.screenshot).toEqual({ mimeType: 'image/png', width: 10, height: 20, byteLength: 12 });
     expect(await store.get(`screenshot:${imported.id}`)).toBeDefined();
   });
 
   it('round-trips status and attachments through JSON', async () => {
     const store = new MemoryBlobStore();
-    const attachmentBlob = new Blob(['attach'], { type: 'image/png' });
+    const attachmentBlob = imageBlob('attach', 'image/png');
     await store.put('attachment:attachment-1', attachmentBlob);
     const source = annotation({
       status: 'resolved',
@@ -185,7 +198,7 @@ describe('JSON annotation I/O', () => {
     });
     const exported = JSON.parse((await serialize([source], store)).json) as [{ status: string; attachments: [{ id: string; name: string; mimeType: string; base64: string }] }];
     expect(exported[0].status).toBe('resolved');
-    expect(exported[0].attachments).toEqual([{ id: 'attachment-1', name: 'photo.png', mimeType: 'image/png', base64: btoa('attach') }]);
+    expect(exported[0].attachments).toEqual([{ id: 'attachment-1', name: 'photo.png', mimeType: 'image/png', base64: image('attach') }]);
     const plan = await parseImport(JSON.stringify(exported), dimensions);
     expect(plan[0]?.annotation.status).toBe('resolved');
     expect(plan[0]?.annotation.attachments?.[0]?.name).toBe('photo.png');
@@ -193,14 +206,14 @@ describe('JSON annotation I/O', () => {
 
   it('rejects invalid attachment JSON and preserves Blob-before-metadata ordering', async () => {
     const base = rawEntry();
-    await expect(parseImport(JSON.stringify([{ ...base, attachments: [{ id: 'a', name: 'x.png', mimeType: 'image/svg+xml', base64: btoa('x') }] }]), dimensions)).rejects.toThrow('unsupported attachment type');
-    await expect(parseImport(JSON.stringify([{ ...base, attachments: Array.from({ length: 6 }, (_, index) => ({ id: `a${index}`, name: 'x.png', mimeType: 'image/png', base64: btoa('x') })) }]), dimensions)).rejects.toThrow('more than 5');
+    await expect(parseImport(JSON.stringify([{ ...base, attachments: [{ id: 'a', name: 'x.png', mimeType: 'image/svg+xml', base64: image('x') }] }]), dimensions)).rejects.toThrow('unsupported attachment type');
+    await expect(parseImport(JSON.stringify([{ ...base, attachments: Array.from({ length: 6 }, (_, index) => ({ id: `a${index}`, name: 'x.png', mimeType: 'image/png', base64: image('x') })) }]), dimensions)).rejects.toThrow('more than 5');
 
     const store = new MemoryBlobStore();
     const order: string[] = [];
     const originalPut = store.put.bind(store);
     store.put = async (key, blob) => { order.push(`put:${key}`); await originalPut(key, blob); };
-    const plan = await parseImport(JSON.stringify([{ ...base, attachments: [{ id: 'a', name: 'x.png', mimeType: 'image/png', base64: btoa('x') }] }]), dimensions);
+    const plan = await parseImport(JSON.stringify([{ ...base, attachments: [{ id: 'a', name: 'x.png', mimeType: 'image/png', base64: image('x') }] }]), dimensions);
     await importAll(plan, store);
     const stored = await storedAnnotations();
     expect(order[0]).toMatch(/^put:attachment:/);
@@ -223,8 +236,8 @@ describe('JSON annotation I/O', () => {
 
   it('restores identity so ids, dates, attachment ids and Markdown asset filenames survive a round trip', async () => {
     const store = new MemoryBlobStore();
-    const shot = new Blob(['shot'], { type: 'image/png' });
-    const file = new Blob(['file'], { type: 'image/jpeg' });
+    const shot = imageBlob('shot', 'image/png');
+    const file = imageBlob('file', 'image/jpeg');
     const source = annotation({
       screenshot: { mimeType: 'image/png', width: 30, height: 40, byteLength: shot.size },
       attachments: [{ id: 'attachment-keep', name: 'p.jpg', mimeType: 'image/jpeg', byteLength: file.size }],
@@ -241,8 +254,8 @@ describe('JSON annotation I/O', () => {
     expect(restored).toEqual(source);
     expect(screenshotAssetFilename(restored!.id, restored!.screenshot!.mimeType)).toBe(screenshotAssetFilename(source.id, 'image/png'));
     expect(attachmentAssetFilename(restored!.id, 0, restored!.attachments![0]!.mimeType)).toBe(attachmentAssetFilename(source.id, 0, 'image/jpeg'));
-    expect(await target.get(screenshotKey(source.id))?.then((blob) => blob?.text())).toBe('shot');
-    expect(await (await target.get(attachmentKey('attachment-keep')))?.text()).toBe('file');
+    expect(await target.get(screenshotKey(source.id))?.then(payload)).toBe('shot');
+    expect(await payload(await target.get(attachmentKey('attachment-keep')))).toBe('file');
   });
 
   it('skips entries whose id already exists on the target page and reports both counts', async () => {
@@ -270,9 +283,9 @@ describe('JSON annotation I/O', () => {
       [rawEntry({ id: 'e', createdAt: 'yesterday' }), 'has an invalid creation date'],
       [rawEntry({ id: 'e', updatedAt: undefined }), 'has an invalid update date'],
       [rawEntry({ id: 'valid' }), 'repeats annotation id valid'],
-      [rawEntry({ id: 'e', attachments: [{ name: 'x.png', mimeType: 'image/png', base64: btoa('x') }] }), 'has an attachment without an id'],
-      [rawEntry({ id: 'e', attachments: [{ id: 'dup', name: 'x.png', mimeType: 'image/png', base64: btoa('x') }, { id: 'dup', name: 'y.png', mimeType: 'image/png', base64: btoa('y') }] }), 'repeats attachment id dup'],
-      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: ' x.png', mimeType: 'image/png', base64: btoa('x') }] }), 'has an attachment with an invalid name'],
+      [rawEntry({ id: 'e', attachments: [{ name: 'x.png', mimeType: 'image/png', base64: image('x') }] }), 'has an attachment without an id'],
+      [rawEntry({ id: 'e', attachments: [{ id: 'dup', name: 'x.png', mimeType: 'image/png', base64: image('x') }, { id: 'dup', name: 'y.png', mimeType: 'image/png', base64: image('y') }] }), 'repeats attachment id dup'],
+      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: ' x.png', mimeType: 'image/png', base64: image('x') }] }), 'has an attachment with an invalid name'],
       [rawEntry({ id: 'e', screenshot: { mimeType: 'image/png' } }), 'has an invalid screenshot'],
       ['not an object' as unknown as Record<string, unknown>, 'is not an annotation object'],
     ];
@@ -285,7 +298,7 @@ describe('JSON annotation I/O', () => {
   });
 
   it('reports an undecodable screenshot in plain words instead of the engine message', async () => {
-    const json = JSON.stringify([rawEntry({ screenshot: { mimeType: 'image/png', base64: btoa('not an image') } })]);
+    const json = JSON.stringify([rawEntry({ screenshot: { mimeType: 'image/png', base64: image('not an image') } })]);
     const status = await importJson(json, new MemoryBlobStore(), async () => { throw new Error('The source image could not be decoded.'); });
     expect(status).toBe('Import failed: entry 1 has a screenshot that could not be read. Nothing was imported.');
     await expect(importJson('{', new MemoryBlobStore(), dimensions)).resolves.toBe('Import failed: the file is not valid JSON. Nothing was imported.');
@@ -295,10 +308,10 @@ describe('JSON annotation I/O', () => {
 
   it('rolls back every annotation and blob the import wrote when a later write fails', async () => {
     const store = new MemoryBlobStore();
-    const shot = { mimeType: 'image/png', base64: btoa('shot') };
+    const shot = { mimeType: 'image/png', base64: image('shot') };
     const json = JSON.stringify([
       rawEntry({ id: 'one', screenshot: shot }),
-      rawEntry({ id: 'two', pageUrl: secondPage, attachments: [{ id: 'att', name: 'x.png', mimeType: 'image/png', base64: btoa('x') }] }),
+      rawEntry({ id: 'two', pageUrl: secondPage, attachments: [{ id: 'att', name: 'x.png', mimeType: 'image/png', base64: image('x') }] }),
       rawEntry({ id: 'three', screenshot: shot }),
     ]);
     store.failPutAt = 3;
@@ -327,7 +340,7 @@ describe('JSON annotation I/O', () => {
     const store = new MemoryBlobStore();
     await importJson(JSON.stringify([rawEntry({ id: 'existing' })]), store, dimensions);
     store.failPutAt = store.puts + 1;
-    const status = await importJson(JSON.stringify([rawEntry({ id: 'new-one' }), rawEntry({ id: 'new-two', screenshot: { mimeType: 'image/png', base64: btoa('x') } })]), store, dimensions);
+    const status = await importJson(JSON.stringify([rawEntry({ id: 'new-one' }), rawEntry({ id: 'new-two', screenshot: { mimeType: 'image/png', base64: image('x') } })]), store, dimensions);
     expect(status).toBe('Import failed while saving entry 2. Nothing was imported.');
     expect((await storedAnnotations()).map((entry) => entry.id)).toEqual(['existing']);
   });
@@ -336,42 +349,42 @@ describe('JSON annotation I/O', () => {
 describe('JSON import across pages', () => {
   it('skips an id stored on another page and never touches that annotation or its blob, even on rollback', async () => {
     const store = new MemoryBlobStore();
-    const pageA = rawEntry({ id: 'shared', screenshot: { mimeType: 'image/png', base64: btoa('page-a-bytes') } });
+    const pageA = rawEntry({ id: 'shared', screenshot: { mimeType: 'image/png', base64: image('page-a-bytes') } });
     await expect(importJson(JSON.stringify([pageA]), store, dimensions)).resolves.toBe('Imported 1 annotation, skipped 0 already present.');
     store.failPutAt = store.puts + 2;
     const json = JSON.stringify([
-      rawEntry({ id: 'shared', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: btoa('page-b-bytes') } }),
-      rawEntry({ id: 'fresh', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: btoa('x') }, attachments: [{ id: 'fresh-att', name: 'x.png', mimeType: 'image/png', base64: btoa('y') }] }),
+      rawEntry({ id: 'shared', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: image('page-b-bytes') } }),
+      rawEntry({ id: 'fresh', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: image('x') }, attachments: [{ id: 'fresh-att', name: 'x.png', mimeType: 'image/png', base64: image('y') }] }),
     ]);
     await expect(importJson(json, store, dimensions)).resolves.toBe('Import failed while saving entry 2. Nothing was imported.');
     const stored = await storedAnnotations();
     expect(stored.map((entry) => [entry.id, entry.pageUrl])).toEqual([['shared', firstPage]]);
     expect(stored[0]!.screenshot).toBeDefined();
-    expect(await (await store.get(screenshotKey('shared')))?.text()).toBe('page-a-bytes');
+    expect(await payload(await store.get(screenshotKey('shared')))).toBe('page-a-bytes');
     expect([...store.blobs.keys()]).toEqual([screenshotKey('shared')]);
   });
 
   it('counts an id stored on another page as already present and writes nothing for it', async () => {
     const store = new MemoryBlobStore();
-    await importJson(JSON.stringify([rawEntry({ id: 'shared', screenshot: { mimeType: 'image/png', base64: btoa('a') } })]), store, dimensions);
+    await importJson(JSON.stringify([rawEntry({ id: 'shared', screenshot: { mimeType: 'image/png', base64: image('a') } })]), store, dimensions);
     const puts = store.puts;
-    const json = JSON.stringify([rawEntry({ id: 'shared', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: btoa('b') } }), rawEntry({ id: 'other', pageUrl: secondPage })]);
+    const json = JSON.stringify([rawEntry({ id: 'shared', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: image('b') } }), rawEntry({ id: 'other', pageUrl: secondPage })]);
     await expect(importJson(json, store, dimensions)).resolves.toBe('Imported 1 annotation, skipped 1 already present.');
     expect(store.puts).toBe(puts);
     expect((await storedAnnotations()).map((entry) => [entry.id, entry.pageUrl]).sort()).toEqual([['other', secondPage], ['shared', firstPage]]);
-    expect(await (await store.get(screenshotKey('shared')))?.text()).toBe('a');
+    expect(await payload(await store.get(screenshotKey('shared')))).toBe('a');
   });
 
   it('rejects a new annotation that reuses a stored attachment id, before any write', async () => {
     const store = new MemoryBlobStore();
-    const attachment = (bytes: string) => [{ id: 'att', name: 'x.png', mimeType: 'image/png', base64: btoa(bytes) }];
+    const attachment = (bytes: string) => [{ id: 'att', name: 'x.png', mimeType: 'image/png', base64: image(bytes) }];
     await importJson(JSON.stringify([rawEntry({ id: 'owner', attachments: attachment('mine') })]), store, dimensions);
     const puts = store.puts;
     const json = JSON.stringify([rawEntry({ id: 'first-new', pageUrl: secondPage }), rawEntry({ id: 'intruder', pageUrl: secondPage, attachments: attachment('theirs') })]);
     await expect(importJson(json, store, dimensions)).resolves.toBe('Import failed: entry 2 reuses attachment id att that is already stored. Nothing was imported.');
     expect(store.puts).toBe(puts);
     expect((await storedAnnotations()).map((entry) => entry.id)).toEqual(['owner']);
-    expect(await (await store.get(attachmentKey('att')))?.text()).toBe('mine');
+    expect(await payload(await store.get(attachmentKey('att')))).toBe('mine');
   });
 });
 
@@ -380,7 +393,12 @@ describe('JSON export', () => {
     const delivered: string[] = [];
     return {
       delivered,
-      dependencies: { collect: async () => annotations, blobStore: store, deliver: async (json: string) => { delivered.push(json); } },
+      dependencies: {
+        collect: async () => annotations,
+        blobStore: store,
+        download: (json: string) => { delivered.push(json); },
+        copy: async (_json: string) => {},
+      },
     };
   }
 
@@ -392,7 +410,7 @@ describe('JSON export', () => {
 
   it('exports every annotation, leaves out missing blobs, and the export still imports', async () => {
     const store = new MemoryBlobStore();
-    await store.put(attachmentKey('present'), new Blob(['p'], { type: 'image/png' }));
+    await store.put(attachmentKey('present'), imageBlob('p', 'image/png'));
     const source = [
       annotation({
         screenshot: { mimeType: 'image/png', width: 1, height: 1, byteLength: 4 },
@@ -411,12 +429,107 @@ describe('JSON export', () => {
     await expect(importJson(delivered[0]!, new MemoryBlobStore(), dimensions)).resolves.toBe('Imported 2 annotations, skipped 0 already present.');
     const restored = (await storedAnnotations()).find((entry) => entry.id === source[0]!.id);
     expect(restored?.screenshot).toBeUndefined();
-    expect(restored?.attachments).toEqual([{ id: 'present', name: 'p.png', mimeType: 'image/png', byteLength: 1 }]);
+    expect(restored?.attachments).toEqual([{ id: 'present', name: 'p.png', mimeType: 'image/png', byteLength: 9 }]);
   });
 
   it('reports a clean export and turns any other failure into a status', async () => {
     const { dependencies } = deps([annotation()], new MemoryBlobStore());
     await expect(exportJson(dependencies)).resolves.toBe('Exported 1 annotation.');
-    await expect(exportJson({ ...dependencies, deliver: async () => { throw new Error('clipboard denied'); } })).resolves.toBe('Export failed: clipboard denied');
+    await expect(exportJson({ ...dependencies, download: () => { throw new Error('download blocked'); } })).resolves.toBe('Export failed: download blocked');
+  });
+
+  it('downloads before copying, and a clipboard failure never prevents the download', async () => {
+    const order: string[] = [];
+    const { dependencies } = deps([annotation()], new MemoryBlobStore());
+    const status = await exportJson({
+      ...dependencies,
+      download: (json) => { order.push(`download:${JSON.parse(json).length}`); },
+      copy: async () => { order.push('copy'); throw new Error('clipboard denied'); },
+    });
+    expect(order).toEqual(['download:1', 'copy']);
+    expect(status).toBe('Exported 1 annotation. Downloaded; copy to clipboard failed: clipboard denied');
+  });
+});
+
+describe('strict JSON import', () => {
+  it('keeps only known fields at every level, so an own __proto__ or constructor key is never stored or exported', async () => {
+    const junk = '"__proto__":{"polluted":"yes"},"constructor":{"prototype":{"polluted":"yes"}},"extra":"x"';
+    const context = JSON.stringify(firstElementContext).slice(1, -1)
+      .replace('"boundingBox":{', `"boundingBox":{${junk},`)
+      .replace('"viewport":{', `"viewport":{${junk},`)
+      .replace('"sourcePath":{', `"sourcePath":{${junk},`);
+    const json = `[{${junk},"id":"e1","pageUrl":"${firstPage}","note":"n","selector":"#x","status":"open",`
+      + `"createdAt":"2024-02-01T10:00:00.000Z","updatedAt":"2024-02-01T10:00:00.000Z",`
+      + `"elementContext":{${junk},${context}},`
+      + `"repro":{${junk},"steps":["s"],"expected":"e","actual":"a"},`
+      + `"cssEdits":[{${junk},"property":"color","value":"red","original":"blue"}],`
+      + `"screenshot":{${junk},"mimeType":"image/png","base64":"${image('shot')}"},`
+      + `"attachments":[{${junk},"id":"att","name":"x.png","mimeType":"image/png","base64":"${image('x')}"}]}]`;
+    expect(JSON.parse(json)[0].elementContext.boundingBox).toHaveProperty('__proto__', { polluted: 'yes' });
+
+    const store = new MemoryBlobStore();
+    await expect(importJson(json, store, dimensions)).resolves.toBe('Imported 1 annotation, skipped 0 already present.');
+    const [stored] = await storedAnnotations();
+    expect(stored).toEqual({
+      id: 'e1', pageUrl: firstPage, note: 'n', selector: '#x', status: 'open',
+      createdAt: '2024-02-01T10:00:00.000Z', updatedAt: '2024-02-01T10:00:00.000Z',
+      elementContext: firstElementContext,
+      repro: { steps: ['s'], expected: 'e', actual: 'a' },
+      cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
+      screenshot: { mimeType: 'image/png', width: 10, height: 20, byteLength: 12 },
+      attachments: [{ id: 'att', name: 'x.png', mimeType: 'image/png', byteLength: 9 }],
+    });
+    const exported = (await serialize([stored!], store)).json;
+    expect(exported).not.toMatch(/__proto__|constructor|extra|polluted/);
+    expect(Object.prototype).not.toHaveProperty('polluted');
+    for (const record of [stored, stored!.elementContext, stored!.elementContext.boundingBox, stored!.elementContext.viewport, stored!.elementContext.sourcePath, stored!.repro, stored!.cssEdits![0]]) {
+      expect(Object.getPrototypeOf(record)).toBe(Object.prototype);
+      expect(Object.hasOwn(record!, '__proto__')).toBe(false);
+    }
+  });
+
+  it('rejects out-of-grammar values with the entry position and reason, and writes nothing', async () => {
+    const valid = rawEntry({ id: 'valid' });
+    const long = 'x'.repeat(10_001);
+    const cases: [Record<string, unknown>, string][] = [
+      [rawEntry({ id: 'a'.repeat(65) }), 'has an invalid annotation id'],
+      [rawEntry({ id: 'e', attachments: [{ id: 'b'.repeat(65), name: 'x.png', mimeType: 'image/png', base64: image('x') }] }), 'has an attachment with an invalid id'],
+      [rawEntry({ id: 'e', pageUrl: 'javascript:alert(1)' }), 'has an invalid page URL'],
+      [rawEntry({ id: 'e', pageUrl: 'data:text/html,<p>x</p>' }), 'has an invalid page URL'],
+      [rawEntry({ id: 'e', pageUrl: 'about:blank' }), 'has an invalid page URL'],
+      [rawEntry({ id: 'e', pageUrl: `https://example.com/${long}` }), 'has an invalid page URL'],
+      [rawEntry({ id: 'e', note: ' \n\t ' }), 'has an empty note'],
+      [rawEntry({ id: 'e', note: long }), 'has a note longer than 10000 characters'],
+      [rawEntry({ id: 'e', selector: long }), 'has a selector longer than 10000 characters'],
+      [rawEntry({ id: 'e', elementContext: { ...firstElementContext, text: long } }), 'has invalid element details'],
+      [rawEntry({ id: 'e', elementContext: { ...firstElementContext, classList: Array.from({ length: 1001 }, () => 'c') } }), 'has invalid element details'],
+      [rawEntry({ id: 'e', repro: { steps: [long], expected: '', actual: '' } }), 'has invalid reproduction steps'],
+      [rawEntry({ id: 'e', repro: { steps: Array.from({ length: 1001 }, () => 's'), expected: '', actual: '' } }), 'has invalid reproduction steps'],
+      [rawEntry({ id: 'e', cssEdits: [{ property: 'color', value: long, original: '' }] }), 'has invalid CSS edits'],
+      [rawEntry({ id: 'e', screenshot: { mimeType: 'image/png', base64: image('x', 'image/jpeg') } }), 'has an invalid screenshot: its bytes are not image/png'],
+      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.png', mimeType: 'image/png', base64: btoa('<svg onload=alert(1)>') }] }), 'has an invalid attachment: its bytes are not image/png'],
+      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.webp', mimeType: 'image/webp', base64: btoa('RIFF\0\0\0\0WAVE') }] }), 'has an invalid attachment: its bytes are not image/webp'],
+    ];
+    for (const [entry, reason] of cases) {
+      await expect(importJson(JSON.stringify([valid, entry]), new MemoryBlobStore(), dimensions), reason).resolves.toBe(
+        `Import failed: entry 2 ${reason}. Nothing was imported.`,
+      );
+    }
+    expect(await fakeBrowser.storage.local.get(null)).toEqual({});
+  });
+
+  it('accepts http, https and file pages and every supported image signature', async () => {
+    const json = JSON.stringify([
+      rawEntry({ id: 'h', pageUrl: 'http://example.com/', screenshot: { mimeType: 'image/jpeg', base64: image('j', 'image/jpeg') } }),
+      rawEntry({ id: 'f', pageUrl: 'file:///tmp/page.html', attachments: [{ id: 'w', name: 'w.webp', mimeType: 'image/webp', base64: image('w', 'image/webp') }] }),
+    ]);
+    await expect(importJson(json, new MemoryBlobStore(), dimensions)).resolves.toBe('Imported 2 annotations, skipped 0 already present.');
+  });
+
+  it('rejects a file over the size cap before parsing it', async () => {
+    await expect(importJson(' '.repeat(MAX_IMPORT_LENGTH + 1), new MemoryBlobStore(), dimensions)).resolves.toBe(
+      'Import failed: the file is larger than 200 MB. Nothing was imported.',
+    );
+    expect(await fakeBrowser.storage.local.get(null)).toEqual({});
   });
 });

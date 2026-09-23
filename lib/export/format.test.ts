@@ -109,7 +109,7 @@ describe('Markdown annotation formatter', () => {
     );
 
     expect(markdown).toContain('### CSS tweaks');
-    expect(markdown).toContain('### CSS tweaks\ncolor: rgb(0, 0, 0) -> red\nmargin: 0px -> 1rem');
+    expect(markdown).toContain('### CSS tweaks\n```\ncolor: rgb(0, 0, 0) -> red\nmargin: 0px -> 1rem\n```');
   });
 
   it('omits optional blocks when their data is absent', () => {
@@ -154,8 +154,8 @@ describe('Markdown annotation formatter byte identity', () => {
         '- Source: src/App.tsx:42',
         '![Annotation screenshot](./annotations-annotation-1.png)',
         '### Attachments\n- [photo.png](./annotations-annotation-1-attachment-1.png)',
-        '### Reproduction\n1. Open\nExpected: Works\nActual: Breaks',
-        '### CSS tweaks\ncolor: blue -> red',
+        '### Reproduction\n```\n1. Open\nExpected: Works\nActual: Breaks\n```',
+        '### CSS tweaks\n```\ncolor: blue -> red\n```',
       ].join('\n'),
     ].join('\n\n'));
   });
@@ -207,8 +207,110 @@ describe('All-pages Markdown formatter', () => {
     expect(markdown.indexOf('Older note')).toBeLessThan(markdown.indexOf('Newer note'));
     expect(markdown.match(/^#### Annotation 1$/gm)).toHaveLength(2);
     expect(markdown.match(/^#### Annotation 2$/gm)).toHaveLength(1);
-    expect(markdown).toContain('##### CSS tweaks\ncolor: blue -> red');
+    expect(markdown).toContain('##### CSS tweaks\n```\ncolor: blue -> red\n```');
     expect(markdown).not.toMatch(/^## Annotation/m);
     expect(markdown).toContain('#### Annotation 1\n- Note: Older note\n- Status: open');
+  });
+});
+
+/** Lines outside fenced code blocks; fences may sit inside a list item (indented up to 3 spaces). */
+function linesOutsideFences(markdown: string): string[] {
+  const outside: string[] = [];
+  let fence = 0;
+  for (const line of markdown.split('\n')) {
+    const run = /^ {0,3}(`{3,})\s*$/.exec(line)?.[1]?.length ?? 0;
+    if (fence === 0 && run > 0) fence = run;
+    else if (fence > 0 && run >= fence) fence = 0;
+    else if (fence === 0) outside.push(line);
+  }
+  expect(fence, 'every fence closes').toBe(0);
+  return outside;
+}
+
+const OWN_HEADING = /^#{1,6} (?:Page annotations|All annotations|Annotation \d+|Attachments|Reproduction|CSS tweaks|example\.com|https:\/\/example\.com\/\S*)$/;
+const OWN_LIST_ITEM = /^- (?:Note:|Status: |Selector: |Element: |Source: |\\?\[)/;
+
+function expectOnlyOwnStructure(markdown: string, assetLinks: number): void {
+  const outside = linesOutsideFences(markdown);
+  for (const line of outside) {
+    if (line.startsWith('#')) expect(line).toMatch(OWN_HEADING);
+    if (/^\s*(?:[-*+]|\d+[.)])(?:\s|$)/.test(line)) expect(line).toMatch(OWN_LIST_ITEM);
+    expect(line).not.toMatch(/^\s*(?:>|<|\||={2,}|-{3,})/);
+    expect(line).not.toMatch(/^ {4,}\S/);
+  }
+  const text = outside.join('\n');
+  expect(text).not.toMatch(/(?<!\\)<[a-z/!?]/i);
+  expect(text.match(/(?<!\\)\]\(/g) ?? []).toHaveLength(assetLinks);
+  expect(text).not.toMatch(/\r/);
+}
+
+const hostile = [
+  '# injected',
+  '## after CRLF\r\n### and again',
+  '- item',
+  '> quote',
+  '| a | b |',
+  '|---|---|',
+  '<script>alert(1)</script>',
+  '[x](javascript:alert(1)) ![i](y)',
+  '```',
+  '````not closed',
+  '1. numbered',
+  '===',
+  '    indented code',
+].join('\n');
+
+describe('Markdown export keeps user text inside its block', () => {
+  const adversarial = annotation({
+    note: hostile,
+    selector: 'a[href="x"] > b | <i>\n# sel',
+    repro: { steps: ['# step', 'two\r\n- list', '````'], expected: '<script>x</script>', actual: '# injected\n```' },
+    cssEdits: [{ property: '# prop', value: '```\n# v', original: 'blue\r\n# h' }],
+    attachments: [
+      { id: 'att-1', name: 'big](evil.md) [x.png', mimeType: 'image/png', byteLength: 1 },
+      { id: 'att-2', name: '<img src=x onerror=alert(1)>.png', mimeType: 'image/jpeg', byteLength: 1 },
+    ],
+    screenshot: { mimeType: 'image/png', width: 1, height: 1, byteLength: 1 },
+  });
+
+  it('confines hostile note, selector, repro, CSS and attachment text to its list item or fenced block', () => {
+    const markdown = format([adversarial], pageUrl);
+    expectOnlyOwnStructure(markdown, 3);
+    expect(markdown).toContain('- [big\\](evil.md) \\[x.png](./annotations-annotation-1-attachment-1.png)');
+    expect(markdown).toContain('- [\\<img src=x onerror=alert(1)\\>.png](./annotations-annotation-1-attachment-2.jpeg)');
+    expect(markdown).toContain('![Annotation screenshot](./annotations-annotation-1.png)');
+    expect(markdown).toContain('- Selector: a\\[href="x"\\] \\> b \\| \\<i\\> # sel');
+    expect(markdown).toContain(`- Note:\n  \`\`\`\`\`\n${hostile.replace(/\r\n/g, '\n').split('\n').map((line) => `  ${line}`).join('\n')}\n  \`\`\`\`\``);
+    expect(markdown).toContain('### Reproduction\n`````\n1. # step\n2. two\n- list\n3. ````\nExpected: <script>x</script>\nActual: # injected\n```\n`````');
+    expect(markdown).toContain('### CSS tweaks\n````\n# prop: blue\n# h -> ```\n# v\n````');
+  });
+
+  it('confines the same text in the all-pages export', () => {
+    const markdown = formatAllPages([adversarial, annotation({ id: 'b', note: 'Plain', pageUrl: 'https://example.com/a?q=[x](y)|z' })]);
+    expectOnlyOwnStructure(markdown, 3);
+    expect(markdown).toContain('### https://example.com/a?q=\\[x\\](y)\\|z');
+  });
+
+  it('keeps emoji, combining marks, RTL and long lines verbatim in a single-line note', () => {
+    const note = `Café 👩🏽‍💻 e\u0301 שלום مرحبا ${'x'.repeat(5000)} a*b_c`;
+    const markdown = format([annotation({ note })], pageUrl);
+    expect(markdown).toContain(`- Note: ${note}\n`);
+    expectOnlyOwnStructure(markdown, 0);
+  });
+
+  it('escapes link text and percent-encodes link targets while asset links still name the downloaded files', () => {
+    const markdown = format([annotation({
+      id: 'x y(1)',
+      screenshot: { mimeType: 'image/png', width: 1, height: 1, byteLength: 1 },
+      attachments: [{ id: 'a', name: 'ok.png', mimeType: 'image/png', byteLength: 1 }],
+    })], pageUrl);
+    expect(markdown).toContain(`![Annotation screenshot](./${encodeURI(screenshotAssetFilename('x y(1)', 'image/png')).replace('(', '%28').replace(')', '%29')})`);
+    expect(markdown).toContain('- [ok.png](./annotations-x%20y%281%29-attachment-1.png)');
+    expect(decodeURIComponent('annotations-x%20y%281%29-attachment-1.png')).toBe(attachmentAssetFilename('x y(1)', 0, 'image/png'));
+  });
+
+  it('uses a fence longer than any backtick run in the content', () => {
+    const markdown = format([annotation({ cssEdits: [{ property: 'content', value: '"``````"', original: 'none' }] })], pageUrl);
+    expect(markdown).toContain('### CSS tweaks\n```````\ncontent: none -> "``````"\n```````');
   });
 });

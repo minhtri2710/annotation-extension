@@ -24,3 +24,13 @@ function downloadBlob(blob: Blob, filename: string): void {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+/** Runs a clipboard write after the download already happened; returns the status suffix when it fails. */
+export async function clipboardFailure(copy: () => Promise<void>): Promise<string | undefined> {
+  try {
+    await copy();
+    return undefined;
+  } catch (error) {
+    return `Downloaded; copy to clipboard failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}

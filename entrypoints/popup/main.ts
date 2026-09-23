@@ -36,10 +36,8 @@ exportButton?.addEventListener('click', async () => {
     await exportJson({
       collect: collectAllAnnotations,
       blobStore,
-      deliver: async (json) => {
-        await navigator.clipboard.writeText(json);
-        downloadJson(json);
-      },
+      download: downloadJson,
+      copy: (json) => navigator.clipboard.writeText(json),
     }),
   );
 });
