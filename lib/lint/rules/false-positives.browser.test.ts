@@ -207,6 +207,60 @@ describe('text-occlusion on floating labels in a real browser', () => {
       }
     },
   );
+
+  // A cover outside the field, overlapping the label; the truth page is the same page with a
+  // hit-testable label.
+  const outside = (css: string, body: string) => (labelCss: string) => page(
+    `.field{position:relative;width:300px}.field input{display:block;box-sizing:border-box;width:100%;height:56px;padding-top:24px}.field label{position:absolute;left:12px;top:6px;font-size:14px;color:#333;pointer-events:none}.cover{background:#fff;width:300px;height:60px}${css}.field label{${labelCss}}`,
+    body,
+  );
+  const outsideField = '<div class="field"><input id="dest"><label for="dest">Destination</label></div>';
+
+  async function expectOccludedExactlyWhenPainted(html: (labelCss: string) => string, expected?: boolean) {
+    const truthWin = await load(html('pointer-events:auto'));
+    const truthLabel = truthWin.document.querySelector('label')!;
+    const rect = truthLabel.getBoundingClientRect();
+    const coverRect = truthWin.document.querySelector('.cover')!.getBoundingClientRect();
+    expect(coverRect.left <= rect.left && coverRect.right >= rect.right && coverRect.top <= rect.top && coverRect.bottom >= rect.bottom).toBe(true);
+    const covered = truthWin.document.elementFromPoint(rect.left + 5, rect.top + rect.height / 2) !== truthLabel;
+    if (expected !== undefined) expect(covered).toBe(expected);
+    frame!.remove();
+
+    const win = await load(html(''));
+    const hits = await findings(win, liveStateRules, 'text-occlusion');
+    if (covered) {
+      expect(hits).toHaveLength(1);
+      expect(hits[0]!.el).toBe(win.document.querySelector('label'));
+      expect(hits[0]!.detail).toContain('covered by an opaque element (div.cover)');
+    } else {
+      expect(hits).toEqual([]);
+    }
+  }
+
+  it('reports a z-indexed dropdown in a z-auto positioned wrapper painted over a later label', async () => {
+    await expectOccludedExactlyWhenPainted(outside('', `<div style="position:relative;height:0"><div class="cover" style="position:absolute;top:0;z-index:1000">menu</div></div>${outsideField}`), true);
+  });
+
+  it('skips a z-indexed label in a z-auto positioned field under a later lower-z cover', async () => {
+    await expectOccludedExactlyWhenPainted(outside('.field label{z-index:10}', `${outsideField}<div class="cover" style="position:relative;top:-56px;z-index:5"></div>`), false);
+  });
+
+  const wrappers = [['no wrapper', ''], ['a position:relative wrapper', 'position:relative'], ['a position:relative;z-index:1 wrapper', 'position:relative;z-index:1'], ['a transform wrapper', 'transform:translateZ(0)']] as const;
+  const coverStyles = [['plain', ''], ['position:absolute;z-index:1000', 'position:absolute;z-index:1000'], ['position:relative', 'position:relative'], ['opacity:0.99', 'opacity:0.99']] as const;
+  const labelZ = [['auto', 'auto'], ['10', '10']] as const;
+  const coverOrders = ['cover before field', 'cover after field'] as const;
+  const matrix = wrappers.flatMap(([wrapperName, wrapper]) => coverStyles.flatMap(([coverName, cover]) => labelZ.flatMap(([zName, z]) => coverOrders.map((order) => [wrapperName, coverName, zName, order, wrapper, cover, z] as const))));
+
+  it.each(matrix)(
+    'reports the label exactly when the browser paints an outside cover over it: %s, %s cover, label z-index %s, %s',
+    async (_wrapperName, _coverName, _zName, order, wrapper, cover, z) => {
+      const after = order === 'cover after field';
+      const coverHtml = wrapper
+        ? `<div style="${wrapper};height:0${after ? ';margin-top:-56px' : ''}"><div class="cover" style="${cover}"></div></div>`
+        : `<div class="cover" style="${cover};${after ? 'margin-top:-56px' : 'margin-bottom:-60px'}"></div>`;
+      await expectOccludedExactlyWhenPainted(outside(`.field label{z-index:${z}}`, after ? outsideField + coverHtml : coverHtml + outsideField));
+    },
+  );
 });
 
 describe('first-viewport-column-overflow on sidebar layouts at tablet width in a real browser', () => {

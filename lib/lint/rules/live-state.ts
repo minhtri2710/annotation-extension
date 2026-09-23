@@ -439,44 +439,43 @@ function isPositioned(ctx: ScanContext, el: Element): boolean {
 
 const STACKING_WILL_CHANGE = /\b(?:position|transform|translate|rotate|scale|filter|perspective|backdrop-filter|opacity|isolation|mix-blend-mode|contain|z-index)\b/;
 
-// Positioned, or creating a stacking context that can paint above a positioned sibling chain.
-function layersAboveFlow(ctx: ScanContext, el: Element): boolean {
-  const value = (property: string) => styleValue(ctx, el, property).toLowerCase();
+// z-index applies to a positioned element or a flex or grid item.
+function zIndexApplies(ctx: ScanContext, el: Element): boolean {
   if (isPositioned(ctx, el)) return true;
+  const parentDisplay = el.parentElement ? styleValue(ctx, el.parentElement, 'display').toLowerCase() : '';
+  return /\b(?:flex|grid)\b/.test(parentDisplay);
+}
+
+// A positioned element with z-index auto does not create a stacking context; its z-indexed
+// descendants compete in the enclosing one.
+function formsStackingContext(ctx: ScanContext, el: Element): boolean {
+  const value = (property: string) => styleValue(ctx, el, property).toLowerCase();
+  if ((value('z-index') || 'auto') !== 'auto' && zIndexApplies(ctx, el)) return true;
+  if (value('position') === 'fixed' || value('position') === 'sticky') return true;
   if (['transform', 'translate', 'rotate', 'scale', 'filter', 'perspective', 'backdrop-filter'].some((property) => (value(property) || 'none') !== 'none')) return true;
   if (numberValue(value('opacity'), 1) < 1 || value('isolation') === 'isolate') return true;
   if ((value('mix-blend-mode') || 'normal') !== 'normal') return true;
-  if (/\b(?:paint|layout|strict|content)\b/.test(value('contain')) || STACKING_WILL_CHANGE.test(value('will-change'))) return true;
-  const parentDisplay = el.parentElement ? styleValue(ctx, el.parentElement, 'display').toLowerCase() : '';
-  return /\b(?:flex|grid)\b/.test(parentDisplay) && (value('z-index') || 'auto') !== 'auto';
+  return /\b(?:paint|layout|strict|content)\b/.test(value('contain')) || STACKING_WILL_CHANGE.test(value('will-change'));
 }
 
-// The outermost element of the chain from el up to (not including) ancestor that is positioned or
-// creates a stacking context, with the child of ancestor that holds el.
-function layerBelow(ctx: ScanContext, el: Element, ancestor: Element): { branch: Element; layer?: Element } {
-  let branch = el;
-  let layer: Element | undefined;
-  for (let current: Element | null = el; current && current !== ancestor; current = current.parentElement) {
-    if (layersAboveFlow(ctx, current)) layer = current;
-    branch = current;
-  }
-  return { branch, layer };
-}
-
-// The flow layer sits below every z 0 layer and above every negative z; z-index applies to a
-// positioned element or a flex or grid item, and auto counts as 0.
+// The flow layer sits below every z 0 layer and above every negative z.
 const FLOW_LAYER_KEY = -0.5;
 
-function paintKey(ctx: ScanContext, layer: Element | undefined): number {
-  if (!layer) return FLOW_LAYER_KEY;
-  const parentDisplay = layer.parentElement ? styleValue(ctx, layer.parentElement, 'display').toLowerCase() : '';
-  if (!isPositioned(ctx, layer) && !/\b(?:flex|grid)\b/.test(parentDisplay)) return 0;
-  return numberValue(styleValue(ctx, layer, 'z-index'), 0);
+// Walking down from the child of ancestor that holds el, the participant is the first element
+// that creates a stacking context, keyed by its z-index (auto or not applying counts as 0).
+// Without one, the first positioned element paints at z 0, else the side paints in the flow layer.
+function participantBelow(ctx: ScanContext, el: Element, ancestor: Element): { participant: Element; key: number } {
+  const path: Element[] = [];
+  for (let current: Element | null = el; current && current !== ancestor; current = current.parentElement) path.unshift(current);
+  const stacking = path.find((current) => formsStackingContext(ctx, current));
+  if (stacking) return { participant: stacking, key: zIndexApplies(ctx, stacking) ? numberValue(styleValue(ctx, stacking, 'z-index'), 0) : 0 };
+  const positioned = path.find((current) => isPositioned(ctx, current));
+  return positioned ? { participant: positioned, key: 0 } : { participant: path[0]!, key: FLOW_LAYER_KEY };
 }
 
 // Hit testing skips pointer-events:none, so such a victim never shows in the stack. Within the
-// stacking context of the common ancestor, the side whose layer has the higher z paints above;
-// layers with the same z (0 or equal positive) paint in tree order.
+// stacking context of the common ancestor, the side with the higher key paints above; equal keys
+// of 0 or more paint in tree order of the participants.
 function paintsAbove(ctx: ScanContext, victim: Element, candidate: Element): boolean {
   if (styleValue(ctx, victim, 'pointer-events') !== 'none') return false;
   let positioned = false;
@@ -489,12 +488,10 @@ function paintsAbove(ctx: ScanContext, victim: Element, candidate: Element): boo
   let common = victim.parentElement;
   while (common && !common.contains(candidate)) common = common.parentElement;
   if (!common) return false;
-  const victimSide = layerBelow(ctx, victim, common);
-  const candidateSide = layerBelow(ctx, candidate, common);
-  const victimKey = paintKey(ctx, victimSide.layer);
-  const candidateKey = paintKey(ctx, candidateSide.layer);
-  if (victimKey !== candidateKey) return victimKey > candidateKey;
-  return victimKey >= 0 && (candidateSide.branch.compareDocumentPosition(victimSide.branch) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  const victimSide = participantBelow(ctx, victim, common);
+  const candidateSide = participantBelow(ctx, candidate, common);
+  if (victimSide.key !== candidateSide.key) return victimSide.key > candidateSide.key;
+  return victimSide.key >= 0 && (candidateSide.participant.compareDocumentPosition(victimSide.participant) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 }
 
 // The topmost element over the point, or undefined when the victim, its descendant or its
