@@ -79,6 +79,27 @@ describe('annotation list', () => {
     expect(store.readBlob).toHaveBeenCalledWith('screenshot:annotation-1');
   });
 
+  it('reports a successful Copy in the live region and the visible status', async () => {
+    const panel = document.createElement('div');
+    const delivery: AnnotationExportDelivery = { copy: vi.fn().mockResolvedValue(undefined), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'Copy me')]), delivery);
+    await list.render();
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Copied to clipboard.'));
+    expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Copied to clipboard.');
+  });
+
+  it('reports a failed Copy with its reason instead of swallowing it', async () => {
+    const panel = document.createElement('div');
+    const delivery: AnnotationExportDelivery = { copy: vi.fn().mockRejectedValue(new Error('Document is not focused.')), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'Copy me')]), delivery);
+    await list.render();
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Copy failed: Document is not focused.'));
+    expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Copy failed: Document is not focused.');
+    expect(panel.querySelector('[data-annotation-row]')).not.toBeNull();
+  });
+
   it('downloads attachment assets even without a screenshot', async () => {
     const panel = document.createElement('div');
     const annotations = [annotation('annotation-1', 'Export attachment')];

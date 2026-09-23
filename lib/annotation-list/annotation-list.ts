@@ -185,7 +185,18 @@ export function createAnnotationList(
     copy.dataset.annotationExportCopy = '';
     copy.textContent = 'Copy';
     copy.addEventListener('click', () => {
-      void delivery.copy(markdown()).catch(() => undefined);
+      const version = clearVersion;
+      void (async () => {
+        let message = 'Copied to clipboard.';
+        try {
+          await delivery.copy(markdown());
+        } catch (error) {
+          message = `Copy failed: ${errorMessage(error)}`;
+        }
+        if (version !== clearVersion) return;
+        statusMessage = message;
+        await render();
+      })();
     });
 
     const download = document.createElement('button');

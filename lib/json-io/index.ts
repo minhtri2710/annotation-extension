@@ -111,9 +111,25 @@ export async function importAll(
   plan: JsonImportEntry[],
   blobStore: BlobStore = createBlobStore(),
 ): Promise<{ imported: number; skipped: number }> {
+  // Ids are global and so are blob keys: skip any id stored on any page, and refuse to write over a stored attachment.
+  const stored = await collectAllAnnotations();
+  const storedIds = new Set(stored.map((annotation) => annotation.id));
+  const storedAttachmentIds = new Set(stored.flatMap((annotation) => (annotation.attachments ?? []).map((attachment) => attachment.id)));
+  for (const [index, { annotation }] of plan.entries()) {
+    if (storedIds.has(annotation.id)) continue;
+    const reused = annotation.attachments?.find((attachment) => storedAttachmentIds.has(attachment.id));
+    if (reused) {
+      throw new JsonImportError(`Import failed: entry ${index + 1} reuses attachment id ${reused.id} that is already stored. Nothing was imported.`);
+    }
+  }
+
   const written: Annotation[] = [];
   let skipped = 0;
   for (const [index, { annotation, blobs }] of plan.entries()) {
+    if (storedIds.has(annotation.id)) {
+      skipped += 1;
+      continue;
+    }
     try {
       if (await restoreAnnotation(annotation, blobs, blobStore)) written.push(annotation);
       else skipped += 1;

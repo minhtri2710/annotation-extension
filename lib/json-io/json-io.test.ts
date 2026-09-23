@@ -333,6 +333,48 @@ describe('JSON annotation I/O', () => {
   });
 });
 
+describe('JSON import across pages', () => {
+  it('skips an id stored on another page and never touches that annotation or its blob, even on rollback', async () => {
+    const store = new MemoryBlobStore();
+    const pageA = rawEntry({ id: 'shared', screenshot: { mimeType: 'image/png', base64: btoa('page-a-bytes') } });
+    await expect(importJson(JSON.stringify([pageA]), store, dimensions)).resolves.toBe('Imported 1 annotation, skipped 0 already present.');
+    store.failPutAt = store.puts + 2;
+    const json = JSON.stringify([
+      rawEntry({ id: 'shared', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: btoa('page-b-bytes') } }),
+      rawEntry({ id: 'fresh', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: btoa('x') }, attachments: [{ id: 'fresh-att', name: 'x.png', mimeType: 'image/png', base64: btoa('y') }] }),
+    ]);
+    await expect(importJson(json, store, dimensions)).resolves.toBe('Import failed while saving entry 2. Nothing was imported.');
+    const stored = await storedAnnotations();
+    expect(stored.map((entry) => [entry.id, entry.pageUrl])).toEqual([['shared', firstPage]]);
+    expect(stored[0]!.screenshot).toBeDefined();
+    expect(await (await store.get(screenshotKey('shared')))?.text()).toBe('page-a-bytes');
+    expect([...store.blobs.keys()]).toEqual([screenshotKey('shared')]);
+  });
+
+  it('counts an id stored on another page as already present and writes nothing for it', async () => {
+    const store = new MemoryBlobStore();
+    await importJson(JSON.stringify([rawEntry({ id: 'shared', screenshot: { mimeType: 'image/png', base64: btoa('a') } })]), store, dimensions);
+    const puts = store.puts;
+    const json = JSON.stringify([rawEntry({ id: 'shared', pageUrl: secondPage, screenshot: { mimeType: 'image/png', base64: btoa('b') } }), rawEntry({ id: 'other', pageUrl: secondPage })]);
+    await expect(importJson(json, store, dimensions)).resolves.toBe('Imported 1 annotation, skipped 1 already present.');
+    expect(store.puts).toBe(puts);
+    expect((await storedAnnotations()).map((entry) => [entry.id, entry.pageUrl]).sort()).toEqual([['other', secondPage], ['shared', firstPage]]);
+    expect(await (await store.get(screenshotKey('shared')))?.text()).toBe('a');
+  });
+
+  it('rejects a new annotation that reuses a stored attachment id, before any write', async () => {
+    const store = new MemoryBlobStore();
+    const attachment = (bytes: string) => [{ id: 'att', name: 'x.png', mimeType: 'image/png', base64: btoa(bytes) }];
+    await importJson(JSON.stringify([rawEntry({ id: 'owner', attachments: attachment('mine') })]), store, dimensions);
+    const puts = store.puts;
+    const json = JSON.stringify([rawEntry({ id: 'first-new', pageUrl: secondPage }), rawEntry({ id: 'intruder', pageUrl: secondPage, attachments: attachment('theirs') })]);
+    await expect(importJson(json, store, dimensions)).resolves.toBe('Import failed: entry 2 reuses attachment id att that is already stored. Nothing was imported.');
+    expect(store.puts).toBe(puts);
+    expect((await storedAnnotations()).map((entry) => entry.id)).toEqual(['owner']);
+    expect(await (await store.get(attachmentKey('att')))?.text()).toBe('mine');
+  });
+});
+
 describe('JSON export', () => {
   function deps(annotations: Annotation[], store: BlobStore) {
     const delivered: string[] = [];
