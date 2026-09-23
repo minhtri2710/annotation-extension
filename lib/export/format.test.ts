@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from '../annotation';
-import { attachmentAssetFilename, format, screenshotAssetFilename } from './format';
+import { attachmentAssetFilename, format, formatAllPages, screenshotAssetFilename } from './format';
 
 const pageUrl = 'https://example.com/article';
 
@@ -122,5 +122,93 @@ describe('Markdown annotation formatter', () => {
 
   it('renders a no-annotations message for an empty list', () => {
     expect(format([], pageUrl)).toBe('No annotations found on this page.');
+  });
+});
+
+describe('Markdown annotation formatter byte identity', () => {
+  it('renders the exact per-page document for a fully populated annotation', () => {
+    const markdown = format(
+      [
+        annotation({
+          screenshot: { mimeType: 'image/png', width: 10, height: 10, byteLength: 1 },
+          attachments: [{ id: 'attachment-1', name: 'photo.png', mimeType: 'image/png', byteLength: 4 }],
+          repro: { steps: ['Open'], expected: 'Works', actual: 'Breaks' },
+          cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
+        }),
+      ],
+      pageUrl,
+    );
+
+    expect(markdown).toBe([
+      '# Page annotations',
+      'Review the following annotations for this page.',
+      `Page URL: ${pageUrl}`,
+      'Host: example.com',
+      'Annotation count: 1',
+      [
+        '## Annotation 1',
+        '- Note: Inspect this button',
+        '- Status: open',
+        '- Selector: #submit-button',
+        '- Element: BUTTON#submit-button.primary.wide "Inspect this button"',
+        '- Source: src/App.tsx:42',
+        '![Annotation screenshot](./annotations-annotation-1.png)',
+        '### Attachments\n- [photo.png](./annotations-annotation-1-attachment-1.png)',
+        '### Reproduction\n1. Open\nExpected: Works\nActual: Breaks',
+        '### CSS tweaks\ncolor: blue -> red',
+      ].join('\n'),
+    ].join('\n\n'));
+  });
+});
+
+describe('All-pages Markdown formatter', () => {
+  const otherPage = 'https://example.com/about';
+  const otherHost = 'https://alpha.test/home';
+
+  it('renders a fixed message for zero annotations', () => {
+    expect(formatAllPages([])).toBe('No annotations found.');
+  });
+
+  it('groups by sorted host then sorted page with totals and per-page counts', () => {
+    const markdown = formatAllPages([
+      annotation({ id: 'a', note: 'Article note' }),
+      annotation({ id: 'b', note: 'About note', pageUrl: otherPage }),
+      annotation({ id: 'c', note: 'Alpha note', pageUrl: otherHost }),
+    ]);
+
+    expect(markdown.startsWith('# All annotations\n\nTotal annotation count: 3\n\n')).toBe(true);
+    const alpha = markdown.indexOf('## alpha.test');
+    const example = markdown.indexOf('## example.com');
+    const about = markdown.indexOf(`### ${otherPage}`);
+    const article = markdown.indexOf(`### ${pageUrl}`);
+    expect(alpha).toBeGreaterThan(0);
+    expect(alpha).toBeLessThan(markdown.indexOf(`### ${otherHost}`));
+    expect(markdown.indexOf(`### ${otherHost}`)).toBeLessThan(example);
+    expect(example).toBeLessThan(about);
+    expect(about).toBeLessThan(article);
+    expect(markdown.indexOf('About note')).toBeLessThan(article);
+    expect(markdown.indexOf('Article note')).toBeGreaterThan(article);
+    expect(markdown.match(/^Annotation count: 1$/gm)).toHaveLength(3);
+  });
+
+  it('orders by createdAt within a page, restarts numbering per page, and nests headings one level deeper', () => {
+    const markdown = formatAllPages([
+      annotation({ id: 'newer', note: 'Newer note', createdAt: '2024-01-02T00:00:00.000Z' }),
+      annotation({
+        id: 'older',
+        note: 'Older note',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
+      }),
+      annotation({ id: 'about', note: 'About note', pageUrl: otherPage }),
+    ]);
+
+    expect(markdown).toContain(`### ${pageUrl}\n\nAnnotation count: 2`);
+    expect(markdown.indexOf('Older note')).toBeLessThan(markdown.indexOf('Newer note'));
+    expect(markdown.match(/^#### Annotation 1$/gm)).toHaveLength(2);
+    expect(markdown.match(/^#### Annotation 2$/gm)).toHaveLength(1);
+    expect(markdown).toContain('##### CSS tweaks\ncolor: blue -> red');
+    expect(markdown).not.toMatch(/^## Annotation/m);
+    expect(markdown).toContain('#### Annotation 1\n- Note: Older note\n- Status: open');
   });
 });

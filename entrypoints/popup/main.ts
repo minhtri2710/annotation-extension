@@ -2,6 +2,8 @@ import { browser } from 'wxt/browser';
 import { CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
 import { collectAllAnnotations, importAll, parseImport, serialize } from '../../lib/json-io';
 import { createBlobStore } from '../../lib/blob-store';
+import { exportAllPages } from '../../lib/export/all-pages';
+import { productionExportDelivery } from '../../lib/export/delivery';
 import { PAGE_STYLES } from '../../lib/ui/page-styles';
 
 const pageStyle = document.createElement('style');
@@ -10,6 +12,7 @@ document.head.append(pageStyle);
 
 const toggleButton = document.querySelector<HTMLButtonElement>('#toggle');
 const exportButton = document.querySelector<HTMLButtonElement>('#export');
+const exportMarkdownButton = document.querySelector<HTMLButtonElement>('#export-markdown');
 const importButton = document.querySelector<HTMLButtonElement>('#import');
 const importFile = document.querySelector<HTMLInputElement>('#import-file');
 const status = document.querySelector<HTMLParagraphElement>('#status');
@@ -29,6 +32,16 @@ exportButton?.addEventListener('click', async () => {
   await navigator.clipboard.writeText(json);
   downloadJson(json);
   setStatus('Annotations exported.');
+});
+
+exportMarkdownButton?.addEventListener('click', async () => {
+  setStatus(
+    await exportAllPages({
+      collect: collectAllAnnotations,
+      readBlob: (key) => blobStore.get(key),
+      delivery: productionExportDelivery,
+    }),
+  );
 });
 
 importButton?.addEventListener('click', () => importFile?.click());
