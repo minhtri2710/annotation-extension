@@ -10,8 +10,8 @@ import {
 } from './engine';
 
 afterEach(() => {
-  vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   document.body.replaceChildren();
 });
 
@@ -245,4 +245,8 @@ describe('lint engine', () => {
 
     expect(log).toEqual(elements.filter((el) => el !== removed));
   });
+
+  it('runs last on the real setTimeout after earlier tests spied on a fake one', async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }, 1000);
 });

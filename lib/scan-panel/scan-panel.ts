@@ -100,9 +100,17 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     };
     document.addEventListener('keydown', onKeydown);
     controller.signal.addEventListener('abort', () => document.removeEventListener('keydown', onKeydown));
+    // Read before the Cancel button is removed: focus follows only if it was still inside the panel
+    // (on Cancel), never pulled from elsewhere on the page. The panel lives in a shadow root, so read
+    // that root's activeElement, not document.activeElement.
+    let focusWasInPanel = false;
     const finish = () => {
       stopScan = undefined;
       document.removeEventListener('keydown', onKeydown);
+      focusWasInPanel = panel.contains((panel.getRootNode() as Document | ShadowRoot).activeElement ?? null);
+    };
+    const restoreFocus = () => {
+      if (focusWasInPanel) panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan]')?.focus();
     };
     panel.append(cancel);
     cancel.focus();
@@ -116,6 +124,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       if (controller.signal.aborted) {
         status.textContent = 'Deep scan cancelled';
         panel.replaceChildren(heading, status, createDeepScanButton(document));
+        restoreFocus();
       } else {
         status.textContent = `Scan failed: ${error instanceof Error ? error.message : String(error)}`;
         panel.replaceChildren(heading, status);
@@ -127,6 +136,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     finish();
     panel.replaceChildren(heading);
     showFindings(document, findings, 'Deep scan: ');
+    restoreFocus();
     options.onUpdate();
   }
 

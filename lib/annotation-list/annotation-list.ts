@@ -139,6 +139,7 @@ export function createAnnotationList(
     download.dataset.annotationExportDownload = '';
     download.textContent = 'Download';
     download.addEventListener('click', () => {
+      const version = renderVersion;
       void (async () => {
         try {
           delivery.download(markdown(), 'annotations.md');
@@ -159,6 +160,7 @@ export function createAnnotationList(
             }
           }
         } catch (error) {
+          if (version !== renderVersion) return;
           statusMessage = errorMessage(error);
           await render();
         }
@@ -199,12 +201,16 @@ export function createAnnotationList(
     return row;
   }
 
+  // An action re-renders only if no clear() or render() ran while it was pending.
   async function mutate(message: AnnotationWriteMessage): Promise<void> {
+    const version = renderVersion;
     try {
       await persistence.sendAnnotationWrite(message);
+      if (version !== renderVersion) return;
       statusMessage = undefined;
       await render();
     } catch (error) {
+      if (version !== renderVersion) return;
       statusMessage = errorMessage(error);
       await render();
     }

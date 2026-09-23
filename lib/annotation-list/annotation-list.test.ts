@@ -151,6 +151,39 @@ describe('annotation list', () => {
     await vi.waitFor(() => expect(store.listAnnotations).toHaveBeenCalledTimes(2));
   });
 
+  it('drops the post-action render when the list is cleared while the write is pending', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Old route note')]);
+    let resolveWrite: (value: unknown) => void = () => undefined;
+    vi.mocked(store.sendAnnotationWrite).mockReturnValue(new Promise((resolve) => { resolveWrite = resolve; }));
+    const list = createAnnotationList(panel, pageUrl, store);
+    await list.render();
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1);
+
+    list.clear();
+    resolveWrite(undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(panel.childElementCount).toBe(0);
+    expect(store.listAnnotations).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the post-action error render when the list re-renders while the write is pending', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Clear me')]);
+    let rejectWrite: (error: unknown) => void = () => undefined;
+    vi.mocked(store.sendAnnotationWrite).mockReturnValue(new Promise((_resolve, reject) => { rejectWrite = reject; }));
+    const list = createAnnotationList(panel, pageUrl, store);
+    await list.render();
+    (panel.querySelector('[data-annotation-clear]') as HTMLButtonElement).click();
+
+    await list.render();
+    rejectWrite(new Error('stale failure'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(panel.textContent).not.toContain('stale failure');
+    expect(store.listAnnotations).toHaveBeenCalledTimes(2);
+  });
+
   it('renders a How it works section right after the heading with the five steps', async () => {
     const panel = document.createElement('div');
     const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'Note')]));

@@ -404,6 +404,72 @@ describe('scan panel deep scan', () => {
     expect(onUpdate).toHaveBeenCalledTimes(2);
   });
 
+  it('moves focus from Cancel to the new Deep scan button after Cancel and after Escape', async () => {
+    vi.useFakeTimers();
+    const { deepScan } = deferredDeepScan();
+    const { panel, scanPanel } = setup(async () => [], deepScan);
+    await renderNow(scanPanel.render);
+
+    deepButton(panel)?.click();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]')?.click();
+    await flush();
+    expect(document.activeElement).toBe(deepButton(panel));
+
+    deepButton(panel)?.click();
+    expect(document.activeElement?.hasAttribute('data-annotation-deep-scan-cancel')).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flush();
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Deep scan cancelled');
+    expect(document.activeElement).toBe(deepButton(panel));
+  });
+
+  it('moves focus from Cancel to the new Deep scan button after a result', async () => {
+    vi.useFakeTimers();
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(async () => [], deepScan);
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    calls[0]?.resolve([]);
+    await flush();
+    expect(panel.querySelector('[data-annotation-scan-summary]')).not.toBeNull();
+    expect(document.activeElement).toBe(deepButton(panel));
+  });
+
+  it('keeps focus on a page input the user moved to during the deep scan, on result and on cancel', async () => {
+    vi.useFakeTimers();
+    const input = document.createElement('input');
+    document.body.append(input);
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(async () => [], deepScan);
+    await renderNow(scanPanel.render);
+
+    deepButton(panel)?.click();
+    input.focus();
+    calls[0]?.resolve([]);
+    await flush();
+    expect(deepButton(panel)).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+
+    deepButton(panel)?.click();
+    input.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flush();
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Deep scan cancelled');
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('leaves focus alone when the deep scan fails', async () => {
+    vi.useFakeTimers();
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(async () => [], deepScan);
+    await renderNow(scanPanel.render);
+    deepButton(panel)?.click();
+    calls[0]?.reject(new Error('sweep broke'));
+    await flush();
+    expect(deepButton(panel)).toBeNull();
+    expect(panel.contains(document.activeElement)).toBe(false);
+  });
+
   it('fails closed with the error message and no list when the deep scan throws', async () => {
     vi.useFakeTimers();
     const { panel, scanPanel, onUpdate } = setup(async () => [], () => Promise.reject(new Error('sweep broke')));
