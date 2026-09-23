@@ -100,8 +100,8 @@ describe('Markdown annotation formatter', () => {
       [
         annotation({
           cssEdits: [
-            { property: 'color', value: 'red' },
-            { property: 'margin', value: '1rem' },
+            { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' },
+            { property: 'margin', value: '1rem', original: '0px' },
           ],
         }),
       ],
@@ -109,8 +109,7 @@ describe('Markdown annotation formatter', () => {
     );
 
     expect(markdown).toContain('### CSS tweaks');
-    expect(markdown).toContain('color: red');
-    expect(markdown).toContain('margin: 1rem');
+    expect(markdown).toContain('### CSS tweaks\ncolor: rgb(0, 0, 0) -> red\nmargin: 0px -> 1rem');
   });
 
   it('omits optional blocks when their data is absent', () => {

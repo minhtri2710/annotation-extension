@@ -234,7 +234,11 @@ describe('note panel', () => {
     const existing = annotation('CSS target');
     const listAnnotations = vi.fn().mockResolvedValue([existing]);
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    const applyCssEdits = vi.fn();
+    const cssEdits = [
+      { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' },
+      { property: 'margin', value: '1rem: extra', original: '0px' },
+    ];
+    const applyCssEdits = vi.fn().mockReturnValue(cssEdits);
     const { applyCssEdits: apply } = await render(panel, [], {
       listAnnotations,
       sendAnnotationWrite,
@@ -246,12 +250,11 @@ describe('note panel', () => {
       '  color: red  \n\ninvalid line\n margin : 1rem: extra \n : missing-property \n padding:   ';
     (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
 
-    const cssEdits = [
+    await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+    expect(apply).toHaveBeenCalledWith(existing, [
       { property: 'color', value: 'red' },
       { property: 'margin', value: '1rem: extra' },
-    ];
-    await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
-    expect(apply).toHaveBeenCalledWith(existing, cssEdits);
+    ]);
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
     expect(sendAnnotationWrite).toHaveBeenCalledWith({
       type: 'annotation.update',
@@ -266,7 +269,10 @@ describe('note panel', () => {
     const panel = document.createElement('div');
     const existing = {
       ...annotation('Saved CSS'),
-      cssEdits: [{ property: 'color', value: 'red' }, { property: 'display', value: 'block' }],
+      cssEdits: [
+        { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' },
+        { property: 'display', value: 'block', original: 'inline' },
+      ],
     };
     const applyCssEdits = vi.fn();
     const { applyCssEdits: apply } = await render(panel, [], {
@@ -283,7 +289,10 @@ describe('note panel', () => {
     const panel = document.createElement('div');
     const existing = {
       ...annotation('Saved CSS'),
-      cssEdits: [{ property: 'color', value: 'red' }, { property: 'display', value: 'block' }],
+      cssEdits: [
+        { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' },
+        { property: 'display', value: 'block', original: 'inline' },
+      ],
     };
     await render(panel, [], {
       listAnnotations: vi.fn().mockResolvedValue([existing]),
@@ -293,9 +302,31 @@ describe('note panel', () => {
 
     const readout = panel.querySelector('[data-annotation-css]');
     expect(readout).not.toBeNull();
-    expect(readout?.textContent).toContain('color: red');
-    expect(readout?.textContent).toContain('display: block');
+    expect(readout?.textContent).toContain('color: rgb(0, 0, 0) -> red');
+    expect(readout?.textContent).toContain('display: inline -> block');
     expect(panel.querySelector('[data-annotation-css-clear]')).not.toBeNull();
+    expect((panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value)
+      .toBe('color: red\ndisplay: block');
+  });
+
+  it('fails closed without saving when the element is not live', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn().mockReturnValue(undefined);
+    await render(panel, [], {
+      listAnnotations: vi.fn().mockResolvedValue([annotation('Detached')]),
+      sendAnnotationWrite,
+      captureScreenshot: vi.fn(),
+      applyCssEdits,
+    });
+
+    (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value = 'color: red';
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    await Promise.resolve();
+
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    expect(panel.querySelector('[data-annotation-status]')?.textContent)
+      .toBe('Element not found on this page; CSS tweaks were not saved.');
   });
 
   it('does not render the clear control for empty or missing css edits', async () => {
@@ -319,7 +350,7 @@ describe('note panel', () => {
     const panel = document.createElement('div');
     const existing = {
       ...annotation('Clear CSS'),
-      cssEdits: [{ property: 'color', value: 'red' }],
+      cssEdits: [{ property: 'color', value: 'red', original: 'rgb(0, 0, 0)' }],
     };
     const listAnnotations = vi.fn()
       .mockResolvedValueOnce([existing])

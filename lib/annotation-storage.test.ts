@@ -130,7 +130,10 @@ describe('annotation storage', () => {
 
   it('persists css edits on update while leaving other fields intact', async () => {
     const created = await addAnnotation(firstPage, firstInput);
-    const cssEdits = [{ property: 'color', value: 'red' }, { property: 'margin', value: '1rem' }];
+    const cssEdits = [
+      { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' },
+      { property: 'margin', value: '1rem', original: '0px' },
+    ];
 
     const updated = await updateAnnotation(firstPage, created.id, { cssEdits });
 

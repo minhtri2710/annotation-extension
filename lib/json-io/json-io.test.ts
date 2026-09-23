@@ -56,7 +56,7 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
       expected: 'The form is submitted',
       actual: 'An inline error appears',
     },
-    cssEdits: [{ property: 'border-color', value: 'red' }],
+    cssEdits: [{ property: 'border-color', value: 'red', original: 'rgb(0, 0, 0)' }],
     ...overrides,
   };
 }
@@ -139,6 +139,7 @@ describe('JSON annotation I/O', () => {
     expect(() => parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/svg+xml', base64: 'x' } }]))).toThrow('Unsupported screenshot mime type');
     expect(() => parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/png', base64: 'not base64 ???' } }]))).toThrow(JsonImportError);
     expect(() => parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/png', base64: '' } }]))).toThrow('must not be empty');
+    expect(() => parseImport(JSON.stringify([{ ...base, cssEdits: [{ property: 'color', value: 'red' }] }]))).toThrow('Invalid CSS edits.');
     const oversized = btoa('x'.repeat(2 * 1024 * 1024 + 1));
     expect(() => parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/png', base64: oversized } }]))).toThrow('2 MB');
   });

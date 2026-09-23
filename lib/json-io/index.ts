@@ -257,7 +257,10 @@ function parseCssEdits(value: unknown): NonNullable<AnnotationInput['cssEdits']>
     !Array.isArray(value) ||
     !value.every(
       (edit) =>
-        isRecord(edit) && typeof edit.property === 'string' && typeof edit.value === 'string',
+        isRecord(edit) &&
+        typeof edit.property === 'string' &&
+        typeof edit.value === 'string' &&
+        typeof edit.original === 'string',
     )
   ) {
     throw new JsonImportError('Invalid CSS edits.');

@@ -1,6 +1,6 @@
 import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 import { listAnnotations } from '../annotation-storage';
-import type { Annotation, CssEdit } from '../annotation';
+import type { Annotation, CssDeclaration, CssEdit } from '../annotation';
 import { sendScreenshotCapture, sendBlobRead } from '../screenshot/messages';
 import type { AttachmentMetadata } from '../annotation';
 import { sendAttachmentAdd, sendAttachmentDelete } from '../attachments/messages';
@@ -13,7 +13,7 @@ export interface NotePanelPersistence {
   readBlob(key: string): Promise<Blob>;
   addAttachment(message: Omit<Parameters<typeof sendAttachmentAdd>[0], 'type'>): Promise<AttachmentMetadata>;
   deleteAttachment(message: Omit<Parameters<typeof sendAttachmentDelete>[0], 'type'>): Promise<boolean>;
-  applyCssEdits(annotation: Annotation, edits: CssEdit[]): void;
+  applyCssEdits(annotation: Annotation, declarations: CssDeclaration[]): CssEdit[] | undefined;
   revertCssEdits(annotation: Annotation): void;
   revertAllCssEdits(): void;
 }
@@ -36,32 +36,47 @@ async function captureScreenshot(
 
 type AppliedCssEdits = {
   element: HTMLElement;
-  properties: Set<string>;
+  originals: Map<string, string>;
 };
 
 function createCssEditRegistry() {
   const applied = new Map<string, AppliedCssEdits>();
 
-  function applyCssEdits(annotation: Annotation, edits: CssEdit[]): void {
+  function applyCssEdits(annotation: Annotation, declarations: CssDeclaration[]): CssEdit[] | undefined {
     const element = document.querySelector(annotation.selector);
-    if (!element) return;
+    if (!element) return undefined;
 
     const target = element as HTMLElement;
     const previous = applied.get(annotation.id);
+    const current = previous?.element === target ? previous.originals : new Map<string, string>();
     if (previous) {
-      for (const property of previous.properties) {
-        if (previous.element !== target || !edits.some((edit) => edit.property === property)) {
+      for (const property of previous.originals.keys()) {
+        if (previous.element !== target || !declarations.some((edit) => edit.property === property)) {
           previous.element.style.removeProperty(property);
         }
       }
     }
 
-    const properties = new Set(edits.map((edit) => edit.property));
+    // Originals are resolved before any setProperty so one edit cannot leak into another's original.
+    const edits = declarations.map(({ property, value }) => ({
+      property,
+      value,
+      original:
+        annotation.cssEdits?.find((edit) => edit.property === property)?.original ??
+        current.get(property) ??
+        window.getComputedStyle(target).getPropertyValue(property),
+    }));
     for (const edit of edits) {
       target.style.setProperty(edit.property, edit.value);
     }
-    if (properties.size === 0) applied.delete(annotation.id);
-    else applied.set(annotation.id, { element: target, properties });
+    if (edits.length === 0) applied.delete(annotation.id);
+    else {
+      applied.set(annotation.id, {
+        element: target,
+        originals: new Map(edits.map((edit) => [edit.property, edit.original])),
+      });
+    }
+    return edits;
   }
 
   function revertCssEdits(annotation: Annotation): void {
@@ -69,7 +84,7 @@ function createCssEditRegistry() {
     const tracked = applied.get(annotation.id);
     if (!tracked) return;
 
-    for (const property of tracked.properties) {
+    for (const property of tracked.originals.keys()) {
       tracked.element.style.removeProperty(property);
     }
     applied.delete(annotation.id);
@@ -77,7 +92,7 @@ function createCssEditRegistry() {
 
   function revertAllCssEdits(): void {
     for (const tracked of applied.values()) {
-      for (const property of tracked.properties) {
+      for (const property of tracked.originals.keys()) {
         tracked.element.style.removeProperty(property);
       }
     }

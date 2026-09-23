@@ -48,7 +48,7 @@ export function format(annotations: Annotation[], pageUrl: string): string {
           ].join('\n')
         : undefined,
       annotation.cssEdits && annotation.cssEdits.length > 0
-        ? ['### CSS tweaks', ...annotation.cssEdits.map(({ property, value }) => `${property}: ${value}`)].join('\n')
+        ? ['### CSS tweaks', ...annotation.cssEdits.map(({ property, value, original }) => `${property}: ${original} -> ${value}`)].join('\n')
         : undefined,
     ];
     return lines.filter((line): line is string => line !== undefined).join('\n');

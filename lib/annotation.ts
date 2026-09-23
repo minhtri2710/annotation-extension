@@ -9,7 +9,10 @@ export interface Repro {
 export interface CssEdit {
   property: string;
   value: string;
+  original: string;
 }
+
+export type CssDeclaration = Omit<CssEdit, 'original'>;
 
 export interface ScreenshotMetadata {
   mimeType: string;

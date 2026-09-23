@@ -76,7 +76,9 @@ export function sendAnnotationWrite<T extends AnnotationWriteMessage>(
 }
 
 export function isCssEdit(value: unknown): value is CssEdit {
-  return isRecord(value) && typeof value.property === 'string' && typeof value.value === 'string';
+  return isRecord(value) && typeof value.property === 'string' &&
+    typeof value.value === 'string' &&
+    typeof value.original === 'string';
 }
 
 export function isCssEdits(value: unknown): value is CssEdit[] {

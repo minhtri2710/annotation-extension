@@ -129,9 +129,11 @@ describe('annotation write messages', () => {
   });
 
   it('validates css edit shapes without weakening existing updates', () => {
-    expect(isCssEdit({ property: 'color', value: 'red' })).toBe(true);
+    expect(isCssEdit({ property: 'color', value: 'red', original: 'blue' })).toBe(true);
     expect(isCssEdit({ property: 'color' })).toBe(false);
-    expect(isCssEdits([{ property: 'color', value: 'red' }])).toBe(true);
+    expect(isCssEdit({ property: 'color', value: 'red' })).toBe(false);
+    expect(isCssEdit({ property: 'color', value: 'red', original: 1 })).toBe(false);
+    expect(isCssEdits([{ property: 'color', value: 'red', original: 'blue' }])).toBe(true);
     expect(isCssEdits('nope')).toBe(false);
     expect(isCssEdits([{ property: 'color' }])).toBe(false);
     expect(isCssEdits([{ property: 1, value: 'red' }])).toBe(false);
@@ -140,9 +142,17 @@ describe('annotation write messages', () => {
         type: 'annotation.update',
         pageUrl,
         id: 'annotation-1',
-        changes: { cssEdits: [{ property: 'color', value: 'red' }] },
+        changes: { cssEdits: [{ property: 'color', value: 'red', original: 'blue' }] },
       }),
     ).toBe(true);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
+        changes: { cssEdits: [{ property: 'color', value: 'red' }] },
+      }),
+    ).toBe(false);
     expect(
       isAnnotationWriteMessage({
         type: 'annotation.update',

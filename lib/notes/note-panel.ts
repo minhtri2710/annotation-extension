@@ -1,4 +1,4 @@
-import type { Annotation, CssEdit } from '../annotation';
+import type { Annotation, CssDeclaration } from '../annotation';
 import type { AnnotationWriteMessage } from '../annotation-messages';
 import {
   isSupportedImageMimeType,
@@ -265,9 +265,13 @@ export function createNotePanel(
     saveCss.dataset.annotationCssSave = '';
     saveCss.textContent = 'Save CSS';
     saveCss.addEventListener('click', () => {
-      const edits = parseCssEdits(cssDecls.value);
-      if (edits.length === 0) return;
-      persistence.applyCssEdits(annotation, edits);
+      const declarations = parseCssDeclarations(cssDecls.value);
+      if (declarations.length === 0) return;
+      const edits = persistence.applyCssEdits(annotation, declarations);
+      if (!edits) {
+        reportReadError(new Error('Element not found on this page; CSS tweaks were not saved.'));
+        return;
+      }
       void mutate(
         {
           type: 'annotation.update',
@@ -334,9 +338,9 @@ export function createNotePanel(
       item.append(clearCss);
       const readout = document.createElement('ul');
       readout.dataset.annotationCss = '';
-      for (const { property, value } of annotation.cssEdits) {
+      for (const { property, value, original } of annotation.cssEdits) {
         const entry = document.createElement('li');
-        entry.textContent = `${property}: ${value}`;
+        entry.textContent = `${property}: ${original} -> ${value}`;
         readout.append(entry);
       }
       item.append(readout);
@@ -426,7 +430,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function parseCssEdits(value: string): CssEdit[] {
+function parseCssDeclarations(value: string): CssDeclaration[] {
   return value.split(/\r?\n/).flatMap((line) => {
     const separator = line.indexOf(':');
     if (separator === -1) return [];
