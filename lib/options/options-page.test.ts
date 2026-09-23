@@ -122,4 +122,55 @@ describe('options page', () => {
     buttons[0]!.click();
     expect(entries()).toEqual(['b.example']);
   });
+
+  it('moves focus after Remove to the next Remove, else the previous, else the add input', async () => {
+    const { elements, storage, entries } = setup({ enabled: true, allowlist: ['a.example', 'b.example', 'c.example'] });
+    await mountOptionsPage(elements, storage);
+    const removeFor = (value: string) =>
+      elements.allowlist.querySelector<HTMLButtonElement>(`button[aria-label="Remove ${value}"]`)!;
+    removeFor('b.example').click();
+    expect(entries()).toEqual(['a.example', 'c.example']);
+    expect(document.activeElement).toBe(removeFor('c.example'));
+    removeFor('c.example').click();
+    expect(document.activeElement).toBe(removeFor('a.example'));
+    removeFor('a.example').click();
+    expect(entries()).toEqual([]);
+    expect(document.activeElement).toBe(elements.entry);
+  });
+
+  it('shows Unsaved changes and guards leaving while edits are unsaved, and saving clears both', async () => {
+    const { elements, storage, add, save } = setup({ enabled: true, allowlist: ['a.example'] });
+    await mountOptionsPage(elements, storage);
+    const leave = () => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(elements.status.textContent).toBe('');
+    expect(leave()).toBe(false);
+
+    add('b.example');
+    expect(elements.status.textContent).toBe('Unsaved changes');
+    expect(leave()).toBe(true);
+
+    await save();
+    expect(elements.status.textContent).toBe('Settings saved.');
+    expect(leave()).toBe(false);
+
+    elements.enabled.checked = false;
+    elements.enabled.dispatchEvent(new Event('change'));
+    expect(elements.status.textContent).toBe('Unsaved changes');
+    expect(leave()).toBe(true);
+    elements.enabled.checked = true;
+    elements.enabled.dispatchEvent(new Event('change'));
+    expect(elements.status.textContent).toBe('');
+    expect(leave()).toBe(false);
+
+    elements.allowlist.querySelector<HTMLButtonElement>('button')!.click();
+    expect(leave()).toBe(true);
+    storage.write.mockRejectedValueOnce(new Error('quota'));
+    await save();
+    expect(elements.status.textContent).toBe('Save failed: quota');
+    expect(leave()).toBe(true);
+  });
 });

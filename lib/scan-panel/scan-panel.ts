@@ -19,6 +19,11 @@ export interface ScanPanel {
 
 const SEVERITY_ORDER: Severity[] = ['error', 'warning', 'advisory'];
 const SEVERITY_LABEL: Record<Severity, string> = { error: 'Error', warning: 'Warning', advisory: 'Advisory' };
+const SEVERITY_COUNT: Record<Severity, [one: string, other: string]> = {
+  error: ['error', 'errors'],
+  warning: ['warning', 'warnings'],
+  advisory: ['advisory', 'advisories'],
+};
 const MAX_ROWS = 10;
 const PROGRESS_TEXT_INTERVAL_MS = 1000;
 const PROGRESS_ANNOUNCE_STEPS = 4;
@@ -191,10 +196,13 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
   }
 
   function showFindings(document: Document, findings: Finding[], prefix: string): void {
-    const count = (severity: Severity) => findings.filter((finding) => finding.severity === severity).length;
+    const count = (severity: Severity) => {
+      const total = findings.filter((finding) => finding.severity === severity).length;
+      return `${total} ${SEVERITY_COUNT[severity][total === 1 ? 0 : 1]}`;
+    };
     const summary = document.createElement('p');
     summary.dataset.annotationScanSummary = '';
-    summary.textContent = `${prefix}${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}: ${count('error')} errors, ${count('warning')} warnings, ${count('advisory')} advisory`;
+    summary.textContent = `${prefix}${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}: ${count('error')}, ${count('warning')}, ${count('advisory')}`;
     announce(summary.textContent);
     panel.append(summary, createDeepScanButton(document));
 
@@ -237,18 +245,28 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     description.textContent = first.description;
 
     const list = document.createElement('ul');
-    for (const finding of group.slice(0, MAX_ROWS)) list.append(createRow(document, finding));
+    group.slice(0, MAX_ROWS).forEach((finding, index) => list.append(createRow(document, finding, index)));
     if (group.length > MAX_ROWS) {
-      const more = document.createElement('li');
+      const item = document.createElement('li');
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.dataset.annotationScanMore = '';
       more.textContent = `+${group.length - MAX_ROWS} more`;
-      list.append(more);
+      more.addEventListener('click', () => {
+        const rows = group.slice(MAX_ROWS).map((finding, index) => createRow(document, finding, MAX_ROWS + index));
+        item.replaceWith(...rows);
+        rows[0]!.tabIndex = -1;
+        rows[0]!.focus();
+      });
+      item.append(more);
+      list.append(item);
     }
 
     section.append(heading, severity, description, list);
     return section;
   }
 
-  function createRow(document: Document, finding: Finding): HTMLElement {
+  function createRow(document: Document, finding: Finding, index: number): HTMLElement {
     const row = document.createElement('li');
     row.dataset.annotationScanFinding = '';
     const detail = document.createElement('span');
@@ -260,6 +278,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       locate.type = 'button';
       locate.dataset.annotationScanLocate = '';
       locate.textContent = 'Locate';
+      locate.setAttribute('aria-label', `Locate finding ${index + 1}: ${finding.name}`);
       locate.addEventListener('click', () => highlight.show(options.highlightRoot, el));
       row.append(' ', locate);
     }

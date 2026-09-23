@@ -282,4 +282,93 @@ describe('toolbar controls', () => {
     pointer(grip, 'pointerup', 600, 30);
     expect(onPositionChange).not.toHaveBeenCalled();
   });
+
+  it('leaves one tab stop in the toolbar, on its first button after the grip', async () => {
+    const { grip, collapse } = setup();
+    await controls!.ready;
+    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse])')!;
+    expect([grip, scan, collapse].map((button) => button.tabIndex)).toEqual([-1, 0, -1]);
+  });
+
+  it('moves focus and the tab stop with Left, Right, Home and End, wrapping at both ends', async () => {
+    const { grip, collapse } = setup();
+    await controls!.ready;
+    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse])')!;
+    scan.focus();
+    expect(key(scan, 'ArrowRight').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(collapse);
+    expect([grip, scan, collapse].map((button) => button.tabIndex)).toEqual([-1, -1, 0]);
+    key(collapse, 'ArrowRight');
+    expect(document.activeElement).toBe(grip);
+    key(scan, 'ArrowLeft');
+    expect(document.activeElement).toBe(grip);
+    collapse.focus();
+    key(collapse, 'Home');
+    expect(document.activeElement).toBe(grip);
+    key(scan, 'End');
+    expect(document.activeElement).toBe(collapse);
+    key(grip, 'End');
+    expect(document.activeElement).toBe(collapse);
+    expect(key(collapse, 'a').defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(collapse);
+  });
+
+  it('keeps the grip arrow keys for moving the toolbar, not focus', async () => {
+    const { grip } = setup();
+    await controls!.ready;
+    grip.focus();
+    key(grip, 'ArrowLeft');
+    expect(document.activeElement).toBe(grip);
+    expect(inlinePosition().left).toBe(`${DEFAULT_LEFT - 16}px`);
+  });
+
+  it('keeps the tab stop on the button that last took focus', async () => {
+    const { grip, collapse } = setup();
+    await controls!.ready;
+    collapse.focus();
+    expect([grip.tabIndex, collapse.tabIndex]).toEqual([-1, 0]);
+    grip.focus();
+    expect([grip.tabIndex, collapse.tabIndex]).toEqual([0, -1]);
+  });
+
+  it('adds later toolbar buttons to the roving set without adding tab stops', async () => {
+    const { collapse } = setup();
+    await controls!.ready;
+    const late = document.createElement('button');
+    late.textContent = 'Annotate';
+    collapse.before(late);
+    await vi.waitFor(() => expect(late.tabIndex).toBe(-1));
+    const tabStops = [...toolbar.querySelectorAll('button')].filter((button) => button.tabIndex === 0);
+    expect(tabStops).toHaveLength(1);
+    late.focus();
+    key(late, 'ArrowRight');
+    expect(document.activeElement).toBe(collapse);
+  });
+
+  it('skips buttons hidden by collapse and moves a hidden tab stop to a shown button', async () => {
+    const { grip, collapse } = setup();
+    await controls!.ready;
+    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse])')!;
+    collapse.click();
+    await vi.waitFor(() => expect(collapse.tabIndex).toBe(0));
+    expect(scan.tabIndex).toBe(-1);
+    collapse.focus();
+    key(collapse, 'ArrowRight');
+    expect(document.activeElement).toBe(grip);
+    key(grip, 'End');
+    expect(document.activeElement).toBe(collapse);
+    key(collapse, 'ArrowLeft');
+    expect(document.activeElement).toBe(grip);
+  });
+
+  it('destroy stops roving and clears the tab stops it set', async () => {
+    setup();
+    await controls!.ready;
+    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse])')!;
+    controls!.destroy();
+    controls = undefined;
+    expect(scan.hasAttribute('tabindex')).toBe(false);
+    scan.focus();
+    expect(key(scan, 'ArrowRight').defaultPrevented).toBe(false);
+  });
 });

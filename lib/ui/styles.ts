@@ -152,6 +152,7 @@ ${ANNOTATION_DARK_TOKENS}
 [data-annotation-shell] .annotation-pin:focus-visible {
   outline: 2px solid var(--annotation-color-text);
   outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--annotation-color-surface);
 }
 
 [data-annotation-shell] .annotation-pin:active {
@@ -200,6 +201,14 @@ ${ANNOTATION_DARK_TOKENS}
 [data-annotation-shell] [data-annotation-mount] button:hover {
   border-color: var(--annotation-color-accent);
   background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-text);
+}
+
+[data-annotation-shell] [data-annotation-mount] input:focus-visible,
+[data-annotation-shell] [data-annotation-mount] textarea:focus-visible,
+[data-annotation-shell] [data-annotation-mount] select:focus-visible {
+  outline: 2px solid var(--annotation-color-accent);
+  outline-offset: 2px;
 }
 
 [data-annotation-shell] [data-annotation-mount] button:focus-visible {
@@ -319,5 +328,10 @@ ${ANNOTATION_DARK_TOKENS}
   [data-annotation-shell] [data-annotation-mount] button:active {
     transform: translateY(1px);
   }
+}
+
+[data-annotation-shell] [data-annotation-mount] button:active {
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-text);
 }
 `;

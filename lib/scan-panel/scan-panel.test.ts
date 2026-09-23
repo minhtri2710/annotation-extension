@@ -90,7 +90,7 @@ describe('scan panel', () => {
     await done;
     expect(scan).toHaveBeenCalledTimes(1);
     expect(panel.querySelector('[data-annotation-status]')).toBeNull();
-    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('0 findings: 0 errors, 0 warnings, 0 advisories');
     expect(panel.querySelector('[data-annotation-empty-state]')?.textContent).toBe('No findings on this page.');
   });
 
@@ -146,7 +146,7 @@ describe('scan panel', () => {
     await flush();
     await second;
     expect(panel.textContent).not.toContain('Scan failed');
-    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('0 findings: 0 errors, 0 warnings, 0 advisories');
   });
 
   it('fails closed with the error message and no list when the scan throws', async () => {
@@ -165,7 +165,7 @@ describe('scan panel', () => {
     vi.useFakeTimers();
     const { panel, scanPanel } = setup(async () => [finding('a', 'A', 'warning', 'x')]);
     await renderNow(scanPanel.render);
-    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('1 finding: 0 errors, 1 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('1 finding: 0 errors, 1 warning, 0 advisories');
   });
 
   it('groups by rule, orders by severity then name, caps rows at ten, and renders text only', async () => {
@@ -205,6 +205,53 @@ describe('scan panel', () => {
     expect(warnB?.querySelector<HTMLButtonElement>('[data-annotation-scan-locate]')?.type).toBe('button');
     expect(warnA?.querySelector('[data-annotation-scan-locate]')).toBeNull();
     expect(adv?.querySelector('[data-annotation-scan-locate]')).toBeNull();
+  });
+
+  it('pluralises every severity count by its number', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => [
+      finding('e', 'E', 'error', 'e'),
+      finding('w', 'W', 'warning', 'w'),
+      finding('a', 'A', 'advisory', 'a'),
+      finding('b', 'B', 'advisory', 'b'),
+    ]);
+    await renderNow(scanPanel.render);
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('4 findings: 1 error, 1 warning, 2 advisories');
+  });
+
+  it('shows every hidden row from the +N more button and focuses the first revealed row', async () => {
+    vi.useFakeTimers();
+    const target = document.createElement('p');
+    document.body.append(target);
+    const findings = Array.from({ length: 12 }, (_, i) => finding('err', 'Error rule', 'error', `e${i}`, target));
+    const { panel, scanPanel } = setup(async () => findings);
+    await renderNow(scanPanel.render);
+    const more = panel.querySelector<HTMLButtonElement>('li > button[data-annotation-scan-more]');
+    expect(more?.type).toBe('button');
+    expect(more?.textContent).toBe('+2 more');
+    more!.click();
+    const rows = [...panel.querySelectorAll<HTMLElement>('[data-annotation-scan-finding]')];
+    expect(rows.map((row) => row.firstChild?.textContent)).toEqual(findings.map((f) => f.detail));
+    expect(panel.querySelector('[data-annotation-scan-more]')).toBeNull();
+    expect(document.activeElement).toBe(rows[10]);
+  });
+
+  it('names each Locate button by its position in the group and the finding, with no ids', async () => {
+    vi.useFakeTimers();
+    const target = document.createElement('p');
+    document.body.append(target);
+    const { panel, scanPanel } = setup(async () => [
+      finding('r', 'Low contrast', 'error', 'a', target),
+      finding('r', 'Low contrast', 'error', 'b', target),
+      finding('s', 'Tiny text', 'warning', 'c', target),
+    ]);
+    await renderNow(scanPanel.render);
+    const locates = [...panel.querySelectorAll<HTMLButtonElement>('[data-annotation-scan-locate]')];
+    expect(locates.map((button) => [button.textContent, button.getAttribute('aria-label')])).toEqual([
+      ['Locate', 'Locate finding 1: Low contrast'],
+      ['Locate', 'Locate finding 2: Low contrast'],
+      ['Locate', 'Locate finding 1: Tiny text'],
+    ]);
   });
 
   it('locates: scrolls without smooth behavior, draws one fixed highlight, removes it after 1500ms', async () => {
@@ -355,7 +402,7 @@ describe('scan panel deep scan', () => {
     await flush();
     expect(panel.querySelector('[data-annotation-status]')).toBeNull();
     expect(panel.querySelector('[data-annotation-deep-scan-cancel]')).toBeNull();
-    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 2 findings: 1 errors, 1 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 2 findings: 1 error, 1 warning, 0 advisories');
     expect([...panel.querySelectorAll<HTMLElement>('[data-annotation-scan-group]')].map((g) => g.dataset.ruleId)).toEqual(['h', 'w']);
     expect(panel.querySelector('[data-annotation-scan-locate]')?.textContent).toBe('Locate');
     expect(deepButton(panel)?.previousElementSibling?.hasAttribute('data-annotation-scan-summary')).toBe(true);
@@ -418,7 +465,7 @@ describe('scan panel deep scan', () => {
     await renderNow(scanPanel.render);
     deepButton(panel)?.click();
     await flush();
-    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisories');
     expect(panel.querySelector('[data-annotation-empty-state]')?.textContent).toBe('No findings on this page.');
     expect(deepButton(panel)).not.toBeNull();
   });
@@ -463,7 +510,7 @@ describe('scan panel deep scan', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await flush();
     expect(calls[1]?.signal.aborted).toBe(false);
-    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisories');
     expect(onUpdate).toHaveBeenCalledTimes(2);
   });
 
@@ -576,7 +623,7 @@ describe('scan panel deep scan', () => {
     calls[0]?.resolve([finding('late', 'Late', 'error', 'late')]);
     await flush();
     await rerender;
-    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(panel.querySelector('[data-annotation-scan-summary]')?.textContent).toBe('0 findings: 0 errors, 0 warnings, 0 advisories');
     expect(panel.querySelector('[data-annotation-scan-group]')).toBeNull();
     expect(onUpdate).not.toHaveBeenCalled();
   });
@@ -596,7 +643,7 @@ describe('scan panel live status', () => {
     await done;
     expect(scanPanel.live).toBe(live);
     expect(live.isConnected).toBe(true);
-    expect(live.textContent).toBe('1 finding: 0 errors, 1 warnings, 0 advisory');
+    expect(live.textContent).toBe('1 finding: 0 errors, 1 warning, 0 advisories');
   });
 
   it('announces a scan failure', async () => {
@@ -622,7 +669,7 @@ describe('scan panel live status', () => {
     deepButton(panel)?.click();
     calls[1]?.resolve([]);
     await flush();
-    expect(scanPanel.live.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisory');
+    expect(scanPanel.live.textContent).toBe('Deep scan: 0 findings: 0 errors, 0 warnings, 0 advisories');
 
     deepButton(panel)?.click();
     calls[2]?.reject(new Error('sweep broke'));

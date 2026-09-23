@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { contrastRatio, parseColor, type Rgba } from '../lint/color';
 import { ANNOTATION_DARK_TOKENS, ANNOTATION_TOKENS } from './tokens';
 import { OVERLAY_STYLES } from './styles';
 
@@ -376,5 +377,67 @@ describe('overlay styles independent of the page', () => {
   inset: -8px;
   z-index: -1;
 }`);
+  });
+});
+
+describe('overlay state contrast computed from the token values', () => {
+  const schemes = { light: ANNOTATION_TOKENS, dark: `${ANNOTATION_TOKENS}\n${ANNOTATION_DARK_TOKENS}` };
+  const button = '[data-annotation-shell] [data-annotation-mount] button';
+  const white = parseColor('#ffffff')!;
+  const black = parseColor('#000000')!;
+
+  function tokenColor(tokens: string, declaration: string): Rgba {
+    const name = /var\((--annotation-color-[a-z-]+)\)/.exec(declaration)?.[1];
+    expect(name, declaration).toBeDefined();
+    const values = [...tokens.matchAll(new RegExp(`${name}: ([^;]+);`, 'g'))];
+    const color = parseColor(values[values.length - 1]?.[1] ?? '');
+    expect(color, name).toBeDefined();
+    return color!;
+  }
+
+  function declaration(body: string, property: string): string {
+    const value = new RegExp(`(?:^|[\\s;{])${property}: ([^;]+);`).exec(body)?.[1];
+    expect(value, `${property} in ${body}`).toBeDefined();
+    return value!;
+  }
+
+  it('sets hover and active button text with the background at 4.5:1 or more in both schemes', () => {
+    const hover = ruleBody(`${button}:hover {`);
+    const active = OVERLAY_STYLES.split(`\n${button}:active {`).slice(1).map((rest) => rest.slice(0, rest.indexOf('}'))).find((body) => /(?:^|[\s;])color: /.test(body));
+    expect(active).toBeDefined();
+    for (const [scheme, tokens] of Object.entries(schemes)) {
+      for (const body of [hover, active!]) {
+        const ratio = contrastRatio(tokenColor(tokens, declaration(body, 'color')), tokenColor(tokens, declaration(body, 'background')));
+        expect(ratio, `${scheme}: ${body}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it('draws the pin focus ring in two colours, one at 3:1 or more against white and black pages', () => {
+    const body = ruleBody('[data-annotation-shell] .annotation-pin:focus-visible {');
+    const outline = declaration(body, 'outline');
+    const shadow = declaration(body, 'box-shadow');
+    expect(Number.parseFloat(/(\d+)px$/.exec(shadow.split(' var(')[0]!.trim())?.[1] ?? '0')).toBeGreaterThan(
+      Number.parseFloat(/outline-offset: (\d+)px/.exec(body)?.[1] ?? '0') + Number.parseFloat(/(\d+)px/.exec(outline)?.[1] ?? '0'),
+    );
+    for (const [scheme, tokens] of Object.entries(schemes)) {
+      const ring = tokenColor(tokens, outline);
+      const halo = tokenColor(tokens, shadow);
+      expect(contrastRatio(ring, halo), scheme).toBeGreaterThanOrEqual(3);
+      for (const page of [white, black]) {
+        expect(Math.max(contrastRatio(ring, page), contrastRatio(halo, page)), scheme).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  it('outlines focused text fields at 3:1 or more against the panel surface in both schemes', () => {
+    const field = '[data-annotation-shell] [data-annotation-mount]';
+    const body = ruleBody(`${field} input:focus-visible,\n${field} textarea:focus-visible,\n${field} select:focus-visible {`);
+    const outline = declaration(body, 'outline');
+    expect(outline).toMatch(/^2px solid /);
+    for (const [scheme, tokens] of Object.entries(schemes)) {
+      const surface = tokenColor(tokens, 'var(--annotation-color-surface)');
+      expect(contrastRatio(tokenColor(tokens, outline), surface), scheme).toBeGreaterThanOrEqual(3);
+    }
   });
 });

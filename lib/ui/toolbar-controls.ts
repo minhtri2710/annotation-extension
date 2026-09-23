@@ -24,6 +24,8 @@ const KEY_DELTAS: Record<string, Position> = {
   ArrowUp: { x: 0, y: -1 },
   ArrowDown: { x: 0, y: 1 },
 };
+const ROVING_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End']);
+const SHOWN_WHEN_COLLAPSED = '[data-annotation-toolbar-grip], [data-annotation-toolbar-collapse], [data-annotation-badge]';
 
 export function createToolbarControls(options: ToolbarControlsOptions): ToolbarControls {
   const { toolbar, win, prefs } = options;
@@ -42,6 +44,40 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
   const collapse = document.createElement('button');
   collapse.type = 'button';
   collapse.dataset.annotationToolbarCollapse = '';
+
+  // ARIA toolbar pattern: one tab stop (roving tabindex), moved by Left/Right/Home/End with wrap.
+  // The grip keeps its arrow keys and Home for moving the toolbar; End still leaves it.
+  let stop: HTMLButtonElement | undefined;
+  const items = () =>
+    Array.from(toolbar.querySelectorAll('button')).filter(
+      (button) => !button.disabled && !button.hidden && (!collapsed || button.matches(SHOWN_WHEN_COLLAPSED)),
+    );
+  const syncTabStop = () => {
+    const shown = items();
+    if (!stop || !shown.includes(stop)) stop = shown.find((button) => button !== grip) ?? shown[0];
+    for (const button of toolbar.querySelectorAll('button')) button.tabIndex = button === stop ? 0 : -1;
+  };
+  const onFocusIn = (event: FocusEvent) => {
+    const target = event.target as HTMLButtonElement;
+    if (!items().includes(target)) return;
+    stop = target;
+    syncTabStop();
+  };
+  const onToolbarKeyDown = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || !ROVING_KEYS.has(event.key)) return;
+    const shown = items();
+    const index = shown.indexOf(event.target as HTMLButtonElement);
+    if (index < 0) return;
+    const last = shown.length - 1;
+    const next =
+      event.key === 'Home' ? 0
+      : event.key === 'End' ? last
+      : event.key === 'ArrowRight' ? (index === last ? 0 : index + 1)
+      : (index === 0 ? last : index - 1);
+    event.preventDefault();
+    shown[next]!.focus();
+  };
+  const observer = new MutationObserver(syncTabStop);
 
   const persist = () => prefs.write({ position, collapsed }).catch(() => undefined);
 
@@ -75,6 +111,7 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     collapse.setAttribute('aria-expanded', String(!collapsed));
     collapse.textContent = collapsed ? 'Show' : 'Hide';
     collapse.setAttribute('aria-label', `${collapse.textContent} annotation toolbar`);
+    syncTabStop();
   };
 
   const endDrag = (event: PointerEvent) => {
@@ -143,9 +180,12 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
   grip.addEventListener('keydown', onKeyDown);
   collapse.addEventListener('click', onCollapseClick);
   win.addEventListener('resize', onResize);
-  applyCollapsed(false);
+  toolbar.addEventListener('focusin', onFocusIn);
+  toolbar.addEventListener('keydown', onToolbarKeyDown);
   toolbar.prepend(grip);
   toolbar.append(collapse);
+  applyCollapsed(false);
+  observer.observe(toolbar, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden'] });
 
   const ready = prefs.read().then(
     (stored) => {
@@ -168,6 +208,10 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
       grip.removeEventListener('pointercancel', endDrag);
       grip.removeEventListener('keydown', onKeyDown);
       collapse.removeEventListener('click', onCollapseClick);
+      toolbar.removeEventListener('focusin', onFocusIn);
+      toolbar.removeEventListener('keydown', onToolbarKeyDown);
+      observer.disconnect();
+      for (const button of toolbar.querySelectorAll('button')) button.removeAttribute('tabindex');
       grip.remove();
       collapse.remove();
       toolbar.removeAttribute('data-collapsed');
