@@ -13,8 +13,12 @@ export interface PinsControllerOptions {
   onActivate?: (annotation: Annotation) => void;
 }
 
-interface TrackedPin {
+interface PendingAnnotation {
   annotation: Annotation;
+  index: number;
+}
+
+interface TrackedPin extends PendingAnnotation {
   element: Element;
   marker: HTMLButtonElement;
   hovered: boolean;
@@ -28,6 +32,8 @@ const TOOLTIP_ATTRIBUTE = 'data-annotation-tooltip';
 const PIN_CLASS = 'annotation-pin';
 const PULSE_CLASS = 'locate-pulse';
 const NOTE_PREVIEW_LENGTH = 120;
+export const RERESOLVE_DEBOUNCE_MS = 250;
+export const RERESOLVE_MAX_WAIT_MS = 1000;
 const MARKER_STYLE = [
   'position: fixed',
   'z-index: 2147483647',
@@ -53,7 +59,10 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   options.toolbar.append(badge);
 
   let trackedPins: TrackedPin[] = [];
+  let unresolved: PendingAnnotation[] = [];
   let frame: number | undefined;
+  let resolveTimer: number | undefined;
+  let maxWaitTimer: number | undefined;
   let tooltip: HTMLDivElement | undefined;
   let destroyed = false;
 
@@ -81,7 +90,37 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     });
   };
 
-  const observer = new MutationObserver(scheduleReanchor);
+  const reresolve = () => {
+    const detached = trackedPins.filter((pin) => !pin.element.isConnected);
+    for (const pin of detached) {
+      clearPulse(pin);
+      pin.marker.remove();
+      if (tooltip && (pin.hovered || pin.focused)) hideTooltip();
+    }
+    trackedPins = trackedPins.filter((pin) => pin.element.isConnected);
+    const pending = [...unresolved, ...detached].sort((a, b) => a.index - b.index);
+    unresolved = [];
+    for (const { annotation, index } of pending) track(annotation, index);
+    reanchor();
+  };
+
+  const scheduleReresolve = () => {
+    if (destroyed) return;
+    if (unresolved.length === 0 && trackedPins.every((pin) => pin.element.isConnected)) return;
+    if (resolveTimer !== undefined) view?.clearTimeout(resolveTimer);
+    resolveTimer = view?.setTimeout(runReresolve, RERESOLVE_DEBOUNCE_MS);
+    maxWaitTimer ??= view?.setTimeout(runReresolve, RERESOLVE_MAX_WAIT_MS);
+  };
+
+  const runReresolve = () => {
+    cancelReresolve();
+    reresolve();
+  };
+
+  const observer = new MutationObserver(() => {
+    scheduleReanchor();
+    scheduleReresolve();
+  });
   observer.observe(options.document, { childList: true, subtree: true });
   options.document.addEventListener('scroll', scheduleReanchor, true);
   view?.addEventListener('resize', scheduleReanchor, true);
@@ -95,53 +134,9 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     hideTooltip();
     badge.textContent = String(annotations.length);
 
-    annotations.forEach((annotation, index) => {
-      const element = resolveElement(options.document, annotation.selector);
-      if (!element) return;
-
-      const marker = options.document.createElement('button');
-      const pin: TrackedPin = {
-        annotation,
-        element,
-        marker,
-        hovered: false,
-        focused: false,
-      };
-      marker.type = 'button';
-      marker.className = PIN_CLASS;
-      marker.setAttribute(MARKER_ATTRIBUTE, annotation.id);
-      if (annotation.status === 'resolved') marker.dataset.annotationStatus = 'resolved';
-      marker.setAttribute('aria-label', `Annotation ${index + 1}`);
-      marker.textContent = String(index + 1);
-      marker.style.cssText = MARKER_STYLE;
-      marker.addEventListener('mouseenter', () => {
-        pin.hovered = true;
-        showTooltip(pin);
-      });
-      marker.addEventListener('mouseleave', () => {
-        pin.hovered = false;
-        updateTooltip(pin);
-      });
-      marker.addEventListener('focus', () => {
-        pin.focused = true;
-        showTooltip(pin);
-      });
-      marker.addEventListener('blur', () => {
-        pin.focused = false;
-        updateTooltip(pin);
-      });
-      marker.addEventListener('click', () => {
-        marker.classList.add(PULSE_CLASS);
-        if (pin.pulseTimeout !== undefined) view?.clearTimeout(pin.pulseTimeout);
-        pin.pulseTimeout = view?.setTimeout(() => {
-          pin.pulseTimeout = undefined;
-          marker.classList.remove(PULSE_CLASS);
-        }, 500);
-        options.onActivate?.(annotation);
-      });
-      options.container.append(marker);
-      trackedPins.push(pin);
-    });
+    unresolved = [];
+    cancelReresolve();
+    annotations.forEach((annotation, index) => track(annotation, index));
 
     reanchor();
   };
@@ -156,6 +151,8 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       view?.cancelAnimationFrame(frame);
       frame = undefined;
     }
+    cancelReresolve();
+    unresolved = [];
     for (const pin of trackedPins) {
       clearPulse(pin);
       pin.marker.remove();
@@ -166,6 +163,65 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   };
 
   return { setAnnotations, reanchor, destroy };
+
+  function cancelReresolve(): void {
+    if (resolveTimer !== undefined) view?.clearTimeout(resolveTimer);
+    if (maxWaitTimer !== undefined) view?.clearTimeout(maxWaitTimer);
+    resolveTimer = undefined;
+    maxWaitTimer = undefined;
+  }
+
+  function track(annotation: Annotation, index: number): void {
+    const element = resolveElement(options.document, annotation.selector);
+    if (!element) {
+      unresolved.push({ annotation, index });
+      return;
+    }
+
+    const marker = options.document.createElement('button');
+    const pin: TrackedPin = {
+      annotation,
+      index,
+      element,
+      marker,
+      hovered: false,
+      focused: false,
+    };
+    marker.type = 'button';
+    marker.className = PIN_CLASS;
+    marker.setAttribute(MARKER_ATTRIBUTE, annotation.id);
+    if (annotation.status === 'resolved') marker.dataset.annotationStatus = 'resolved';
+    marker.setAttribute('aria-label', `Annotation ${index + 1}`);
+    marker.textContent = String(index + 1);
+    marker.style.cssText = MARKER_STYLE;
+    marker.addEventListener('mouseenter', () => {
+      pin.hovered = true;
+      showTooltip(pin);
+    });
+    marker.addEventListener('mouseleave', () => {
+      pin.hovered = false;
+      updateTooltip(pin);
+    });
+    marker.addEventListener('focus', () => {
+      pin.focused = true;
+      showTooltip(pin);
+    });
+    marker.addEventListener('blur', () => {
+      pin.focused = false;
+      updateTooltip(pin);
+    });
+    marker.addEventListener('click', () => {
+      marker.classList.add(PULSE_CLASS);
+      if (pin.pulseTimeout !== undefined) view?.clearTimeout(pin.pulseTimeout);
+      pin.pulseTimeout = view?.setTimeout(() => {
+        pin.pulseTimeout = undefined;
+        marker.classList.remove(PULSE_CLASS);
+      }, 500);
+      options.onActivate?.(annotation);
+    });
+    options.container.append(marker);
+    trackedPins.push(pin);
+  }
 
   function showTooltip(pin: TrackedPin): void {
     if (destroyed) return;

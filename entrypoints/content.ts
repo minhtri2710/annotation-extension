@@ -5,6 +5,7 @@ import { createNotePanel } from '../lib/notes/note-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import type { ElementContext } from '../lib/capture/context';
 import { resolveLiveElementContext } from '../lib/wiring/live-element';
+import { watchRoute } from '../lib/wiring/route-watch';
 import { buildOverlayShell, positionPopover } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
 import { pageKey } from '../utils/page-key';
@@ -33,6 +34,7 @@ export default defineContentScript({
     let annotationListToggle: HTMLButtonElement | undefined;
     let annotationToggle: HTMLButtonElement | undefined;
     let resetPanelPosition: (() => void) | undefined;
+    let stopRouteWatch: (() => void) | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
@@ -47,9 +49,9 @@ export default defineContentScript({
               ? window.matchMedia('(prefers-color-scheme: dark)').matches
               : undefined,
         });
-        const url = document.location.href;
+        let url = document.location.href;
         notePanel = createNotePanel(shell.panel);
-        const annotationList = createAnnotationList(shell.panel, url);
+        let annotationList = createAnnotationList(shell.panel, url);
         let listOpen = false;
         let renderSequence = 0;
         resetPanelPosition = () => {
@@ -124,8 +126,11 @@ export default defineContentScript({
             if (context) showNotePanel(context);
           },
         });
+        let pinsSequence = 0;
         const refreshPins = async () => {
+          const sequence = ++pinsSequence;
           const annotations = await listAnnotations(url);
+          if (sequence !== pinsSequence) return;
           pins?.setAnnotations(annotations);
         };
         storageChanged = (changes, areaName) => {
@@ -133,6 +138,17 @@ export default defineContentScript({
         };
         browser.storage.onChanged.addListener(storageChanged);
         void refreshPins();
+        stopRouteWatch = watchRoute(window, (newUrl) => {
+          url = newUrl;
+          if (listOpen) {
+            listOpen = false;
+            listToggle.setAttribute('aria-expanded', 'false');
+            annotationList.clear();
+            resetPanelPosition?.();
+          }
+          annotationList = createAnnotationList(shell.panel, newUrl);
+          void refreshPins();
+        });
         controller = createCaptureController({
           document,
           shadowHost,
@@ -141,6 +157,8 @@ export default defineContentScript({
         return shell;
       },
       onRemove: () => {
+        stopRouteWatch?.();
+        stopRouteWatch = undefined;
         unsubscribeSelection?.();
         unsubscribeSelection = undefined;
         unsubscribeCaptureState?.();

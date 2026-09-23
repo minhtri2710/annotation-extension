@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
-import { createPinsController, resolveElement } from './pins';
+import { createPinsController, RERESOLVE_DEBOUNCE_MS, RERESOLVE_MAX_WAIT_MS, resolveElement } from './pins';
 
 const pageUrl = 'https://example.com/article';
 const context: ElementContext = {
@@ -208,5 +208,118 @@ describe('pins controller', () => {
     expect(onActivate).toHaveBeenCalledTimes(1);
     expect(onActivate).toHaveBeenCalledWith(matching);
     controller.destroy();
+  });
+
+  describe('late-element re-resolve', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const markerTexts = (overlay: HTMLElement) =>
+      Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-annotation-id]'))
+        .map((marker) => marker.textContent);
+
+    it('pins an annotation whose element appears after setAnnotations with its list ordinal', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      const onActivate = vi.fn();
+      const late = annotation('annotation-2', '#late');
+      const controller = createPinsController({ document, container: overlay, toolbar, onActivate });
+      controller.setAnnotations([annotation('annotation-1'), late]);
+      expect(markerTexts(overlay)).toEqual(['1']);
+
+      const lateTarget = document.createElement('button');
+      lateTarget.id = 'late';
+      document.body.append(lateTarget);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(RERESOLVE_DEBOUNCE_MS - 1);
+      expect(overlay.querySelector('[data-annotation-id="annotation-2"]')).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+
+      const marker = overlay.querySelector('[data-annotation-id="annotation-2"]') as HTMLButtonElement;
+      expect(marker.textContent).toBe('2');
+      expect(marker.getAttribute('aria-label')).toBe('Annotation 2');
+      expect(toolbar.querySelector('[data-annotation-badge]')?.textContent).toBe('2');
+      marker.click();
+      expect(onActivate).toHaveBeenCalledWith(late);
+      controller.destroy();
+    });
+
+    it('schedules no re-resolve timer while every annotation is resolved', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1')]);
+
+      document.body.append(document.createElement('p'));
+      await Promise.resolve();
+
+      expect(vi.getTimerCount()).toBe(0);
+      controller.destroy();
+    });
+
+    it('clears the pending re-resolve timer on destroy', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1', '#late')]);
+      const lateTarget = document.createElement('button');
+      lateTarget.id = 'late';
+      document.body.append(lateTarget);
+      await Promise.resolve();
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      controller.destroy();
+
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(RERESOLVE_DEBOUNCE_MS);
+      expect(overlay.querySelector('[data-annotation-id]')).toBeNull();
+    });
+
+    it('re-resolves within the max wait while mutations keep arriving faster than the debounce', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay } = setup();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1', '#late')]);
+      const lateTarget = document.createElement('button');
+      lateTarget.id = 'late';
+      document.body.append(lateTarget);
+      const ticker = document.createElement('span');
+      document.body.append(ticker);
+
+      for (let elapsed = 0; elapsed < RERESOLVE_MAX_WAIT_MS; elapsed += 100) {
+        ticker.replaceChildren(String(elapsed));
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(100);
+      }
+
+      expect(overlay.querySelector('[data-annotation-id="annotation-1"]')?.textContent).toBe('1');
+      controller.destroy();
+    });
+
+    it('re-resolves a pin whose element a framework replaced', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay, target } = setup();
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1')]);
+
+      const replacement = document.createElement('button');
+      replacement.id = 'target';
+      vi.spyOn(replacement, 'getBoundingClientRect').mockReturnValue({
+        x: 40, y: 50, left: 40, top: 50, right: 60, bottom: 70, width: 20, height: 20, toJSON: () => ({}),
+      });
+      target.replaceWith(replacement);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(RERESOLVE_DEBOUNCE_MS);
+
+      const markers = overlay.querySelectorAll<HTMLButtonElement>('[data-annotation-id="annotation-1"]');
+      expect(markers).toHaveLength(1);
+      const marker = markers[0] as HTMLButtonElement;
+      expect(marker.hidden).toBe(false);
+      expect(marker.textContent).toBe('1');
+      expect(marker.style.left).toBe('40px');
+      expect(marker.style.top).toBe('50px');
+      controller.destroy();
+    });
   });
 });
