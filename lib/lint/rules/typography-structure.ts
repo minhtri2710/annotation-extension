@@ -4,6 +4,7 @@ import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanCon
 
 const TYPE_HIERARCHY_MIN_ROLES = 3;
 const TYPE_HIERARCHY_MIN_STEP_RATIO = 1.25;
+const TYPE_HIERARCHY_DISPLAY_RATIO = 1.5;
 const OVERUSED_FONT_MIN_TEXT_ELEMENTS = 20;
 const ICON_TILE_MIN_PX = 32;
 const ICON_TILE_MAX_PX = 128;
@@ -16,7 +17,6 @@ const HERO_EYEBROW_MIN_TRACKING_PX = 1.6;
 const KICKER_MIN_HEADING_PX = 20;
 const KICKER_MAX_PX = 14;
 const KICKER_MIN_TRACKING_EM = 0.06;
-const DESIGN_FONT_SIZE_TOLERANCE_PX = 0.5;
 
 const CSS_GENERIC_FONTS = new Set([
   'serif',
@@ -96,7 +96,6 @@ const KNOWN_SERIF_FONTS = new Set([
   'freight text',
 ]);
 const TYPE_HIERARCHY_SELECTOR = 'h1,h2,h3,h4,h5,h6,p,li,td,th,dd,blockquote,figcaption';
-const TYPE_HIERARCHY_SKIP_SELECTOR = '.impeccable-overlay, .impeccable-label, .impeccable-banner, .impeccable-tooltip, [id^="impeccable-live-"]';
 const HEADING_SELECTOR = 'h1,h2,h3,h4,h5,h6';
 const HEADING_WITH_ARIA_SELECTOR = 'h1,h2,h3,h4,[role="heading"]';
 const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
@@ -119,7 +118,7 @@ const NON_RENDERED_TAGS = new Set([
   'map',
   'area',
 ]);
-const KICKER_SKIP_SELECTOR = 'nav,form,table,thead,tbody,tfoot,figure,figcaption,ol,ul,li,[role="navigation"],[aria-label*="breadcrumb" i],[class*="breadcrumb" i],[aria-hidden="true"],[data-impeccable-allow-kickers]';
+const KICKER_SKIP_SELECTOR = 'nav,form,table,thead,tbody,tfoot,figure,figcaption,ol,ul,li,[role="navigation"],[aria-label*="breadcrumb" i],[class*="breadcrumb" i],[aria-hidden="true"]';
 const KICKER_CARD_CONTEXT_SELECTOR = 'article,button,a,li,[role="listitem"],[role="option"]';
 const BRAND_FONT_DOMAINS: Record<string, string[]> = {
   roboto: ['google.com', 'youtube.com', 'android.com', 'chromium.org', 'chrome.com', 'web.dev', 'gstatic.com', 'firebase.google.com'],
@@ -235,52 +234,61 @@ function isAccentDashPseudo(ctx: ScanContext, el: Element): boolean {
 
 async function overusedFont(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const usage = new Map<string, number>();
+  let elements = 0;
   let total = 0;
   for (const el of Array.from(ctx.doc.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,th,dd,blockquote,figcaption,a,button,label,span'))) {
     await checkpoint();
-    if (el.closest('.impeccable-overlay, .impeccable-label, .impeccable-banner, .impeccable-tooltip')) continue;
-    if (!hasDirectText(el)) continue;
+    const chars = directText(el).trim().length;
+    if (chars === 0) continue;
     const font = primaryFont(styleValue(ctx, el, 'font-family'), true);
     if (!font) continue;
-    usage.set(font, (usage.get(font) ?? 0) + 1);
-    total += 1;
+    usage.set(font, (usage.get(font) ?? 0) + chars);
+    elements += 1;
+    total += chars;
   }
-  if (total < OVERUSED_FONT_MIN_TEXT_ELEMENTS) return [];
+  if (elements < OVERUSED_FONT_MIN_TEXT_ELEMENTS) return [];
   const ranked = [...usage.entries()].sort((a, b) => b[1] - a[1]);
   const top = ranked[0];
   if (!top || ranked[1]?.[1] === top[1]) return [];
   if (!OVERUSED_FONTS.has(top[0]) || isBrandFontOnOwnDomain(top[0], ctx.hostname)) return [];
   return [{
     detail: `Primary font: ${top[0]} (${Math.round((top[1] / total) * 100)}% of text)`,
-    ignoreValue: top[0],
   }];
 }
 
-function hierarchyRole(el: Element): string {
-  const tag = tagName(el);
-  return HEADING_TAGS.has(tag) ? tag : 'body';
+
+// The most frequent size; undefined when two sizes tie for most frequent.
+function dominantSize(samples: number[]): number | undefined {
+  const counts = new Map<number, number>();
+  for (const sample of samples) counts.set(sample, (counts.get(sample) ?? 0) + 1);
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  if (ranked.length > 1 && ranked[0]![1] === ranked[1]![1]) return undefined;
+  return ranked[0]?.[0];
 }
 
 async function flatTypeHierarchy(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
-  const byRole = new Map<string, number[]>();
+  const sized: Array<{ tag: string; size: number }> = [];
   for (const el of Array.from(ctx.doc.querySelectorAll(TYPE_HIERARCHY_SELECTOR))) {
     await checkpoint();
-    if (el.closest(TYPE_HIERARCHY_SKIP_SELECTOR) || !collapseWhitespace(el.textContent ?? '') || !isRendered(ctx, el)) continue;
+    if (!collapseWhitespace(el.textContent ?? '') || !isRendered(ctx, el)) continue;
     const size = parseFontSize(ctx, el);
     if (!Number.isFinite(size) || size < 8 || size >= 200) continue;
-    const role = hierarchyRole(el);
+    const tag = tagName(el);
+    sized.push({ tag: HEADING_TAGS.has(tag) ? tag : 'body', size: roundTenth(size) });
+  }
+  const bodySize = dominantSize(sized.filter(({ tag }) => tag === 'body').map(({ size }) => size));
+  const byRole = new Map<string, number[]>();
+  for (const { tag, size } of sized) {
+    const role = bodySize !== undefined && size >= TYPE_HIERARCHY_DISPLAY_RATIO * bodySize ? 'display' : tag;
     const samples = byRole.get(role) ?? [];
-    samples.push(roundTenth(size));
+    samples.push(size);
     byRole.set(role, samples);
   }
 
   const roles: Array<[string, number]> = [];
   for (const [role, samples] of byRole) {
-    const counts = new Map<number, number>();
-    for (const sample of samples) counts.set(sample, (counts.get(sample) ?? 0) + 1);
-    const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
-    if (ranked.length > 1 && ranked[0]![1] === ranked[1]![1]) continue;
-    if (ranked[0]) roles.push([role, ranked[0][0]]);
+    const size = dominantSize(samples);
+    if (size !== undefined) roles.push([role, size]);
   }
   if (roles.length < TYPE_HIERARCHY_MIN_ROLES) return [];
   roles.sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
@@ -413,48 +421,21 @@ function kickerAboveHeading(el: Element, ctx: ScanContext): RuleHit[] {
   return [{ detail: `kicker "${kickerText.slice(0, 40)}" above ${headingTag} "${headingText.slice(0, 60)}"` }];
 }
 
-function designSystemFont(el: Element, ctx: ScanContext): RuleHit[] {
-  const configured = ctx.config.designSystem?.fontFamilies;
-  if (!configured || configured.length === 0 || !hasDirectText(el) || !isRendered(ctx, el)) return [];
-  const font = primaryFont(styleValue(ctx, el, 'font-family'), false);
-  if (!font) return [];
-  const allowed = configured.map((value) => primaryFont(value, false)).filter(Boolean);
-  if (allowed.includes(font)) return [];
-  return [{
-    detail: `${tagName(el)}${textSample(el) ? ` "${textSample(el)}"` : ''} uses ${font}; not declared in DESIGN.md typography`,
-    ignoreValue: font,
-  }];
-}
-
-function designSystemFontSize(el: Element, ctx: ScanContext): RuleHit[] {
-  const configured = ctx.config.designSystem?.fontSizes;
-  if (!configured || configured.length === 0 || !hasDirectText(el) || !isRendered(ctx, el)) return [];
-  const size = parseFontSize(ctx, el);
-  if (size <= 0 || configured.some((allowed) => Math.abs(allowed - size) <= DESIGN_FONT_SIZE_TOLERANCE_PX)) return [];
-  const value = `${numberText(size)}px`;
-  return [{
-    detail: `${value} on ${tagName(el)}${textSample(el) ? ` "${textSample(el)}"` : ''} is outside DESIGN.md type scale`,
-    ignoreValue: value,
-  }];
-}
-
-const pageRule = (id: string, category: 'slop' | 'quality', name: string, description: string, test: PageRule['test'], skillSection?: string): PageRule => ({
+const pageRule = (id: string, category: 'slop' | 'quality', name: string, description: string, test: PageRule['test']): PageRule => ({
   id,
   category,
   name,
   description,
-  ...(skillSection === undefined ? {} : { skillSection }),
   scope: 'page',
   test,
 });
 
-const elementRule = (id: string, category: 'slop' | 'quality', name: string, description: string, test: ElementRule['test'], skillSection?: string, severity?: 'error' | 'warning' | 'advisory'): ElementRule => ({
+const elementRule = (id: string, category: 'slop' | 'quality', name: string, description: string, test: ElementRule['test'], severity?: 'error' | 'warning' | 'advisory'): ElementRule => ({
   id,
   category,
   ...(severity === undefined ? {} : { severity }),
   name,
   description,
-  ...(skillSection === undefined ? {} : { skillSection }),
   scope: 'element',
   test,
 });
@@ -466,7 +447,6 @@ export const typographyStructureRules: Rule[] = [
     'Overused font',
     'Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.',
     (ctx, checkpoint) => overusedFont(ctx, checkpoint),
-    'Typography',
   ),
   pageRule(
     'flat-type-hierarchy',
@@ -474,7 +454,6 @@ export const typographyStructureRules: Rule[] = [
     'Flat type hierarchy',
     'Dominant heading and body roles are separated by less than 1.25× at every step, leaving the size hierarchy flat. Add at least one stronger size step.',
     (ctx, checkpoint) => flatTypeHierarchy(ctx, checkpoint),
-    'Typography',
   ),
   pageRule(
     'skipped-heading',
@@ -489,7 +468,6 @@ export const typographyStructureRules: Rule[] = [
     'Icon tile stacked above heading',
     'A small rounded-square icon container above a heading is the universal AI feature-card template — every generator outputs this exact shape. Try a side-by-side icon and heading, or let the icon sit in flow without its own container.',
     (el, ctx) => iconTileStack(el, ctx),
-    'Typography',
   ),
   elementRule(
     'italic-serif-display',
@@ -497,7 +475,6 @@ export const typographyStructureRules: Rule[] = [
     'Italic serif display headline',
     'Oversized italic serif (Fraunces, Recoleta, Playfair, Newsreader-italic) as the primary hero headline reads as taste in isolation but has become the universal AI-startup landing page hero. Set roman, or move to a non-serif display face. Editorial / magazine register may legitimately want this — judge by context.',
     (el, ctx) => italicSerifDisplay(el, ctx),
-    'Typography',
   ),
   elementRule(
     'hero-eyebrow-chip',
@@ -505,7 +482,6 @@ export const typographyStructureRules: Rule[] = [
     'Hero eyebrow / pill chip',
     'A tiny uppercase letter-spaced label sitting immediately above an oversized hero headline — or the same shape rendered as a pill chip — is now the default AI SaaS hero. Drop the eyebrow, integrate the kicker into the headline, or run it as a navigation breadcrumb instead.',
     (el, ctx) => heroEyebrowChip(el, ctx),
-    'Typography',
   ),
   elementRule(
     'kicker-above-heading',
@@ -513,24 +489,6 @@ export const typographyStructureRules: Rule[] = [
     'Kicker / eyebrow label above heading',
     'A tiny tracked uppercase or small-caps label sitting as its own block directly above a heading is banned outright, repeated or not. Generated kickers never earn their place: the heading carries its own weight. Delete the label and let the heading speak; if the words matter, work them into the heading or the body.',
     (el, ctx) => kickerAboveHeading(el, ctx),
-    'Typography',
-    'advisory',
-  ),
-  elementRule(
-    'design-system-font',
-    'quality',
-    'Font outside DESIGN.md',
-    'A font is used that is not declared in DESIGN.md typography. Use the documented type system or update DESIGN.md if this is an intentional brand addition.',
-    (el, ctx) => designSystemFont(el, ctx),
-    'Typography',
-  ),
-  elementRule(
-    'design-system-font-size',
-    'quality',
-    'Font size outside DESIGN.md',
-    'A literal font-size is off the type ramp documented in DESIGN.md typography. Use a documented size step or update the design system if the new step is intentional.',
-    (el, ctx) => designSystemFontSize(el, ctx),
-    'Typography',
     'advisory',
   ),
 ];

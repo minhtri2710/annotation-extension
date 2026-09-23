@@ -38,7 +38,6 @@ describe('content-hidden-at-rest', () => {
     expect(rule?.description).toBe(
       'A large share of the page text sits at opacity 0 even after every reveal handler had a chance to run. This is the failed-reveal signature: the content shipped but never becomes visible. Make content visible by default and let JavaScript enhance its entrance instead of gating its existence.',
     );
-    expect(rule?.skillSection).toBeUndefined();
   });
 
   it('fires once with the share, counts, and first hidden sample', async () => {

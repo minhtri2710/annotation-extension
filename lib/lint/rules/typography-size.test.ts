@@ -44,7 +44,6 @@ describe('typography-size lint rules', () => {
     expect(typographySizeRules.find((rule) => rule.id === 'all-caps-body')).toMatchObject({
       category: 'quality',
       name: 'All-caps body text',
-      skillSection: 'Typography',
     });
     expect(typographySizeRules.find((rule) => rule.id === 'wide-tracking')).toMatchObject({
       category: 'quality',
@@ -53,22 +52,18 @@ describe('typography-size lint rules', () => {
     expect(typographySizeRules.find((rule) => rule.id === 'extreme-negative-tracking')).toMatchObject({
       category: 'slop',
       name: 'Crushed letter spacing',
-      skillSection: 'Typography',
     });
     expect(typographySizeRules.find((rule) => rule.id === 'tight-leading')).toMatchObject({
       category: 'quality',
       name: 'Tight line height',
     });
-    expect(typographySizeRules.find((rule) => rule.id === 'tight-leading')).not.toHaveProperty('skillSection');
     expect(typographySizeRules.find((rule) => rule.id === 'justified-text')).toMatchObject({
       category: 'quality',
       name: 'Justified text',
     });
-    expect(typographySizeRules.find((rule) => rule.id === 'justified-text')).not.toHaveProperty('skillSection');
     expect(typographySizeRules.find((rule) => rule.id === 'oversized-h1')).toMatchObject({
       category: 'slop',
       name: 'Oversized hero headline',
-      skillSection: 'Typography',
     });
   });
 
@@ -164,5 +159,17 @@ describe('typography-size lint rules', () => {
       `<h1 style="font-size: 71px">${headline}</h1>`,
       'oversized-h1',
     );
+  });
+
+  it('skips ruby annotations for undersized UI text and still flags a small span', async () => {
+    await expectNoFinding('<ruby>設定<rp>(</rp><rt style="font-size: 8px">せってい</rt><rp style="font-size: 8px">)</rp></ruby>', 'undersized-ui-text');
+    await expectFinding('<span style="font-size: 8px">せってい</span>', 'undersized-ui-text', '8px functional text "せってい" (below 11px floor)');
+  });
+
+  it('skips all-caps text inside figcaption and caption and still flags it in a paragraph', async () => {
+    const credit = '<span style="text-transform: uppercase">Photo: R. Alvarez for The Daily Ledger</span>';
+    await expectNoFinding(`<figure><figcaption>${credit}</figcaption></figure>`, 'all-caps-body');
+    await expectNoFinding(`<table><caption>${credit}</caption></table>`, 'all-caps-body');
+    await expectFinding(`<p>${credit}</p>`, 'all-caps-body', 'text-transform: uppercase on 38 chars of body text');
   });
 });

@@ -42,7 +42,7 @@ const TINY_TEXT_SKIP_TAGS = new Set([
   'caption',
   'figcaption',
 ]);
-const UI_SKIP_TAGS = new Set(['sub', 'sup', 'option']);
+const UI_SKIP_TAGS = new Set(['sub', 'sup', 'option', 'rt', 'rp']);
 const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 
 const TINY_TEXT_UI_CONTEXT = [
@@ -287,7 +287,8 @@ function allCapsBody(el: Element, ctx: ScanContext): RuleHit[] {
     !hasDirectTextLongerThan(el, 10) ||
     length <= ALL_CAPS_BODY_MIN_CHARS ||
     styleValue(ctx, el, 'text-transform') !== 'uppercase' ||
-    HEADING_TAGS.has(tagName(el))
+    HEADING_TAGS.has(tagName(el)) ||
+    el.closest('figcaption, caption') !== null
   ) return [];
   return hit(`text-transform: uppercase on ${length} chars of body text`);
 }
@@ -374,13 +375,11 @@ const rule = (
   name: string,
   description: string,
   test: ElementRule['test'],
-  skillSection?: string,
 ): ElementRule => ({
   id,
   category,
   name,
   description,
-  ...(skillSection === undefined ? {} : { skillSection }),
   scope: 'element',
   test,
 });
@@ -406,7 +405,6 @@ export const typographySizeRules: Rule[] = [
     'All-caps body text',
     'Long passages in uppercase are hard to read. We recognize words by shape (ascenders and descenders), which all-caps removes. Reserve uppercase for short labels and headings.',
     allCapsBody,
-    'Typography',
   ),
   rule(
     'wide-tracking',
@@ -421,7 +419,6 @@ export const typographySizeRules: Rule[] = [
     'Crushed letter spacing',
     'Letter-spacing pulled tighter than the point where characters keep their own shapes costs legibility. Tighten display type optically, not destructively.',
     extremeNegativeTracking,
-    'Typography',
   ),
   rule(
     'tight-leading',
@@ -443,6 +440,5 @@ export const typographySizeRules: Rule[] = [
     'Oversized hero headline',
     'A full-sentence headline set at display size ends up dominating the viewport, leaving no room for anything else above the fold. A punchy one- or two-word headline at that size is fine — the problem is a long headline blown up too large. Set long headlines smaller, or tighten the copy.',
     oversizedH1,
-    'Typography',
   ),
 ];

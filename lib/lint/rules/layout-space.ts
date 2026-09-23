@@ -10,6 +10,7 @@ const MONOTONOUS_ROUNDING_PX = 4;
 const NUMBERED_LABEL_MAX_FONT_SIZE_PX = 13;
 const NUMBERED_LABEL_HEADING_RATIO = 1.3;
 const NUMBERED_LABEL_MIN_COUNT = 2;
+const LINE_LENGTH_MAX = 80;
 const LINE_LENGTH_OVER = 5;
 const CRAMPED_MIN_TEXT_LENGTH = 20;
 const CRAMPED_MIN_WIDTH = 100;
@@ -128,7 +129,7 @@ const FLUSH_SKIP_TAGS = new Set([
   'td',
   'th',
 ]);
-const KICKER_SKIP_SELECTOR = 'nav,form,table,thead,tbody,tfoot,figure,figcaption,ol,ul,li,[role="navigation"],[aria-label*="breadcrumb" i],[class*="breadcrumb" i],[aria-hidden="true"],[data-impeccable-allow-kickers]';
+const KICKER_SKIP_SELECTOR = 'nav,form,table,thead,tbody,tfoot,figure,figcaption,ol,ul,li,[role="navigation"],[aria-label*="breadcrumb" i],[class*="breadcrumb" i],[aria-hidden="true"]';
 const KICKER_CARD_CONTEXT_SELECTOR = 'article,button,a,li,[role="listitem"],[role="option"]';
 
 interface Box {
@@ -268,6 +269,10 @@ async function collectInlineSpacing(ctx: ScanContext, checkpoint: Checkpoint): P
       if (Number.isFinite(value) && value > 0 && value < MONOTONOUS_MAX_SPACING_PX) values.push(Math.round(value));
     }
   };
+  // A margin or padding shorthand carries up to four lengths.
+  const addLengths = (raw: string): void => {
+    for (const token of raw.trim().split(/\s+/)) addLength(token);
+  };
   const spacingProperties = [
     'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
     'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'gap',
@@ -279,7 +284,7 @@ async function collectInlineSpacing(ctx: ScanContext, checkpoint: Checkpoint): P
       const colon = declaration.indexOf(':');
       if (colon < 0) continue;
       const property = declaration.slice(0, colon).trim().toLowerCase();
-      if (spacingProperties.includes(property)) addLength(declaration.slice(colon + 1));
+      if (spacingProperties.includes(property)) addLengths(declaration.slice(colon + 1));
     }
     for (const token of classText(el).split(/\s+/)) {
       const match = /^(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap)-(\d+)$/.exec(token);
@@ -289,8 +294,8 @@ async function collectInlineSpacing(ctx: ScanContext, checkpoint: Checkpoint): P
   for (const style of Array.from(ctx.doc.querySelectorAll('style'))) {
     await checkpoint();
     const source = style.textContent ?? '';
-    const declarations = /(?:padding|margin)(?:-(?:top|right|bottom|left))?\s*:\s*(-?(?:\d+\.?\d*|\.\d+)(?:px|rem))/gi;
-    for (const match of source.matchAll(declarations)) addLength(match[1] ?? '');
+    const declarations = /(?:padding|margin)(?:-(?:top|right|bottom|left))?\s*:\s*([^;}]+)/gi;
+    for (const match of source.matchAll(declarations)) addLengths(match[1] ?? '');
     const gaps = /gap\s*:\s*(-?(?:\d+\.?\d*)px)/gi;
     for (const match of source.matchAll(gaps)) add(match[1] ?? '');
   }
@@ -452,7 +457,7 @@ function lineRects(el: Element): TextLine[] | undefined {
 function lineLengthHit(el: Element, ctx: ScanContext): RuleHit[] {
   const tag = el.tagName.toLowerCase();
   const text = textContent(el);
-  const max = ctx.config.lineLengthMax ?? 80;
+  const max = LINE_LENGTH_MAX;
   if (!QUALITY_TEXT_TAGS.has(tag) || !text || text.length <= max || !hasDirectTextLongerThan(el, 10) || el.getBoundingClientRect().width <= 0) return [];
   const lines = lineRects(el);
   if (!lines || lines.length === 0) return [];
@@ -771,7 +776,6 @@ const nestedCardsRule: PageRule = {
   category: 'slop',
   name: 'Nested cards',
   description: 'Cards inside cards create visual noise and excessive depth. Flatten the hierarchy — use spacing, typography, and dividers instead of nesting containers.',
-  skillSection: 'Layout & Space',
   scope: 'page',
   test: nestedCardsHit,
 };
@@ -781,7 +785,6 @@ const monotonousSpacingRule: PageRule = {
   category: 'slop',
   name: 'Monotonous spacing',
   description: 'The same spacing value used everywhere — no rhythm, no variation. Use tight groupings for related items and generous separations between sections.',
-  skillSection: 'Layout & Space',
   scope: 'page',
   test: monotonousSpacingHit,
 };
@@ -792,7 +795,6 @@ const numberedSectionLabelsRule: PageRule = {
   severity: 'advisory',
   name: 'Tiny numbered section labels',
   description: 'Small numeric index labels riding next to section headings, repeated section after section, are AI editorial scaffolding — a page numbering its own chapters instead of earning structure. Let hierarchy, content, and rhythm carry the sequence.',
-  skillSection: 'Layout & Space',
   scope: 'page',
   test: numberedLabelsHit,
 };
@@ -803,7 +805,6 @@ const lineLengthRule: ElementRule = {
   severity: 'advisory',
   name: 'Line length too long',
   description: 'Text lines wider than ~80 characters are hard to read. The eye loses its place tracking back to the start of the next line, so it is measured on the lines that rendered and charged when more than one of them runs long. Add a max-width (65ch to 75ch) to text containers.',
-  skillSection: 'Layout & Space',
   scope: 'element',
   test: lineLengthHit,
 };
@@ -813,7 +814,6 @@ const crampedPaddingRule: ElementRule = {
   category: 'quality',
   name: 'Cramped padding',
   description: 'Text is too close to the edge of its container. Two shapes: (1) an element with its own text where the space between the rendered text and the border box is too small for the font size, and (2) a wrapper whose children\'s text lands flush against a visible boundary (border, outline, or non-transparent background) with nothing to inset it. Add at least 8px (ideally 12–16px) of space inside bordered, outlined, or colored containers.',
-  skillSection: 'Layout & Space',
   scope: 'element',
   test: crampedPaddingHit,
 };
@@ -832,7 +832,6 @@ const headingRhythmRule: PageRule = {
   category: 'quality',
   name: 'Heading crowded against the previous block',
   description: 'A heading binds to the content it introduces, so the rendered space above it should exceed the space below it. When headings across a page sit as close or closer to the block above than to their own content, every section reads as if it captions the previous one. Open up the space above each heading.',
-  skillSection: 'Layout & Space',
   scope: 'page',
   test: headingRhythmHit,
 };

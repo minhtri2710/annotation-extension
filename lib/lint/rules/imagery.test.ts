@@ -8,7 +8,7 @@ function resetDocument(): void {
   document.documentElement.innerHTML = '<head></head><body></body>';
 }
 
-async function scan(markup: string, style = '', config = {}) {
+async function scan(markup: string, style = '') {
   document.querySelectorAll('style').forEach((sheet) => sheet.remove());
   document.body.innerHTML = markup;
   if (style) {
@@ -16,11 +16,11 @@ async function scan(markup: string, style = '', config = {}) {
     sheet.textContent = style;
     document.head.appendChild(sheet);
   }
-  return await collectFindings(imageryRules, createScanContext(window, config), new AbortController().signal);
+  return await collectFindings(imageryRules, createScanContext(window), new AbortController().signal);
 }
 
-async function ruleFindings(ruleId: string, markup: string, style = '', config = {}) {
-  return (await scan(markup, style, config)).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(ruleId: string, markup: string, style = '') {
+  return (await scan(markup, style)).filter((finding) => finding.ruleId === ruleId);
 }
 
 const SCENE = '<rect fill="red"/><rect fill="blue"/><rect fill="#0f0"/><circle/><circle/><circle/><ellipse/><polygon points="0,0 1,1"/>';
@@ -41,30 +41,36 @@ describe('imagery lint rules through the real engine', () => {
       severity: 'advisory',
       name: 'Shape-assembled illustration',
       description: 'A large inline SVG that builds a pictorial scene from a pile of primitive shapes reads as placeholder clip art, not illustration. Icons, logos, and data graphics are fine at their scale; a hero-sized visual deserves real artwork, a photograph, or a deliberately drawn graphic.',
-      skillSection: 'Imagery',
     });
     expect(imageryRules[1]).toMatchObject({
       category: 'quality',
       name: 'Organic contour drawn as clip-path',
       description: 'A clip-path polygon with many arbitrary vertices, or a curved clip-path path(), is CSS approximating a torn edge, blob, or silhouette. It reads as the cheap version of the effect and is usually a produced or photographic material replaced with code. Derive an alpha matte from the real image, or ship the shape as a cut-out raster; keep clip-path for geometry (cut corners, diagonals, hexagons).',
-      skillSection: 'Imagery',
     });
     expect(imageryRules[2]).toMatchObject({
       category: 'quality',
       name: 'Raster buried under a wash or opacity',
       description: 'A background image under a near-opaque gradient wash, or a raster on an element at near-zero opacity, never reaches the screen: the page shows the wash, and the produced texture or photo ships as a compliance token. Let the material show (a tint under 0.9 alpha, a blend mode, an opacity you can see) or remove the file.',
-      skillSection: 'Imagery',
     });
     expect(imageryRules[3]).toMatchObject({
       category: 'quality',
       name: 'Broken or placeholder image',
       description: '<img> tags with empty src, missing src, or placeholder values ship as broken-image boxes. Use real images, generated assets, or remove the tag.',
-      skillSection: 'Imagery',
     });
     for (const rule of imageryRules.slice(1)) expect(rule.severity).toBeUndefined();
   });
 
   describe('shape-assembled-illustration', () => {
+    it('exempts a bar chart whose rects share one width or one height, and still fires on a scene', async () => {
+      const series = ['#2563eb', '#16a34a', '#f59e0b'];
+      const vertical = Array.from({ length: 12 }, (_, bar) => series.map((fill, stack) => `<rect x="${bar * 48}" y="${200 - stack * 40}" width="32" height="${30 + stack * 5}" fill="${fill}"/>`).join('')).join('');
+      const horizontal = Array.from({ length: 12 }, (_, bar) => series.map((fill, stack) => `<rect x="${stack * 60}" y="${bar * 20}" width="${40 + stack * 7}" height="14" fill="${fill}"/>`).join('')).join('');
+      expect(await ruleFindings('shape-assembled-illustration', `<svg viewBox="0 0 600 240" width="600" height="240" role="img" aria-label="Revenue">${vertical}</svg>`)).toEqual([]);
+      expect(await ruleFindings('shape-assembled-illustration', `<svg viewBox="0 0 600 240" width="600" height="240">${horizontal}</svg>`)).toEqual([]);
+      const scene = Array.from({ length: 12 }, (_, index) => `<rect x="${index * 40}" y="${index * 10}" width="${20 + index * 9}" height="${15 + index * 11}" fill="${series[index % 3]}"/>`).join('');
+      expect(await ruleFindings('shape-assembled-illustration', `<svg viewBox="0 0 600 240" width="600" height="240" role="img">${scene}</svg>`)).toHaveLength(1);
+    });
+
     it('fires on a large inline svg built from 8 primitives and 3 fills', async () => {
       const findings = await ruleFindings(
         'shape-assembled-illustration',
@@ -167,6 +173,20 @@ describe('imagery lint rules through the real engine', () => {
   });
 
   describe('broken-image', () => {
+    it('fires on an image that finished loading and failed, not on one still loading', async () => {
+      document.body.innerHTML = '<img id="failed" src="missing.png"><img id="loading" src="slow.png"><img id="loaded" src="ok.png">';
+      const stub = (id: string, complete: boolean, naturalWidth: number) => {
+        const img = document.getElementById(id)!;
+        Object.defineProperty(img, 'complete', { configurable: true, value: complete });
+        Object.defineProperty(img, 'naturalWidth', { configurable: true, value: naturalWidth });
+      };
+      stub('failed', true, 0);
+      stub('loading', false, 0);
+      stub('loaded', true, 40);
+      const findings = (await collectFindings(imageryRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'broken-image');
+      expect(findings.map((finding) => [finding.el?.id, finding.detail])).toEqual([['failed', '<img src="missing.png"> failed to load']]);
+    });
+
     it('fires on an <img> with no src, an empty src and a # placeholder', async () => {
       const findings = await ruleFindings('broken-image', '<img alt="a"><img src=""><img src=" # ">');
       expect(findings.map((finding) => finding.detail)).toEqual([
@@ -178,7 +198,10 @@ describe('imagery lint rules through the real engine', () => {
     });
 
     it('does not fire on a real src, a fragment src, or a non-img element', async () => {
-      expect(await ruleFindings('broken-image', '<img src="a.png"><img src="#hero"><video></video><div src=""></div>')).toEqual([]);
+      document.body.innerHTML = '<img src="a.png"><img src="#hero"><video></video><div src=""></div>';
+      // happy-dom never fetches images yet reports them complete; pin the not-yet-loaded state.
+      for (const img of document.querySelectorAll('img')) Object.defineProperty(img, 'complete', { configurable: true, value: false });
+      expect((await collectFindings(imageryRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'broken-image')).toEqual([]);
     });
   });
 });

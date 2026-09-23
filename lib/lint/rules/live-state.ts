@@ -56,6 +56,7 @@ const FIRST_VIEWPORT_COLUMN_MIN_HEIGHT_PX = 40;
 const FIRST_VIEWPORT_COLUMNS_MAX_TOP_DELTA_RATIO = 0.25;
 const FIRST_VIEWPORT_TALL_HEIGHT_RATIO = 1.4;
 const FIRST_VIEWPORT_SHORT_HEIGHT_RATIO = 1;
+const FIRST_VIEWPORT_SIDEBAR_SELECTOR = 'nav, aside, [role="navigation"], [role="complementary"]';
 
 const TEXT_OVERFLOW_MIN_DELTA_PX = 16;
 
@@ -432,6 +433,31 @@ async function textElementsForOcclusion(ctx: ScanContext, checkpoint: Checkpoint
   return textElements;
 }
 
+function isPositioned(ctx: ScanContext, el: Element): boolean {
+  return (styleValue(ctx, el, 'position').toLowerCase() || 'static') !== 'static';
+}
+
+// Hit testing skips pointer-events:none, so such a victim never shows in the stack. CSS paints a
+// positioned element (in a chain with no negative z-index) above every unpositioned one.
+function paintsAbove(ctx: ScanContext, victim: Element, candidate: Element): boolean {
+  if (styleValue(ctx, victim, 'pointer-events') !== 'none' || isPositioned(ctx, candidate)) return false;
+  let positioned = false;
+  for (let current: Element | null = victim; current && current !== ctx.doc.body; current = current.parentElement) {
+    if (!isPositioned(ctx, current)) continue;
+    positioned = true;
+    if (numberValue(styleValue(ctx, current, 'z-index'), 0) < 0) return false;
+  }
+  return positioned;
+}
+
+// The topmost element over the point, or undefined when the victim, its descendant or its
+// ancestor is on top or the victim paints above it.
+function occluderAt(ctx: ScanContext, victim: Element, x: number, y: number): Element | undefined {
+  const top = ctx.doc.elementFromPoint(x, y);
+  if (!top || top === victim || victim.contains(top) || top.contains(victim)) return undefined;
+  return paintsAbove(ctx, victim, top) ? undefined : top;
+}
+
 async function textOcclusion(ctx: ScanContext, checkpoint: Checkpoint): Promise<PageHit[]> {
   const findings: PageHit[] = [];
   const seenVictims = new Set<Element>();
@@ -455,8 +481,8 @@ async function textOcclusion(ctx: ScanContext, checkpoint: Checkpoint): Promise<
         const y = victim.rect.top + victim.rect.height * ((row + 0.5) / rows);
         if (y < OCCLUSION_EDGE_SAMPLE_PX || y > viewportHeight - OCCLUSION_EDGE_SAMPLE_PX) continue;
         total += 1;
-        const top = ctx.doc.elementFromPoint(x, y);
-        if (!top || top === victim.el || victim.el.contains(top) || top.contains(victim.el)) continue;
+        const top = occluderAt(ctx, victim.el, x, y);
+        if (!top) continue;
         if (isFloated(ctx, top) || isMarqueeish(ctx, top) || isPinnedOverlay(ctx, top) || effectiveOpacity(ctx, top) <= OCCLUSION_MIN_EFFECTIVE_OPACITY) continue;
         const tag = top.tagName.toLowerCase();
         if (tag === 'img' || tag === 'video' || tag === 'canvas' || tag === 'picture') continue;
@@ -577,7 +603,9 @@ async function firstViewportColumnOverflow(ctx: ScanContext, checkpoint: Checkpo
     const pageTop = sectionRect.top + ctx.scrollY;
     const pageBottom = pageTop + sectionRect.height;
     if (pageTop >= FIRST_VIEWPORT_SECTION_TOP_RATIO * viewportHeight || pageBottom <= viewportHeight) continue;
-    const columns: Array<{ top: number; contentHeight: number }> = [];
+    // A page shell holding main is the site layout, not an opening section.
+    if (section.querySelector('main') !== null) continue;
+    const columns: Array<{ el: Element; top: number; contentHeight: number }> = [];
     for (const child of Array.from(section.children)) {
       if (styleValue(ctx, child, 'display') === 'none') continue;
       const position = styleValue(ctx, child, 'position');
@@ -595,7 +623,7 @@ async function firstViewportColumnOverflow(ctx: ScanContext, checkpoint: Checkpo
         const descendantRect = descendant.getBoundingClientRect();
         if (descendantRect.width > 0 && descendantRect.height > 0) contentBottom = Math.max(contentBottom, descendantRect.bottom);
       }
-      columns.push({ top: childRect.top, contentHeight: contentBottom - childRect.top });
+      columns.push({ el: child, top: childRect.top, contentHeight: contentBottom - childRect.top });
     }
     if (columns.length < 2) continue;
     columns.sort((a, b) => b.contentHeight - a.contentHeight);
@@ -604,6 +632,8 @@ async function firstViewportColumnOverflow(ctx: ScanContext, checkpoint: Checkpo
     if (Math.abs(tall.top - shortest.top) > FIRST_VIEWPORT_COLUMNS_MAX_TOP_DELTA_RATIO * viewportHeight) continue;
     if (tall.contentHeight <= FIRST_VIEWPORT_TALL_HEIGHT_RATIO * viewportHeight) continue;
     if (shortest.contentHeight > FIRST_VIEWPORT_SHORT_HEIGHT_RATIO * viewportHeight) continue;
+    // A navigation or complementary sidebar is expected to end long before the content.
+    if (shortest.el.closest(FIRST_VIEWPORT_SIDEBAR_SELECTOR) !== null) continue;
     findings.push({
       el: section,
       detail: `${classSelector(section)} opens the page with one column running ${roundValue(tall.contentHeight / viewportHeight * 100)}% of the viewport tall while a sibling fits in ${roundValue(shortest.contentHeight / viewportHeight * 100)}% — the fold falls deep inside the section`,
@@ -801,7 +831,6 @@ const textOcclusionRule: PageRule = {
   category: 'quality',
   name: 'Text occluded by an overlapping element',
   description: 'Text is painted under an opaque element or a second text run, so part of it cannot be read. A decorative box, a stacked layer, or an inline element with leaked padding lands on the words instead of beside them. Give overlapping layers room, or move the text out from under the layer above it.',
-  skillSection: 'Layout & Space',
   scope: 'page',
   test: textOcclusion,
 };
@@ -811,7 +840,6 @@ const firstViewportColumnOverflowRule: PageRule = {
   category: 'quality',
   name: 'One column stretches the first viewport',
   description: 'A multi-column opening section lets one column run far past the fold while its sibling fits in a single viewport, so the short column floats in dead space and the fold falls deep inside one section. Balance the columns, cap the tall one, or let the long content flow below the opening row.',
-  skillSection: 'Layout & Space',
   scope: 'page',
   test: firstViewportColumnOverflow,
 };
@@ -821,7 +849,6 @@ const textOverflowRule: ElementRule = {
   category: 'quality',
   name: 'Content overflowing its container',
   description: 'Content renders wider than its container, spilling out or forcing a horizontal scrollbar. Let text wrap, constrain widths, or give the region a deliberate scroll affordance.',
-  skillSection: 'Layout & Space',
   scope: 'element',
   test: textOverflow,
 };
@@ -840,7 +867,6 @@ const clippedOverflowContainerRule: ElementRule = {
   category: 'quality',
   name: 'Positioned child clipped by overflow container',
   description: 'A clipping container (overflow hidden or clip) wrapping an absolutely-positioned child cuts off tooltips, menus, and popovers that need to escape. Let the overflow be visible, or move the positioned layer out of the clip.',
-  skillSection: 'Layout & Space',
   scope: 'element',
   test: clippedOverflowContainer,
 };

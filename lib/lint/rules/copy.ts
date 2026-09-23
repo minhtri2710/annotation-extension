@@ -102,7 +102,6 @@ const emDashOveruseRule: PageRule = {
   name: 'Em-dash overuse',
   description:
     'Em-dash saturation in body copy is an AI cadence tell. Advisory only: humans use em-dashes legitimately, so this fires only on saturation — at least 8 em-dashes (— or --) at a density near one per 500 characters of body text — never on a long article that uses a few. Prefer commas, colons, periods, or parentheses.',
-  skillSection: 'Copy',
   scope: 'page',
   test: emDashOveruse,
 };
@@ -113,7 +112,6 @@ const marketingBuzzwordRule: PageRule = {
   name: 'Marketing buzzword',
   description:
     'Generic SaaS phrases (streamline / empower / supercharge / world-class / enterprise-grade / next-generation / cutting-edge / etc) are instant AI tells. Pick a specific verb and noun that says what the product literally does.',
-  skillSection: 'Copy',
   scope: 'page',
   test: marketingBuzzword,
 };
@@ -124,7 +122,6 @@ const aphoristicCadenceRule: PageRule = {
   name: 'Aphoristic-cadence copy',
   description:
     'Three or more sections landing on a short rebuttal sentence ("X. No Y." / "X. Just Y.") or a manufactured-contrast aphorism ("Not a feature. A platform.") reads as AI cadence, not voice. Once is fine; the pattern is the tell.',
-  skillSection: 'Copy',
   scope: 'page',
   test: aphoristicCadence,
 };
@@ -136,7 +133,6 @@ const theaterSlopPhraseRule: PageRule = {
   name: 'Theater framing copy',
   description:
     'Dismissing something as "theater" is a recurring generated-copy tic. Say plainly what the thing does or does not do.',
-  skillSection: 'Copy',
   scope: 'page',
   test: theaterSlopPhrase,
 };

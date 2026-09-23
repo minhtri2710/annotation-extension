@@ -56,8 +56,7 @@ describe('lint engine', () => {
         name: 'Fake element rule',
         description: 'Finds the target element.',
         severity: 'advisory',
-        skillSection: 'Testing',
-        test: (el) => el.matches('.target') ? [{ detail: 'target hit', ignoreValue: 'target' }] : [],
+        test: (el) => el.matches('.target') ? [{ detail: 'target hit' }] : [],
       },
       {
         id: 'fake-page',
@@ -79,10 +78,8 @@ describe('lint engine', () => {
         severity: 'advisory',
         category: 'quality',
         advisory: true,
-        skillSection: 'Testing',
         el: target,
         detail: 'target hit',
-        ignoreValue: 'target',
       },
       {
         ruleId: 'fake-page',
@@ -97,49 +94,13 @@ describe('lint engine', () => {
     ]);
   });
 
-  it('applies disabled rules and disabled values', async () => {
-    document.body.innerHTML = '<button class="target">Save</button>';
-    const target = document.querySelector('.target')!;
-    const targetRule: Rule = {
-      id: 'fake-target',
-      scope: 'element',
-      category: 'quality',
-      name: 'Target',
-      description: 'Target rule.',
-      test: (el) => el.matches('.target')
-        ? [{ detail: 'keep', ignoreValue: 'keep' }, { detail: 'drop', ignoreValue: 'drop' }]
-        : [],
-    };
-    const disabledRule: Rule = {
-      id: 'fake-disabled',
-      scope: 'page',
-      category: 'quality',
-      name: 'Disabled',
-      description: 'Disabled rule.',
-      test: async () => [{ detail: 'disabled' }],
-    };
-
-    const findings = await collectFindings([targetRule, disabledRule], createScanContext(window, {
-      disabledRules: ['fake-disabled'],
-      disabledValues: [{ rule: 'fake-target', value: 'drop' }],
-    }), new AbortController().signal);
-
-    expect(findings).toHaveLength(1);
-    const finding = findings[0];
-    expect(finding).toBeDefined();
-    expect(finding).toMatchObject({ ruleId: 'fake-target', detail: 'keep' });
-    expect(finding?.el).toBe(target);
-  });
-
-  it('honors skipScan and caches computed styles', async () => {
+  it('caches computed styles', async () => {
     document.body.innerHTML = '<div id="target">Target</div>';
     const element = document.querySelector('#target')!;
     const ctx = createScanContext(window);
 
-    expect(ctx.config.lineLengthMax).toBe(80);
     expect(ctx.style(element)).toBe(ctx.style(element));
     expect(ctx.style(element, '::before')).toBe(ctx.style(element, '::before'));
-    expect(await collectFindings([], createScanContext(window, { skipScan: true }), new AbortController().signal)).toEqual([]);
   });
 
   it('yields a macrotask once a slice reaches SCAN_SLICE_MS', async () => {

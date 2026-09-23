@@ -1,24 +1,8 @@
 export type Severity = 'error' | 'warning' | 'advisory';
 export type RuleCategory = 'slop' | 'quality';
 
-export interface DesignSystem {
-  fontFamilies?: string[];
-  colors?: string[];
-  radii?: number[];
-  fontSizes?: number[];
-}
-
-export interface ScanConfig {
-  disabledRules?: string[];
-  disabledValues?: { rule: string; value: string }[];
-  lineLengthMax?: number;
-  designSystem?: DesignSystem;
-  skipScan?: boolean;
-}
-
 export interface RuleHit {
   detail: string;
-  ignoreValue?: string;
 }
 
 export interface PageHit extends RuleHit {
@@ -31,7 +15,6 @@ export interface RuleMeta {
   severity?: Severity;
   name: string;
   description: string;
-  skillSection?: string;
 }
 
 export interface ElementRule extends RuleMeta {
@@ -55,16 +38,13 @@ export interface Finding {
   severity: Severity;
   category: RuleCategory;
   advisory: boolean;
-  skillSection?: string;
   el?: Element;
   detail: string;
-  ignoreValue?: string;
 }
 
 export interface ScanContext {
   doc: Document;
   win: Window;
-  config: ScanConfig;
   style(el: Element, pseudo?: string): CSSStyleDeclaration;
   readonly innerWidth: number;
   readonly innerHeight: number;
@@ -73,8 +53,7 @@ export interface ScanContext {
   readonly hostname: string;
 }
 
-export function createScanContext(win: Window, config: ScanConfig = {}): ScanContext {
-  const normalizedConfig: ScanConfig = { lineLengthMax: 80, ...config };
+export function createScanContext(win: Window): ScanContext {
   const cache = new Map<Element, Map<string | undefined, CSSStyleDeclaration>>();
   const style = (el: Element, pseudo?: string): CSSStyleDeclaration => {
     let elementCache = cache.get(el);
@@ -91,7 +70,6 @@ export function createScanContext(win: Window, config: ScanConfig = {}): ScanCon
   return {
     doc: win.document,
     win,
-    config: normalizedConfig,
     style,
     innerWidth: win.innerWidth,
     innerHeight: win.innerHeight,
@@ -107,7 +85,6 @@ const SLICE_NOT_DUE: Promise<void> = Promise.resolve();
 // This single live-DOM engine intentionally drops impeccable's multi-engine Dom trait.
 export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: AbortSignal): Promise<Finding[]> {
   signal.throwIfAborted();
-  if (ctx.config.skipScan) return [];
 
   const findings: Finding[] = [];
   const elements = ctx.doc.querySelectorAll('*');
@@ -140,21 +117,13 @@ export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: A
     }
   }
 
-  const disabledRules = new Set(ctx.config.disabledRules ?? []);
-  const disabledValues = ctx.config.disabledValues ?? [];
-  return findings.filter((finding) => {
-    // Hits were collected across yields; drop those on elements the page removed meanwhile.
-    if (finding.el && !finding.el.isConnected) return false;
-    if (disabledRules.has(finding.ruleId)) return false;
-    return !disabledValues.some(
-      (waiver) => waiver.rule === finding.ruleId && waiver.value === finding.ignoreValue,
-    );
-  });
+  // Hits were collected across yields; drop those on elements the page removed meanwhile.
+  return findings.filter((finding) => !finding.el || finding.el.isConnected);
 }
 
 function toFinding(rule: Rule, hit: RuleHit, el: Element | undefined): Finding {
   const severity = rule.severity ?? 'warning';
-  const finding: Finding = {
+  return {
     ruleId: rule.id,
     name: rule.name,
     description: rule.description,
@@ -164,7 +133,4 @@ function toFinding(rule: Rule, hit: RuleHit, el: Element | undefined): Finding {
     el,
     detail: hit.detail,
   };
-  if (rule.skillSection !== undefined) finding.skillSection = rule.skillSection;
-  if (hit.ignoreValue !== undefined) finding.ignoreValue = hit.ignoreValue;
-  return finding;
 }

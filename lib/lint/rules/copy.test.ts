@@ -26,19 +26,18 @@ afterEach(() => {
 describe('copy lint rules through the real engine', () => {
   it('exports the four rules in registry order with faithful metadata', () => {
     expect(
-      copyRules.map(({ id, category, severity, name, skillSection, scope }) => ({
+      copyRules.map(({ id, category, severity, name, scope }) => ({
         id,
         category,
         severity,
         name,
-        skillSection,
         scope,
       })),
     ).toEqual([
-      { id: 'em-dash-overuse', category: 'slop', severity: 'advisory', name: 'Em-dash overuse', skillSection: 'Copy', scope: 'page' },
-      { id: 'marketing-buzzword', category: 'slop', severity: undefined, name: 'Marketing buzzword', skillSection: 'Copy', scope: 'page' },
-      { id: 'aphoristic-cadence', category: 'slop', severity: undefined, name: 'Aphoristic-cadence copy', skillSection: 'Copy', scope: 'page' },
-      { id: 'theater-slop-phrase', category: 'slop', severity: 'advisory', name: 'Theater framing copy', skillSection: 'Copy', scope: 'page' },
+      { id: 'em-dash-overuse', category: 'slop', severity: 'advisory', name: 'Em-dash overuse', scope: 'page' },
+      { id: 'marketing-buzzword', category: 'slop', severity: undefined, name: 'Marketing buzzword', scope: 'page' },
+      { id: 'aphoristic-cadence', category: 'slop', severity: undefined, name: 'Aphoristic-cadence copy', scope: 'page' },
+      { id: 'theater-slop-phrase', category: 'slop', severity: 'advisory', name: 'Theater framing copy', scope: 'page' },
     ]);
     expect(copyRules[3]?.description).toBe(
       'Dismissing something as "theater" is a recurring generated-copy tic. Say plainly what the thing does or does not do.',
@@ -50,7 +49,6 @@ describe('copy lint rules through the real engine', () => {
     const findings = await ruleFindings('em-dash-overuse');
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ detail: '8 em-dashes in body text', severity: 'advisory', advisory: true });
-    expect(findings[0]?.ignoreValue).toBeUndefined();
   });
 
   it('does not flag 7 em-dashes, or 8 spread thinner than one per 500 characters', async () => {
@@ -80,7 +78,6 @@ describe('copy lint rules through the real engine', () => {
       detail: '2 buzzword phrases: "Class teams streamline your workflow."',
       severity: 'warning',
     });
-    expect(findings[0]?.ignoreValue).toBeUndefined();
 
     setBodyText('Our cutting-edge lab.');
     expect((await ruleFindings('marketing-buzzword'))[0]?.detail).toBe('1 buzzword phrase: "Our cutting-edge lab."');
@@ -99,7 +96,6 @@ describe('copy lint rules through the real engine', () => {
       detail: '3 aphoristic constructions: "Not a tool. A platform."',
       severity: 'warning',
     });
-    expect(findings[0]?.ignoreValue).toBeUndefined();
   });
 
   it('does not flag two aphoristic constructions or case near-misses', async () => {
@@ -112,17 +108,10 @@ describe('copy lint rules through the real engine', () => {
     const findings = await ruleFindings('theater-slop-phrase');
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ detail: '"security Theater"', severity: 'advisory', advisory: true });
-    expect(findings[0]?.ignoreValue).toBeUndefined();
   });
 
   it('does not flag theater without a preceding word or as a word prefix', async () => {
     setBodyText('Theater tickets: theatergoers love the theaters.');
     expect(await ruleFindings('theater-slop-phrase')).toEqual([]);
-  });
-
-  it('honors disabledRules through the engine', async () => {
-    setBodyText('This is security theater.');
-    const ctx = createScanContext(window, { disabledRules: ['theater-slop-phrase'] });
-    expect(await collectFindings(copyRules, ctx, new AbortController().signal)).toEqual([]);
   });
 });

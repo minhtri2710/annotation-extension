@@ -22,7 +22,6 @@ const GPT_THIN_BORDER_MIN_ALPHA = 0.28;
 const GPT_THIN_BORDER_MIN_SIDES = 2;
 const GPT_SHADOW_MIN_ALPHA = 0.12;
 const GPT_SHADOW_MIN_BLUR_PX = 16;
-const DESIGN_RADIUS_TOLERANCE_PX = 0.5;
 const GRID_MIN_HAIRLINE_COUNT = 2;
 
 const BORDER_SAFE_TAGS = new Set([
@@ -61,18 +60,6 @@ const BORDER_SAFE_TAGS = new Set([
   'g',
   'defs',
   'use',
-]);
-
-const DESIGN_SKIP_TAGS = new Set([
-  'head',
-  'title',
-  'meta',
-  'link',
-  'style',
-  'script',
-  'noscript',
-  'template',
-  'source',
 ]);
 
 function styleValue(ctx: ScanContext, el: Element, property: string, pseudo?: string): string {
@@ -526,34 +513,12 @@ function primaryFontOrSample(el: Element): string {
   return text.trim().replace(/\s+/g, ' ').slice(0, 40);
 }
 
-function designRadiusTest(el: Element, ctx: ScanContext): RuleHit[] {
-  const radii = ctx.config.designSystem?.radii;
-  if (!radii || radii.length === 0 || DESIGN_SKIP_TAGS.has(el.tagName.toLowerCase())) return [];
-  if (!isRendered(ctx, el)) return [];
-  const raw = styleValue(ctx, el, 'border-radius');
-  if (!raw || /^(?:0|none|initial|inherit)$/i.test(raw) || raw.includes('var(') || raw.includes('%')) return [];
-  const tokens = raw.toLowerCase().replaceAll('/', ' ').split(/\s+/).filter(Boolean);
-  const tag = el.tagName.toLowerCase() || 'unknown';
-  const sample = primaryFontOrSample(el);
-  return tokens.flatMap((token) => {
-    const px = parsePx(token);
-    if (px === undefined || px <= DESIGN_RADIUS_TOLERANCE_PX || radii.some((allowed) => Math.abs(allowed - px) <= DESIGN_RADIUS_TOLERANCE_PX)) {
-      return [];
-    }
-    return [{
-      detail: `border-radius ${token} on ${tag}${sample ? ` "${sample}"` : ''} is outside the DESIGN.md rounded scale`,
-      ignoreValue: token,
-    }];
-  });
-}
-
 const sideTabRule: ElementRule = {
   id: 'side-tab',
   category: 'slop',
   severity: 'advisory',
   name: 'Side-tab accent border',
   description: 'Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.',
-  skillSection: 'Visual Details',
   scope: 'element',
   test: sideTabTest,
 };
@@ -563,20 +528,8 @@ const borderAccentRule: ElementRule = {
   category: 'slop',
   name: 'Border accent on rounded element',
   description: 'Thick accent border on a rounded card — the border clashes with the rounded corners. Remove the border or the border-radius.',
-  skillSection: 'Visual Details',
   scope: 'element',
   test: borderAccentTest,
-};
-
-const designRadiusRule: ElementRule = {
-  id: 'design-system-radius',
-  category: 'quality',
-  severity: 'advisory',
-  name: 'Radius outside DESIGN.md',
-  description: 'A border-radius value is outside the DESIGN.md rounded scale. Use a documented radius token or update the design system if the new shape is intentional.',
-  skillSection: 'Visual Details',
-  scope: 'element',
-  test: designRadiusTest,
 };
 
 const gptThinBorderWideShadowRule: ElementRule = {
@@ -585,7 +538,6 @@ const gptThinBorderWideShadowRule: ElementRule = {
   severity: 'advisory',
   name: 'Hairline border with wide shadow',
   description: 'A hairline border paired with a wide, diffuse shadow is a recurring generated-UI signature. Commit to one — a defined edge or a soft elevation — rather than both at once.',
-  skillSection: 'Visual Details',
   scope: 'element',
   test: gptBorderShadowTest,
 };
@@ -596,7 +548,6 @@ const repeatingStripesGradientRule: PageRule = {
   severity: 'advisory',
   name: 'Repeating-gradient stripes',
   description: 'Repeating-gradient stripes used as surface decoration are a recurring generated-UI signature. Reach for a deliberate texture or leave the surface plain.',
-  skillSection: 'Visual Details',
   scope: 'page',
   test: repeatingGradientTest,
 };
@@ -607,7 +558,6 @@ const codexGridBackgroundRule: PageRule = {
   severity: 'advisory',
   name: 'Decorative grid-line background',
   description: 'A decorative grid or line-field background drawn with hairline linear-gradient layers tiled by a fixed pixel cell is a recurring generated-UI signature. Reserve grid overlays for actual canvas, map, blueprint, or measurement surfaces; elsewhere use product structure or a plain surface.',
-  skillSection: 'Visual Details',
   scope: 'page',
   test: gridBackgroundTest,
 };
@@ -615,7 +565,6 @@ const codexGridBackgroundRule: PageRule = {
 export const visualDetailsRules: Rule[] = [
   sideTabRule,
   borderAccentRule,
-  designRadiusRule,
   gptThinBorderWideShadowRule,
   repeatingStripesGradientRule,
   codexGridBackgroundRule,

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { collectFindings, createScanContext, type Finding, type Rule } from '../engine';
 import { revealSweep } from '../../scan-panel/reveal-sweep';
 import { colorRules } from './color';
+import { imageryRules } from './imagery';
 import { hiddenAtRestRules } from './hidden-at-rest';
 import { liveStateRules } from './live-state';
 import { motionRules } from './motion';
@@ -144,5 +145,71 @@ describe('inactive, truncated and snapping UI in a real browser', () => {
     const hits = await findings(plain, liveStateRules, 'edge-flush-cards');
     expect(hits).toHaveLength(1);
     expect(hits[0]!.el).toBe(plain.document.querySelector('.rail'));
+  });
+});
+
+describe('text-occlusion on floating labels in a real browser', () => {
+  const field = (input: string) => page(
+    `.field{position:relative;width:320px;margin:40px}.field input{display:block;box-sizing:border-box;width:100%;height:56px;border:1px solid #666;border-radius:4px;background:transparent;font:16px system-ui;padding:24px 12px 6px${input}}.field label{position:absolute;left:12px;top:6px;font-size:12px;color:#333;pointer-events:none}`,
+    '<div class="field"><input id="dest"><label for="dest">Destination</label></div>',
+  );
+
+  it('skips a pointer-events:none label painted above its input', async () => {
+    const win = await load(field(''));
+    expect(await findings(win, liveStateRules, 'text-occlusion')).toEqual([]);
+  });
+
+  it('still flags the same label when the input paints over it', async () => {
+    const win = await load(field(';position:relative;z-index:1;background:#fff'));
+    const hits = await findings(win, liveStateRules, 'text-occlusion');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.el).toBe(win.document.querySelector('label'));
+    expect(hits[0]!.detail).toContain('covered by an opaque element (input)');
+  });
+});
+
+describe('first-viewport-column-overflow on sidebar layouts at tablet width in a real browser', () => {
+  const links = Array.from({ length: 6 }, (_, i) => `<a href="#" style="display:block">Guide ${i + 1}</a>`).join('');
+  const article = Array.from({ length: 14 }, (_, i) => `<p>Paragraph ${i + 1} of the documentation explains one step of the setup in enough detail to follow along without guessing what comes next.</p>`).join('');
+  const layout = (side: string, content: string) => page(
+    '.layout{display:grid;grid-template-columns:260px 1fr;gap:24px}.content,main{min-width:0}',
+    `<div class="layout">${side}${content}</div>`,
+  );
+
+  async function atTablet(html: string): Promise<Window> {
+    const win = await load(html);
+    frame!.style.width = '768px';
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return win;
+  }
+
+  it.each([
+    ['a nav sidebar', `<nav>${links}</nav>`, `<div class="content">${article}</div>`],
+    ['an aside sidebar', `<aside>${links}</aside>`, `<div class="content">${article}</div>`],
+    ['a role=navigation sidebar', `<div role="navigation">${links}</div>`, `<div class="content">${article}</div>`],
+    ['a role=complementary sidebar', `<div role="complementary">${links}</div>`, `<div class="content">${article}</div>`],
+    ['a column inside a nav', `<div>${links}</div>`, `<div class="content">${article}</div>`, 'nav'],
+    ['a shell that contains main', `<div>${links}</div>`, `<main>${article}</main>`],
+  ])('skips %s', async (_name, side, content, wrapper?: string) => {
+    const html = wrapper ? layout(side, content).replace('<div class="layout">', `<${wrapper}><div class="layout">`).replace('</body>', `</${wrapper}></body>`) : layout(side, content);
+    const win = await atTablet(html);
+    expect(await findings(win, liveStateRules, 'first-viewport-column-overflow')).toEqual([]);
+  });
+
+  it('still flags the same layout built from plain divs', async () => {
+    const win = await atTablet(layout(`<div>${links}</div>`, `<div class="content">${article}</div>`));
+    const hits = await findings(win, liveStateRules, 'first-viewport-column-overflow');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.el).toBe(win.document.querySelector('.layout'));
+  });
+});
+
+describe('broken-image on an image that fails to load in a real browser', () => {
+  it('flags an undecodable src and not a decodable one', async () => {
+    const good = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+    const win = await load(page('', `<img id="bad" alt="" src="data:image/png;base64,AAAA"><img id="good" alt="" src="${good}">`));
+    const hits = await findings(win, imageryRules, 'broken-image');
+    expect(hits.map((hit) => (hit.el as Element).id)).toEqual(['bad']);
+    expect(hits[0]!.detail).toBe('<img src="data:image/png;base64,AAAA"> failed to load');
   });
 });

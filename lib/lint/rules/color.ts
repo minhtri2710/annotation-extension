@@ -12,7 +12,6 @@ const WCAG_LARGE_TEXT_PX = 24;
 const WCAG_LARGE_BOLD_TEXT_PX = 18.6667;
 const WCAG_NORMAL_CONTRAST = 4.5;
 const WCAG_LARGE_CONTRAST = 3;
-const DESIGN_COLOR_TOLERANCE = 6;
 const CREAM_MIN_CHANNEL = 209;
 const CREAM_MIN_WARMTH = 6;
 const CREAM_MAX_WARMTH = 48;
@@ -575,48 +574,6 @@ function radialSpotlightHit(ctx: ScanContext, el: Element): RuleHit[] {
   }];
 }
 
-function designColorAllowed(raw: string, configured: string[]): boolean {
-  const color = parseColor(raw);
-  if (!color || color.a <= 0.05) return true;
-  return configured.some((entry) => {
-    const allowed = parseColor(entry);
-    return !!allowed
-      && Math.max(Math.abs(color.r - allowed.r), Math.abs(color.g - allowed.g), Math.abs(color.b - allowed.b)) <= DESIGN_COLOR_TOLERANCE;
-  });
-}
-
-function designSystemHit(ctx: ScanContext, el: Element): RuleHit[] {
-  const colors = ctx.config.designSystem?.colors;
-  if (!colors || colors.length === 0) return [];
-  const tag = el.tagName.toLowerCase();
-  const sample = directText(el).slice(0, 40);
-  const checks: Array<{ kind: string; raw: string }> = [];
-  if (hasDirectText(el)) checks.push({ kind: 'text color', raw: styleValue(ctx, el, 'color') });
-
-  const background = styleValue(ctx, el, 'backgroundColor');
-  if (background && !designColorAllowed(background, ['transparent'])) {
-    checks.push({ kind: 'background', raw: background });
-  }
-  for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
-    if ((parsePx(styleValue(ctx, el, `border${side}Width`)) ?? 0) > 0) {
-      checks.push({
-        kind: `border-${side.toLowerCase()}`,
-        raw: styleValue(ctx, el, `border${side}Color`),
-      });
-    }
-  }
-  if ((parsePx(styleValue(ctx, el, 'outlineWidth')) ?? 0) > 0) {
-    checks.push({ kind: 'outline', raw: styleValue(ctx, el, 'outlineColor') });
-  }
-
-  return checks
-    .filter(({ raw }) => raw.trim() && !designColorAllowed(raw, colors))
-    .map(({ kind, raw }) => ({
-      detail: `${kind} ${raw.trim()} on ${tag}${sample ? ` "${sample}"` : ''} is outside DESIGN.md colors`,
-      ignoreValue: raw.trim(),
-    }));
-}
-
 const lowContrastRule: ElementRule = {
   id: 'low-contrast',
   category: 'quality',
@@ -631,7 +588,6 @@ const grayOnColorRule: ElementRule = {
   category: 'quality',
   name: 'Gray text on colored background',
   description: 'Gray text looks washed out on colored backgrounds. Use a darker shade of the background color instead, or white/near-white for contrast.',
-  skillSection: 'Color & Contrast',
   scope: 'element',
   test: (el, ctx) => grayOnColorHit(ctx, el),
 };
@@ -641,7 +597,6 @@ const gradientTextRule: ElementRule = {
   category: 'slop',
   name: 'Gradient text',
   description: 'Gradient text is decorative rather than meaningful — a common AI tell, especially on headings and metrics. Use solid colors for text.',
-  skillSection: 'Color & Contrast',
   scope: 'element',
   test: (el, ctx) => gradientTextHit(ctx, el),
 };
@@ -651,7 +606,6 @@ const creamPaletteRule: PageRule = {
   category: 'slop',
   name: 'Cream / beige palette',
   description: 'A warm cream or beige page background has become the default "tasteful" AI surface, reached for by reflex. Choose a background that comes from a deliberate palette, not the safe warm off-white.',
-  skillSection: 'Color & Contrast',
   scope: 'page',
   test: async (ctx) => creamPaletteHit(ctx),
 };
@@ -661,7 +615,6 @@ const aiColorPaletteRule: PageRule = {
   category: 'slop',
   name: 'AI color palette',
   description: 'Purple/violet gradients and cyan-on-dark are the most recognizable tells of AI-generated UIs. A gradient in one of those hues is the tell on its own; flat neon ink on a dark ground is charged once a second tell hue joins it. Choose a distinctive, intentional palette.',
-  skillSection: 'Color & Contrast',
   scope: 'page',
   test: (ctx, checkpoint) => aiPalettePageHits(ctx, checkpoint),
 };
@@ -671,7 +624,6 @@ const darkGlowRule: ElementRule = {
   category: 'slop',
   name: 'Glowing shadow accents',
   description: 'Colored glow shadows — a zero-offset chromatic halo (box- or text-shadow) on any background, or any colored blurred shadow on a dark background — are the default "cool" look of AI-generated UIs. Use neutral elevation shadows and subtle, purposeful lighting instead.',
-  skillSection: 'Color & Contrast',
   scope: 'element',
   test: (el, ctx) => darkGlowHit(ctx, el),
 };
@@ -681,7 +633,6 @@ const radialHaloRule: ElementRule = {
   category: 'slop',
   name: 'Radial-gradient background halo',
   description: 'A chromatic radial-gradient wash — saturated at the center, fading to transparent — used as a decorative background glow on a dark page. Same tell as glowing shadows, drawn with a gradient instead of a shadow. Ground the surface with a solid or subtly shifted background instead.',
-  skillSection: 'Color & Contrast',
   scope: 'element',
   test: (el, ctx) => radialHaloHit(ctx, el),
 };
@@ -691,20 +642,8 @@ const radialSpotlightRule: ElementRule = {
   category: 'slop',
   name: 'Decorative radial spotlight glow',
   description: 'A soft, low-opacity accent-colored radial gradient fading to transparent, dropped behind a hero or section as a "spotlight." It is a reflex AI decoration — the translucent cousin of the saturated radial halo. Let the surface stand on its own, or light the composition with a deliberate material accent rather than a floating colored haze.',
-  skillSection: 'Color & Contrast',
   scope: 'element',
   test: (el, ctx) => radialSpotlightHit(ctx, el),
-};
-
-const designSystemColorRule: ElementRule = {
-  id: 'design-system-color',
-  category: 'quality',
-  severity: 'advisory',
-  name: 'Color outside DESIGN.md',
-  description: 'A literal color is outside the DESIGN.md palette and sidecar tonal ramps. This may be legitimate, but it should be an intentional design-system addition rather than drift.',
-  skillSection: 'Color & Contrast',
-  scope: 'element',
-  test: (el, ctx) => designSystemHit(ctx, el),
 };
 
 export const colorRules: Rule[] = [
@@ -716,5 +655,4 @@ export const colorRules: Rule[] = [
   darkGlowRule,
   radialHaloRule,
   radialSpotlightRule,
-  designSystemColorRule,
 ];

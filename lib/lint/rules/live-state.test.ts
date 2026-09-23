@@ -81,19 +81,16 @@ describe('live-state lint rules through the real engine', () => {
       category: 'quality',
       name: 'Text occluded by an overlapping element',
       description: 'Text is painted under an opaque element or a second text run, so part of it cannot be read. A decorative box, a stacked layer, or an inline element with leaked padding lands on the words instead of beside them. Give overlapping layers room, or move the text out from under the layer above it.',
-      skillSection: 'Layout & Space',
       scope: 'page',
     });
     expect(liveStateRules.find((rule) => rule.id === 'first-viewport-column-overflow')).toMatchObject({
       category: 'quality',
       name: 'One column stretches the first viewport',
-      skillSection: 'Layout & Space',
       scope: 'page',
     });
     expect(liveStateRules.find((rule) => rule.id === 'text-overflow')).toMatchObject({
       category: 'quality',
       name: 'Content overflowing its container',
-      skillSection: 'Layout & Space',
       scope: 'element',
     });
     expect(liveStateRules.find((rule) => rule.id === 'repeated-container-text')).toMatchObject({
@@ -104,7 +101,6 @@ describe('live-state lint rules through the real engine', () => {
     expect(liveStateRules.find((rule) => rule.id === 'clipped-overflow-container')).toMatchObject({
       category: 'quality',
       name: 'Positioned child clipped by overflow container',
-      skillSection: 'Layout & Space',
       scope: 'element',
     });
     expect(liveStateRules.every((rule) => rule.severity === undefined)).toBe(true);

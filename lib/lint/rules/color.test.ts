@@ -240,21 +240,4 @@ describe('color lint rules through the real engine', () => {
     expect(first(hit).detail).toContain('800x400');
     expect(first(hit).el).toBe(document.querySelector('#positive'));
   });
-
-  it('keeps design-system colors inert without config and flags an undeclared color with config', async () => {
-    document.body.innerHTML = '<p id="target" style="color: rgb(0, 255, 0)">Target</p>';
-    expect(await hasRule('design-system-color')).toBe(false);
-
-    const ctx = createScanContext(window, { designSystem: { colors: ['#ff0000'] } });
-    const hit = (await collectFindings(colorRules, ctx, new AbortController().signal)).filter((finding) => finding.ruleId === 'design-system-color');
-    expect(hit).toHaveLength(1);
-    expect(first(hit).detail).toContain('text color rgb(0, 255, 0)');
-    expect(first(hit).ignoreValue).toBe('rgb(0, 255, 0)');
-    expect(first(hit).severity).toBe('advisory');
-
-    document.querySelector('#target')!.setAttribute('style', 'color: rgb(255, 0, 0)');
-    expect((await collectFindings(colorRules, createScanContext(window, {
-      designSystem: { colors: ['#ff0000'] },
-    }), new AbortController().signal)).some((finding) => finding.ruleId === 'design-system-color')).toBe(false);
-  });
 });

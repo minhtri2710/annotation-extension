@@ -9,18 +9,18 @@ function resetDocument(): void {
   document.documentElement.innerHTML = '<head></head><body></body>';
 }
 
-async function scan(markup: string, style = '', config = {}) {
+async function scan(markup: string, style = '') {
   document.body.innerHTML = markup;
   if (style) {
     const sheet = document.createElement('style');
     sheet.textContent = style;
     document.head.appendChild(sheet);
   }
-  return await collectFindings(layoutSpaceRules, createScanContext(window, config), new AbortController().signal);
+  return await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal);
 }
 
-async function ruleFindings(markup: string, ruleId: string, style = '', config = {}) {
-  return (await scan(markup, style, config)).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(markup: string, ruleId: string, style = '') {
+  return (await scan(markup, style)).filter((finding) => finding.ruleId === ruleId);
 }
 
 function first<T>(values: T[]): T {
@@ -107,7 +107,6 @@ describe('layout and space lint rules through the real engine', () => {
         category: 'slop',
         name: 'Nested cards',
         description: 'Cards inside cards create visual noise and excessive depth. Flatten the hierarchy — use spacing, typography, and dividers instead of nesting containers.',
-        skillSection: 'Layout & Space',
         scope: 'page',
       },
       {
@@ -115,7 +114,6 @@ describe('layout and space lint rules through the real engine', () => {
         category: 'slop',
         name: 'Monotonous spacing',
         description: 'The same spacing value used everywhere — no rhythm, no variation. Use tight groupings for related items and generous separations between sections.',
-        skillSection: 'Layout & Space',
         scope: 'page',
       },
       {
@@ -124,7 +122,6 @@ describe('layout and space lint rules through the real engine', () => {
         severity: 'advisory',
         name: 'Tiny numbered section labels',
         description: 'Small numeric index labels riding next to section headings, repeated section after section, are AI editorial scaffolding — a page numbering its own chapters instead of earning structure. Let hierarchy, content, and rhythm carry the sequence.',
-        skillSection: 'Layout & Space',
         scope: 'page',
       },
       {
@@ -132,7 +129,6 @@ describe('layout and space lint rules through the real engine', () => {
         category: 'quality',
         name: 'Line length too long',
         description: 'Text lines wider than ~80 characters are hard to read. The eye loses its place tracking back to the start of the next line, so it is measured on the lines that rendered and charged when more than one of them runs long. Add a max-width (65ch to 75ch) to text containers.',
-        skillSection: 'Layout & Space',
         scope: 'element',
       },
       {
@@ -140,7 +136,6 @@ describe('layout and space lint rules through the real engine', () => {
         category: 'quality',
         name: 'Cramped padding',
         description: 'Text is too close to the edge of its container. Two shapes: (1) an element with its own text where the space between the rendered text and the border box is too small for the font size, and (2) a wrapper whose children\'s text lands flush against a visible boundary (border, outline, or non-transparent background) with nothing to inset it. Add at least 8px (ideally 12–16px) of space inside bordered, outlined, or colored containers.',
-        skillSection: 'Layout & Space',
         scope: 'element',
       },
       {
@@ -155,11 +150,9 @@ describe('layout and space lint rules through the real engine', () => {
         category: 'quality',
         name: 'Heading crowded against the previous block',
         description: 'A heading binds to the content it introduces, so the rendered space above it should exceed the space below it. When headings across a page sit as close or closer to the block above than to their own content, every section reads as if it captions the previous one. Open up the space above each heading.',
-        skillSection: 'Layout & Space',
         scope: 'page',
       },
     ]);
-    expect(layoutSpaceRules.find((rule) => rule.id === 'body-text-viewport-edge')).not.toHaveProperty('skillSection');
   });
 
   it('detects nested cards and accepts a card-sized non-card boundary', async () => {
@@ -475,5 +468,16 @@ describe('layout and space lint rules through the real engine', () => {
       .filter((finding) => finding.ruleId === 'line-length');
     expect(findings).toHaveLength(1);
     expect(first(findings)).toMatchObject({ severity: 'advisory', advisory: true });
+  });
+
+  it('expands multi-value margin and padding shorthands in inline and <style> spacing', async () => {
+    const inline = Array.from({ length: 5 }, () => '<section style="padding:16px 16px;margin:16px 0"></section>').join('');
+    const inlineHits = await ruleFindings(inline, 'monotonous-spacing');
+    expect(inlineHits).toHaveLength(1);
+    expect(first(inlineHits).detail).toBe('~16px used 15/15 times (100%)');
+
+    const sheetHits = await ruleFindings('<div class="a"></div>', 'monotonous-spacing', '.a{margin:16px 0;padding:8px 16px 16px;margin:16px 16px 16px 16px;padding:16px 8px}');
+    expect(sheetHits).toHaveLength(1);
+    expect(first(sheetHits).detail).toBe('~16px used 8/10 times (80%)');
   });
 });

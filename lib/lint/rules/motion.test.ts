@@ -43,13 +43,11 @@ describe('motion lint rules through the real engine', () => {
       category: 'slop',
       name: 'Bounce or elastic easing',
       description: 'Bounce and elastic easing feel dated and tacky. Real objects decelerate smoothly — use exponential easing (ease-out-quart/quint/expo) instead.',
-      skillSection: 'Motion',
       scope: 'element',
     });
     expect(motionRules.find((rule) => rule.id === 'pulsing-dot')).toMatchObject({
       category: 'slop',
       name: 'Pulsing status dot',
-      skillSection: 'Motion',
       scope: 'element',
     });
     expect(motionRules.find((rule) => rule.id === 'blinking-cursor')).toMatchObject({
@@ -57,21 +55,18 @@ describe('motion lint rules through the real engine', () => {
       severity: 'advisory',
       name: 'Decorative blinking cursor',
       description: 'A blinking text cursor animated into a hero or landing section simulates typing where no input exists. It borrows the dev-tool aesthetic as decoration. Real editable fields draw their own caret; anywhere else, let the composition hold attention without a fake prompt.',
-      skillSection: 'Motion',
       scope: 'element',
     });
     expect(motionRules.find((rule) => rule.id === 'marquee')).toMatchObject({
       category: 'slop',
       name: 'Auto-scrolling marquee',
       description: 'Continuously auto-scrolling content demands attention it has not earned and hides half its content at any moment. Reserve motion for content that changes; let readers move at their own pace.',
-      skillSection: 'Motion',
       scope: 'page',
     });
     expect(motionRules.find((rule) => rule.id === 'layout-transition')).toMatchObject({
       category: 'quality',
       name: 'Layout property animation',
       description: 'Animating width, height, padding, or margin causes layout thrash and janky performance. Use transform and opacity instead, or grid-template-rows for height animations.',
-      skillSection: 'Motion',
       scope: 'element',
     });
     expect(motionRules.find((rule) => rule.id === 'image-hover-transform')).toMatchObject({
@@ -79,7 +74,6 @@ describe('motion lint rules through the real engine', () => {
       severity: 'advisory',
       name: 'Image hover transform',
       description: 'Scaling or rotating an image on hover is a recurring generated-UI signature. Let imagery sit still, or use a subtler, purposeful interaction.',
-      skillSection: 'Motion',
       scope: 'element',
     });
   });

@@ -8,7 +8,7 @@ function resetDocument(): void {
   document.documentElement.innerHTML = '<head></head><body></body>';
 }
 
-async function scan(markup: string, config = {}, style = '') {
+async function scan(markup: string, style = '') {
   document.querySelectorAll('style').forEach((sheet) => sheet.remove());
   document.body.innerHTML = markup;
   if (style) {
@@ -16,11 +16,11 @@ async function scan(markup: string, config = {}, style = '') {
     sheet.textContent = style;
     document.head.appendChild(sheet);
   }
-  return await collectFindings(visualDetailsRules, createScanContext(window, config), new AbortController().signal);
+  return await collectFindings(visualDetailsRules, createScanContext(window), new AbortController().signal);
 }
 
-async function ruleFindings(markup: string, ruleId: string, config = {}, style = '') {
-  return (await scan(markup, config, style)).filter((finding) => finding.ruleId === ruleId);
+async function ruleFindings(markup: string, ruleId: string, style = '') {
+  return (await scan(markup, style)).filter((finding) => finding.ruleId === ruleId);
 }
 
 function first<T>(values: T[]): T {
@@ -31,11 +31,10 @@ beforeEach(resetDocument);
 afterEach(() => vi.restoreAllMocks());
 
 describe('visual-details lint rules through the real engine', () => {
-  it('exports the six visual-details rules in registry order with faithful metadata', () => {
+  it('exports the five visual-details rules in registry order with faithful metadata', () => {
     expect(visualDetailsRules.map((rule) => rule.id)).toEqual([
       'side-tab',
       'border-accent-on-rounded',
-      'design-system-radius',
       'gpt-thin-border-wide-shadow',
       'repeating-stripes-gradient',
       'codex-grid-background',
@@ -44,22 +43,12 @@ describe('visual-details lint rules through the real engine', () => {
       category: 'slop',
       name: 'Side-tab accent border',
       description: 'Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.',
-      skillSection: 'Visual Details',
       scope: 'element',
     });
     expect(visualDetailsRules.find((rule) => rule.id === 'border-accent-on-rounded')).toMatchObject({
       category: 'slop',
       name: 'Border accent on rounded element',
       description: 'Thick accent border on a rounded card — the border clashes with the rounded corners. Remove the border or the border-radius.',
-      skillSection: 'Visual Details',
-      scope: 'element',
-    });
-    expect(visualDetailsRules.find((rule) => rule.id === 'design-system-radius')).toMatchObject({
-      category: 'quality',
-      severity: 'advisory',
-      name: 'Radius outside DESIGN.md',
-      description: 'A border-radius value is outside the DESIGN.md rounded scale. Use a documented radius token or update the design system if the new shape is intentional.',
-      skillSection: 'Visual Details',
       scope: 'element',
     });
     expect(visualDetailsRules.find((rule) => rule.id === 'gpt-thin-border-wide-shadow')).toMatchObject({
@@ -67,7 +56,6 @@ describe('visual-details lint rules through the real engine', () => {
       severity: 'advisory',
       name: 'Hairline border with wide shadow',
       description: 'A hairline border paired with a wide, diffuse shadow is a recurring generated-UI signature. Commit to one — a defined edge or a soft elevation — rather than both at once.',
-      skillSection: 'Visual Details',
       scope: 'element',
     });
     expect(visualDetailsRules.find((rule) => rule.id === 'repeating-stripes-gradient')).toMatchObject({
@@ -75,7 +63,6 @@ describe('visual-details lint rules through the real engine', () => {
       severity: 'advisory',
       name: 'Repeating-gradient stripes',
       description: 'Repeating-gradient stripes used as surface decoration are a recurring generated-UI signature. Reach for a deliberate texture or leave the surface plain.',
-      skillSection: 'Visual Details',
       scope: 'page',
     });
     expect(visualDetailsRules.find((rule) => rule.id === 'codex-grid-background')).toMatchObject({
@@ -83,7 +70,6 @@ describe('visual-details lint rules through the real engine', () => {
       severity: 'advisory',
       name: 'Decorative grid-line background',
       description: 'A decorative grid or line-field background drawn with hairline linear-gradient layers tiled by a fixed pixel cell is a recurring generated-UI signature. Reserve grid overlays for actual canvas, map, blueprint, or measurement surfaces; elsewhere use product structure or a plain surface.',
-      skillSection: 'Visual Details',
       scope: 'page',
     });
   });
@@ -130,7 +116,6 @@ describe('visual-details lint rules through the real engine', () => {
     const insetPositive = await ruleFindings(
       '<div class="card"></div>',
       'side-tab',
-      {},
       '.card { width: 80px; box-shadow: inset 4px 0 0 0 rgb(0, 128, 255); }',
     );
     expect(insetPositive).toHaveLength(1);
@@ -142,7 +127,6 @@ describe('visual-details lint rules through the real engine', () => {
     const insetNegative = await ruleFindings(
       '<div class="card"></div>',
       'side-tab',
-      {},
       '.card { width: 80px; box-shadow: inset 2.9px 0 0 0 rgb(0, 128, 255); }',
     );
     expect(insetNegative).toHaveLength(0);
@@ -152,7 +136,6 @@ describe('visual-details lint rules through the real engine', () => {
     const narrow = await ruleFindings(
       '<div class="card"></div>',
       'side-tab',
-      {},
       '.card { width: 40px; box-shadow: inset 4px 0 0 0 rgb(0, 128, 255); }',
     );
     expect(narrow).toHaveLength(0);
@@ -160,7 +143,6 @@ describe('visual-details lint rules through the real engine', () => {
     const wide = await ruleFindings(
       '<div class="card"></div>',
       'side-tab',
-      {},
       '.card { width: 41px; box-shadow: inset 4px 0 0 0 rgb(0, 128, 255); }',
     );
     expect(wide).toHaveLength(1);
@@ -236,7 +218,6 @@ describe('visual-details lint rules through the real engine', () => {
     const positive = await ruleFindings(
       '<div class="stripe"></div>',
       'repeating-stripes-gradient',
-      {},
       '.stripe { background-image: repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 2px); }',
     );
     expect(positive).toHaveLength(1);
@@ -250,7 +231,6 @@ describe('visual-details lint rules through the real engine', () => {
     const negative = await ruleFindings(
       '<div class="stripe"></div>',
       'repeating-stripes-gradient',
-      {},
       '.stripe { background-image: linear-gradient(45deg, #fff, transparent); }',
     );
     expect(negative).toHaveLength(0);
@@ -260,7 +240,6 @@ describe('visual-details lint rules through the real engine', () => {
     const hits = await ruleFindings(
       '<div id="a1" class="a"></div><div id="b1" class="b"></div><div class="a"></div><div class="a"></div>',
       'repeating-stripes-gradient',
-      {},
       '.a { background-image: repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 2px); } .b { background-image: repeating-linear-gradient(90deg, #000 0 1px, transparent 1px 4px); }',
     );
     expect(hits.map((hit) => hit.detail)).toEqual([
@@ -275,7 +254,6 @@ describe('visual-details lint rules through the real engine', () => {
     const positive = await ruleFindings(
       '<div></div>',
       'codex-grid-background',
-      {},
       '.grid { background-image: linear-gradient(to right, #000 1px, transparent 1px), linear-gradient(to bottom, #000 1px, transparent 1px); background-size: 20px 20px; }',
     );
     expect(positive).toHaveLength(1);
@@ -288,33 +266,9 @@ describe('visual-details lint rules through the real engine', () => {
     const negative = await ruleFindings(
       '<div></div>',
       'codex-grid-background',
-      {},
       '.grid { background-image: linear-gradient(to right, #000 1px, transparent 1px); background-size: 20px 20px; }',
     );
     expect(negative).toHaveLength(0);
-  });
-
-  it('detects a radius outside the configured scale, carries ignoreValue, and is inert without config', async () => {
-    const positive = await ruleFindings(
-      '<div style="border-radius: 10px"></div>',
-      'design-system-radius',
-      { designSystem: { radii: [8] } },
-    );
-    expect(positive).toHaveLength(1);
-    expect(first(positive)).toMatchObject({
-      ruleId: 'design-system-radius',
-      severity: 'advisory',
-      detail: 'border-radius 10px on div is outside the DESIGN.md rounded scale',
-      ignoreValue: '10px',
-    });
-
-    const negative = await ruleFindings(
-      '<div style="border-radius: 8px"></div>',
-      'design-system-radius',
-      { designSystem: { radii: [8] } },
-    );
-    expect(negative).toHaveLength(0);
-    expect(await ruleFindings('<div style="border-radius: 10px"></div>', 'design-system-radius')).toHaveLength(0);
   });
 
   it('anchors one repeating-stripes hit to the first element of each distinct stripe value and ignores a stripe rule that matches nothing', async () => {
@@ -322,7 +276,6 @@ describe('visual-details lint rules through the real engine', () => {
     const hits = await ruleFindings(
       '<div class="stripe" id="a"></div><div id="plain"></div><div class="stripe" id="b"></div><div id="inline" style="background: repeating-radial-gradient(circle, #000 0 2px, transparent 2px 4px)"></div>',
       'repeating-stripes-gradient',
-      {},
       stripe,
     );
     expect(hits.map((hit) => hit.el?.id)).toEqual(['a', 'inline']);
@@ -331,11 +284,11 @@ describe('visual-details lint rules through the real engine', () => {
     expect(hits.map((hit) => hit.detail)).toEqual(['repeating-gradient decorative stripes (2 elements)', 'repeating-gradient decorative stripes']);
     for (const hit of hits) expect(hit).toMatchObject({ severity: 'advisory' });
 
-    expect(await ruleFindings('<div class="other"></div>', 'repeating-stripes-gradient', {}, stripe)).toHaveLength(0);
+    expect(await ruleFindings('<div class="other"></div>', 'repeating-stripes-gradient', stripe)).toHaveLength(0);
   });
 
   it('reports side-tab at advisory severity', async () => {
-    const hits = await ruleFindings('<div class="card"></div>', 'side-tab', {}, '.card { width: 200px; box-shadow: inset 4px 0 0 0 rgb(0, 128, 255); }');
+    const hits = await ruleFindings('<div class="card"></div>', 'side-tab', '.card { width: 200px; box-shadow: inset 4px 0 0 0 rgb(0, 128, 255); }');
     expect(hits).toHaveLength(1);
     expect(first(hits)).toMatchObject({ severity: 'advisory', advisory: true });
     expect(visualDetailsRules.find((rule) => rule.id === 'side-tab')).toMatchObject({ severity: 'advisory' });

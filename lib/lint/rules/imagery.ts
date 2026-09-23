@@ -4,6 +4,7 @@ const SHAPE_MAX_TEXT_NODES = 2;
 const SHAPE_MIN_PRIMITIVES = 8;
 const SHAPE_MIN_SIZE_PX = 200;
 const SHAPE_MIN_FILLS = 3;
+const CHART_SHARED_RECT_SHARE = 0.75;
 const ORGANIC_POLYGON_MIN_VERTICES = 10;
 const ORGANIC_GRID_STEP = 25;
 const ORGANIC_GRID_TOLERANCE = 0.5;
@@ -86,13 +87,27 @@ function svgDimension(openTag: string, attrRe: RegExp, viewBoxValue: string | un
   return viewBoxValue === undefined ? undefined : Number.parseFloat(viewBoxValue);
 }
 
+// Bars of a data chart share one width (vertical) or one height (horizontal).
+function isBarChart(svg: Element): boolean {
+  const rects = Array.from(svg.querySelectorAll('rect'));
+  if (rects.length === 0) return false;
+  const sharesOne = (attribute: string): boolean => {
+    const counts = new Map<string, number>();
+    for (const rect of rects) {
+      const value = rect.getAttribute(attribute)?.trim();
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    return Math.max(0, ...counts.values()) >= CHART_SHARED_RECT_SHARE * rects.length;
+  };
+  return sharesOne('width') || sharesOne('height');
+}
+
 const shapeAssembledIllustration: ElementRule = {
   id: 'shape-assembled-illustration',
   category: 'slop',
   severity: 'advisory',
   name: 'Shape-assembled illustration',
   description: 'A large inline SVG that builds a pictorial scene from a pile of primitive shapes reads as placeholder clip art, not illustration. Icons, logos, and data graphics are fine at their scale; a hero-sized visual deserves real artwork, a photograph, or a deliberately drawn graphic.',
-  skillSection: 'Imagery',
   scope: 'element',
   test(el): RuleHit[] {
     if (el.localName !== 'svg') return [];
@@ -115,6 +130,7 @@ const shapeAssembledIllustration: ElementRule = {
       if (paint && !SVG_IGNORED_PAINTS.has(paint)) fills.add(paint);
     }
     if (fills.size < SHAPE_MIN_FILLS) return [];
+    if (isBarChart(el)) return [];
 
     return [{
       detail: `inline <svg> scene: ${primitives} primitive shapes, ~${Math.round(width)}x${Math.round(height)}px, ${fills.size} fill colors`,
@@ -147,7 +163,6 @@ const organicClipPath: PageRule = {
   category: 'quality',
   name: 'Organic contour drawn as clip-path',
   description: 'A clip-path polygon with many arbitrary vertices, or a curved clip-path path(), is CSS approximating a torn edge, blob, or silhouette. It reads as the cheap version of the effect and is usually a produced or photographic material replaced with code. Derive an alpha matte from the real image, or ship the shape as a cut-out raster; keep clip-path for geometry (cut corners, diagonals, hexagons).',
-  skillSection: 'Imagery',
   scope: 'page',
   async test(ctx, checkpoint): Promise<PageHit[]> {
     const hits: PageHit[] = [];
@@ -216,7 +231,6 @@ const buriedRaster: PageRule = {
   category: 'quality',
   name: 'Raster buried under a wash or opacity',
   description: 'A background image under a near-opaque gradient wash, or a raster on an element at near-zero opacity, never reaches the screen: the page shows the wash, and the produced texture or photo ships as a compliance token. Let the material show (a tint under 0.9 alpha, a blend mode, an opacity you can see) or remove the file.',
-  skillSection: 'Imagery',
   scope: 'page',
   async test(ctx, checkpoint): Promise<PageHit[]> {
     const hits: PageHit[] = [];
@@ -241,14 +255,15 @@ const brokenImage: ElementRule = {
   category: 'quality',
   name: 'Broken or placeholder image',
   description: '<img> tags with empty src, missing src, or placeholder values ship as broken-image boxes. Use real images, generated assets, or remove the tag.',
-  skillSection: 'Imagery',
   scope: 'element',
   test(el): RuleHit[] {
     if (el.localName !== 'img') return [];
     const src = el.getAttribute('src');
     if (src === null) return [{ detail: '<img> with no src attribute' }];
     const trimmed = src.trim();
-    return trimmed === '' || trimmed === '#' ? [{ detail: `<img src="${src}">` }] : [];
+    if (trimmed === '' || trimmed === '#') return [{ detail: `<img src="${src}">` }];
+    const img = el as HTMLImageElement;
+    return img.complete && img.naturalWidth === 0 ? [{ detail: `<img src="${src}"> failed to load` }] : [];
   },
 };
 
