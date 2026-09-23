@@ -116,8 +116,23 @@ describe('processScreenshot', () => {
 
     const firstBlueColumn = Array.from({ length: 80 }, (_, x) => x).find((x) => image.pixel(x, 10)[2]! > 127);
     const firstGreenRow = Array.from({ length: 70 }, (_, y) => y).find((y) => image.pixel(10, y)[1]! > 127);
-    expect(Math.abs(firstBlueColumn! - 30)).toBeLessThanOrEqual(1);
-    expect(Math.abs(firstGreenRow! - 20)).toBeLessThanOrEqual(1);
+    expect(firstBlueColumn).toBe(30);
+    expect(firstGreenRow).toBe(20);
+  });
+
+  it('rounds the output size of a fractional devicePixelRatio crop to the nearest pixel', async () => {
+    const capture = await quadrantImage(400, 200);
+
+    // Device-pixel crop at dpr 1.5 is x 180..241.5, y 60..124.5 (61.5 x 64.5), so the output rounds to 62 x 65.
+    const result = await processScreenshot(capture, { x: 120, y: 40, width: 41, height: 43 }, 1.5);
+
+    expect([result.width, result.height]).toEqual([62, 65]);
+    const image = await decode(result.blob);
+    expect([image.width, image.height]).toEqual([62, 65]);
+    expectColor(image.pixel(0, 0), RED);
+    expectColor(image.pixel(61, 0), BLUE);
+    expectColor(image.pixel(0, 64), GREEN);
+    expectColor(image.pixel(61, 64), YELLOW);
   });
 
   it('keeps a crop at or under 1600px at full size', async () => {

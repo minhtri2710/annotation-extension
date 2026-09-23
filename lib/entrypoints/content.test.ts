@@ -222,4 +222,15 @@ describe('content script entrypoint', () => {
     expect(browser.runtime.onMessage.hasListener(messageListener!)).toBe(false);
     expect(selection.map(({ unsubscribe }) => unsubscribe.mock.calls)).toEqual([[[]]]);
   });
+
+  it('releases the capture-state subscription when the context is invalidated', async () => {
+    busSubscriptions.length = 0;
+    await start();
+    const captureState = busSubscriptions.filter(({ event }) => event === 'capture:active');
+    expect(captureState.map(({ unsubscribe }) => unsubscribe.mock.calls)).toEqual([[]]);
+
+    ctx.notifyInvalidated();
+
+    expect(captureState.map(({ unsubscribe }) => unsubscribe.mock.calls)).toEqual([[[]]]);
+  });
 });
