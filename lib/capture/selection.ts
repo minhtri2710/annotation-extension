@@ -70,6 +70,7 @@ const HINT_STYLE = [
 ].join(';');
 const CURSOR_ATTRIBUTE = 'data-annotation-capture-cursor';
 const CURSOR_CSS = 'html, html * { cursor: crosshair !important; }';
+const SHADOW_CURSOR_CSS = '* { cursor: crosshair !important; }';
 // Upper bound for a committed gesture's trailing events (pointerup/mouseup/click) when no click ever arrives.
 const GESTURE_TIMEOUT_MS = 1000;
 const KEYBOARD_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter']);
@@ -142,6 +143,10 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   const cursor = options.document.createElement('style');
   cursor.setAttribute(CURSOR_ATTRIBUTE, '');
   cursor.textContent = CURSOR_CSS;
+  // Document styles do not reach into shadow roots; this sheet is appended to each open root the pointer enters.
+  const shadowCursor = new CSSStyleSheet();
+  shadowCursor.replaceSync(SHADOW_CURSOR_CSS);
+  const cursorRoots = new Set<ShadowRoot>();
   const live = createLiveRegion(options.document).element;
   const view = options.document.defaultView;
   const routes = view ? interceptPageEvents(view) : undefined;
@@ -156,6 +161,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     if (!active || isExtensionEvent(event, options.shadowHost)) return;
     releaseFrameFocus();
     const element = resolveTarget(event, options.document);
+    if (element) adoptShadowCursor(element);
     if (element !== hoveredElement) retrace = [];
     setHoveredElement(element);
   };
@@ -242,6 +248,33 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   function releaseFrameFocus() {
     const focused = options.document.activeElement;
     if (focused?.localName === 'iframe') (focused as HTMLIFrameElement).blur();
+  }
+
+  // Appends only, so the page's own sheets keep their order; a page reassignment that drops it heals on the next move.
+  // A page root whose adoptedStyleSheets throws keeps its own cursor; capture itself must keep working.
+  function adoptShadowCursor(element: Element) {
+    const root = element.getRootNode();
+    if (!isShadowRoot(root)) return;
+    try {
+      if (root.adoptedStyleSheets.includes(shadowCursor)) return;
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, shadowCursor];
+    } catch {
+      return;
+    }
+    cursorRoots.add(root);
+  }
+
+  function releaseShadowCursor() {
+    for (const root of cursorRoots) {
+      try {
+        if (root.adoptedStyleSheets.includes(shadowCursor)) {
+          root.adoptedStyleSheets = root.adoptedStyleSheets.filter((sheet) => sheet !== shadowCursor);
+        }
+      } catch {
+        // One throwing page root must not stop the cleanup of the others.
+      }
+    }
+    cursorRoots.clear();
   }
 
   function announce(text: string) {
@@ -373,6 +406,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     label.hidden = true;
     hint.hidden = true;
     cursor.remove();
+    releaseShadowCursor();
     announce('');
     syncRoute();
     options.document.removeEventListener('scroll', scheduleFollow, true);

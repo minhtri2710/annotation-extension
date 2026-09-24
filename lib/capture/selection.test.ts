@@ -979,4 +979,94 @@ describe('crosshair cursor', () => {
     controller.destroy();
     expect(cursorStyles()).toHaveLength(0);
   });
+
+  function shadowButton() {
+    const card = document.createElement('x-card');
+    const root = card.attachShadow({ mode: 'open' });
+    const button = document.createElement('button');
+    root.append(button);
+    document.body.append(card);
+    return { root, button };
+  }
+
+  it('adopts one crosshair sheet into an open shadow root the pointer enters, once', () => {
+    const { root, button } = shadowButton();
+    controller.activate();
+
+    pointer('pointermove', button);
+    expect(root.adoptedStyleSheets).toHaveLength(1);
+    const sheet = root.adoptedStyleSheets[0]!;
+    expect([...sheet.cssRules].map((rule) => rule.cssText.replace(/\s+/g, ''))).toEqual(['*{cursor:crosshair!important;}']);
+
+    pointer('pointermove', button);
+    expect(root.adoptedStyleSheets).toEqual([sheet]);
+  });
+
+  it('removes the crosshair sheet from the shadow root on deactivate', () => {
+    const { root, button } = shadowButton();
+    controller.activate();
+    pointer('pointermove', button);
+
+    controller.deactivate();
+    expect(root.adoptedStyleSheets).toHaveLength(0);
+  });
+
+  it('keeps the page sheets of a shadow root first and unchanged, and restores the original array on deactivate', () => {
+    const { root, button } = shadowButton();
+    const own = new CSSStyleSheet();
+    own.replaceSync('button { cursor: pointer; }');
+    root.adoptedStyleSheets = [own];
+    controller.activate();
+
+    pointer('pointermove', button);
+    expect(root.adoptedStyleSheets).toHaveLength(2);
+    expect(root.adoptedStyleSheets[0]).toBe(own);
+    expect(own.cssRules[0]?.cssText).toContain('pointer');
+
+    controller.deactivate();
+    expect([...root.adoptedStyleSheets]).toEqual([own]);
+    expect(root.adoptedStyleSheets[0]).toBe(own);
+  });
+
+  it('re-adopts the sheet after the page drops it, and still removes it on deactivate', () => {
+    const { root, button } = shadowButton();
+    const own = new CSSStyleSheet();
+    controller.activate();
+    pointer('pointermove', button);
+
+    root.adoptedStyleSheets = [own];
+    pointer('pointermove', button);
+    expect(root.adoptedStyleSheets).toHaveLength(2);
+    expect(root.adoptedStyleSheets[0]).toBe(own);
+    const later = new CSSStyleSheet();
+    root.adoptedStyleSheets = [...root.adoptedStyleSheets, later];
+
+    controller.deactivate();
+    expect(root.adoptedStyleSheets).toHaveLength(2);
+    expect(root.adoptedStyleSheets[0]).toBe(own);
+    expect(root.adoptedStyleSheets[1]).toBe(later);
+  });
+
+  it('keeps capturing when a shadow root refuses the sheet, and still adopts into and cleans other roots', () => {
+    const refusing = shadowButton();
+    refusing.button.id = 'refused';
+    Object.defineProperty(refusing.root, 'adoptedStyleSheets', {
+      get: () => [],
+      set: () => {
+        throw new Error('page refuses');
+      },
+    });
+    const other = shadowButton();
+    controller.activate();
+
+    expect(() => pointer('pointermove', refusing.button)).not.toThrow();
+    expect(highlight().hidden).toBe(false);
+    expect(labelName()).toBe('button#refused');
+
+    pointer('pointermove', other.button);
+    expect(other.root.adoptedStyleSheets).toHaveLength(1);
+
+    controller.deactivate();
+    expect(other.root.adoptedStyleSheets).toHaveLength(0);
+  });
 });

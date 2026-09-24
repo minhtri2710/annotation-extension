@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import type { ElementContext } from './context';
 import { createCaptureController, type CaptureController, type CaptureEvents } from './selection';
 import { createEventBus } from '../ui/event-bus';
@@ -144,6 +144,27 @@ describe('capture mode feedback (real browser)', () => {
 
     controller.deactivate();
     expect(getComputedStyle(document.body).cursor).not.toBe('crosshair');
+  });
+
+  it('shows the crosshair over a pointer cursor inside an open shadow root only while active', async () => {
+    const card = document.createElement('x-card');
+    const root = card.attachShadow({ mode: 'open' });
+    const own = new CSSStyleSheet();
+    own.replaceSync('button { cursor: pointer; }');
+    root.adoptedStyleSheets = [own];
+    const button = document.createElement('button');
+    button.textContent = 'Go';
+    root.append(button);
+    document.body.append(card, host);
+    expect(getComputedStyle(button).cursor).toBe('pointer');
+
+    controller.activate();
+    await userEvent.hover(button);
+    expect(getComputedStyle(button).cursor).toBe('crosshair');
+
+    controller.deactivate();
+    expect(getComputedStyle(button).cursor).toBe('pointer');
+    expect([...root.adoptedStyleSheets]).toEqual([own]);
   });
 
   async function atViewport(width: number, height: number, check: (hint: HTMLElement) => void) {
