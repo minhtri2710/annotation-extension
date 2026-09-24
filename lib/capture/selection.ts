@@ -65,7 +65,7 @@ const HINT_STYLE = [
   'color: #fff',
   'font: 12px/24px ui-monospace, monospace',
   'width: max-content',
-  'max-width: calc(100vw - 16px)',
+  'max-width: calc(100% - 16px)',
   'text-align: center',
 ].join(';');
 const CURSOR_ATTRIBUTE = 'data-annotation-capture-cursor';

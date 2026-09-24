@@ -54,7 +54,7 @@ ${ANNOTATION_DARK_TOKENS}
   right: var(--annotation-space-4);
   bottom: calc(var(--annotation-space-4) + 56px);
   z-index: 2147483645;
-  width: min(384px, calc(100vw - 2 * var(--annotation-space-4)));
+  width: min(384px, calc(100% - 2 * var(--annotation-space-4)));
   max-height: calc(100vh - 2 * var(--annotation-space-4));
   overflow: auto;
   padding: var(--annotation-space-4);
@@ -412,7 +412,7 @@ describe('overlay styles independent of the page', () => {
   it('wraps the toolbar inside the viewport width', () => {
     expect(OVERLAY_STYLES).toContain(`[data-annotation-shell] [data-annotation-mount="toolbar"] {
   flex-wrap: wrap;
-  max-width: calc(100vw - 2 * var(--annotation-space-4));
+  max-width: calc(100% - 2 * var(--annotation-space-4));
 }`);
   });
 
@@ -422,7 +422,7 @@ describe('overlay styles independent of the page', () => {
 }`);
     const tooltipRule = /\[data-annotation-shell\] \.annotation-pin-tooltip \{([^}]*)\}/.exec(OVERLAY_STYLES)?.[1] ?? '';
     expect(tooltipRule).toContain('pointer-events: auto;');
-    expect(tooltipRule).toContain('max-width: min(256px, calc(100vw - 16px));');
+    expect(tooltipRule).toContain('max-width: min(256px, calc(100% - 16px));');
     expect(OVERLAY_STYLES).toContain(`[data-annotation-shell] .annotation-pin-tooltip::before {
   content: "";
   position: absolute;

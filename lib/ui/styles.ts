@@ -44,7 +44,7 @@ ${ANNOTATION_DARK_TOKENS}
 
 [data-annotation-shell] [data-annotation-mount="toolbar"] {
   flex-wrap: wrap;
-  max-width: calc(100vw - 2 * var(--annotation-space-4));
+  max-width: calc(100% - 2 * var(--annotation-space-4));
 }
 
 [data-annotation-shell] [data-annotation-toolbar-grip] {
@@ -65,7 +65,7 @@ ${ANNOTATION_DARK_TOKENS}
   right: var(--annotation-space-4);
   bottom: calc(var(--annotation-space-4) + 56px);
   z-index: 2147483645;
-  width: min(384px, calc(100vw - 2 * var(--annotation-space-4)));
+  width: min(384px, calc(100% - 2 * var(--annotation-space-4)));
   max-height: calc(100vh - 2 * var(--annotation-space-4));
   overflow: auto;
   padding: var(--annotation-space-4);
@@ -156,7 +156,7 @@ ${ANNOTATION_DARK_TOKENS}
 [data-annotation-shell] .annotation-pin-tooltip {
   position: fixed;
   z-index: 2147483647;
-  max-width: min(256px, calc(100vw - 16px));
+  max-width: min(256px, calc(100% - 16px));
   padding: var(--annotation-space-1) var(--annotation-space-2);
   border: 1px solid var(--annotation-color-border);
   border-radius: var(--annotation-radius-sm);

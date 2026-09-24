@@ -43,8 +43,8 @@ function inlinePosition() {
 
 beforeEach(() => {
   viewport = { width: 800, height: 600 };
-  vi.spyOn(window, 'innerWidth', 'get').mockImplementation(() => viewport.width);
-  vi.spyOn(window, 'innerHeight', 'get').mockImplementation(() => viewport.height);
+  vi.spyOn(document.documentElement, 'clientWidth', 'get').mockImplementation(() => viewport.width);
+  vi.spyOn(document.documentElement, 'clientHeight', 'get').mockImplementation(() => viewport.height);
   toolbar = document.createElement('div');
   const scan = document.createElement('button');
   scan.textContent = 'Scan';
@@ -131,6 +131,22 @@ describe('toolbar controls', () => {
     pointer(grip, 'pointermove', 600, 5000);
     expect(inlinePosition().top).toBe('552px');
     pointer(grip, 'pointerup', 600, 5000);
+  });
+
+  it('clamps a drag inside the viewport minus classic scrollbars, not the window size', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockImplementation(() => viewport.width + 15);
+    vi.spyOn(window, 'innerHeight', 'get').mockImplementation(() => viewport.height + 15);
+    const { grip } = setup();
+    await controls!.ready;
+    pointer(grip, 'pointerdown', 600, 560);
+    pointer(grip, 'pointermove', 5000, 5000);
+    expect(inlinePosition()).toEqual({
+      left: `${viewport.width - TOOLBAR_WIDTH - 8}px`,
+      top: `${viewport.height - TOOLBAR_HEIGHT - 8}px`,
+      right: 'auto',
+      bottom: 'auto',
+    });
+    pointer(grip, 'pointerup', 5000, 5000);
   });
 
   it('persists nothing for a press without movement or a non-primary button', async () => {

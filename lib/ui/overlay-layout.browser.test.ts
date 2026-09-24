@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { page, userEvent } from 'vitest/browser';
+import { page, server, userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { createCaptureController } from '../capture/selection';
@@ -8,6 +8,7 @@ import { createNotePanel } from '../notes/note-panel';
 import { createPinsController } from '../pins/pins';
 import { createLocateHighlight } from './locate-highlight';
 import { buildOverlayShell, createPanelAnchor, raiseOverlay } from './shell';
+import { createToolbarControls } from './toolbar-controls';
 
 const pageUrl = 'https://example.com/article';
 const cleanups: (() => void)[] = [];
@@ -338,5 +339,90 @@ describe('long unbroken text wraps inside panels at 320 px (real browser)', () =
     await nextFrame();
     expect(shell.panel.scrollWidth).toBeLessThanOrEqual(shell.panel.clientWidth);
     expect(shell.panel.getBoundingClientRect().right).toBeLessThanOrEqual(viewportSize().width);
+  });
+});
+
+describe('overlay layout with classic scrollbars (real browser)', () => {
+  const TOLERANCE = 0.5;
+
+  // Classic scrollbars take room that 100vw and innerWidth still count; the visible viewport is clientWidth.
+  // Headless browsers hide scrollbars, so the gap is logged, not required: these run as non-regression checks.
+  async function classicScrollbars() {
+    await page.viewport(360, 600);
+    addPageStyle('html { overflow: scroll; } ::-webkit-scrollbar { width: 15px; height: 15px; }');
+    await nextFrame();
+    const gap = window.innerWidth - document.documentElement.clientWidth;
+    console.log(`${server.browser} classic scrollbar gap: ${gap}px`);
+    return viewportSize();
+  }
+
+  it('(b1) keeps the note panel 16 px inside both sides of the visible viewport', async () => {
+    const { width } = await classicScrollbars();
+    const { shell } = mountOverlay();
+    const notePanel = notePanelFor(shell.panel, [annotation('a1', 'First note')]);
+    cleanups.push(() => notePanel.teardown());
+    await notePanel.render(context());
+    await nextFrame();
+    const rect = shell.panel.getBoundingClientRect();
+    expect(Math.abs(rect.width - Math.min(384, width - 32))).toBeLessThanOrEqual(TOLERANCE);
+    expect(rect.left).toBeGreaterThanOrEqual(16 - TOLERANCE);
+    expect(rect.right).toBeLessThanOrEqual(width - 16 + TOLERANCE);
+  });
+
+  it('(b2) keeps a wrapped toolbar inside the visible viewport', async () => {
+    const { width } = await classicScrollbars();
+    const { shell } = mountOverlay();
+    for (const label of ['Export', 'Settings', 'Help']) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      shell.toolbar.append(button);
+    }
+    await nextFrame();
+    const rect = shell.toolbar.getBoundingClientRect();
+    expect(Math.abs(rect.width - (width - 32))).toBeLessThanOrEqual(TOLERANCE);
+    expect(rect.left).toBeGreaterThanOrEqual(16 - TOLERANCE);
+    expect(rect.right).toBeLessThanOrEqual(width + TOLERANCE);
+  });
+
+  it('(b3) keeps the wrapped capture hint 8 px inside both sides of the visible viewport', async () => {
+    const { width } = await classicScrollbars();
+    const { host, shadow } = mountOverlay();
+    const capture = createCaptureController({ document, shadowHost: host });
+    cleanups.push(() => capture.destroy());
+    capture.activate();
+    const hint = shadow.querySelector<HTMLElement>('[data-annotation-capture-hint]')!;
+    await vi.waitFor(() => expect(hint.hidden).toBe(false));
+    const rect = hint.getBoundingClientRect();
+    expect(Math.abs(rect.width - (width - 16))).toBeLessThanOrEqual(TOLERANCE);
+    expect(rect.left).toBeGreaterThanOrEqual(8 - TOLERANCE);
+    expect(rect.right).toBeLessThanOrEqual(width - 8 + TOLERANCE);
+  });
+
+  it('(b4) clamps a toolbar dragged past the bottom-right corner inside the visible viewport', async () => {
+    const { width, height } = await classicScrollbars();
+    const { shell } = mountOverlay();
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: { read: async () => ({ position: null, collapsed: false }), write: async () => undefined },
+      onCollapsedChange: () => undefined,
+      onPositionChange: () => undefined,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+    const grip = shell.toolbar.querySelector<HTMLElement>('[data-annotation-toolbar-grip]')!;
+    // Synthetic pointer events carry no active pointer for the browser to capture.
+    grip.setPointerCapture = () => undefined;
+    const start = center(grip.getBoundingClientRect());
+    const send = (type: string, x: number, y: number) =>
+      grip.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX: x, clientY: y }));
+    send('pointerdown', start.x, start.y);
+    send('pointermove', start.x + 2000, start.y + 2000);
+    send('pointerup', start.x + 2000, start.y + 2000);
+    await nextFrame();
+    const rect = shell.toolbar.getBoundingClientRect();
+    expect(rect.right).toBeLessThanOrEqual(width - 8 + TOLERANCE);
+    expect(rect.bottom).toBeLessThanOrEqual(height - 8 + TOLERANCE);
   });
 });

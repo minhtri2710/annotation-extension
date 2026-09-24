@@ -955,7 +955,7 @@ describe('capture mode hint', () => {
   it('sizes the hint to its text, capped at the viewport width minus an 8px margin per side, and lets it wrap', () => {
     expect(hint()!.style.whiteSpace).not.toBe('nowrap');
     expect(hint()!.style.width).toBe('max-content');
-    expect(hint()!.style.maxWidth).toBe('calc(100vw - 16px)');
+    expect(hint()!.style.maxWidth).toBe('calc(100% - 16px)');
     expect(hint()!.style.textAlign).toBe('center');
   });
 });

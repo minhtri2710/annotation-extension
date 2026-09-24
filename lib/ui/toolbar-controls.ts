@@ -83,7 +83,8 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
 
   const clamp = (next: Position) => {
     const { width, height } = toolbar.getBoundingClientRect();
-    return clampToolbarPosition(next, { width, height }, { width: win.innerWidth, height: win.innerHeight });
+    const { clientWidth, clientHeight } = toolbar.ownerDocument.documentElement;
+    return clampToolbarPosition(next, { width, height }, { width: clientWidth, height: clientHeight });
   };
 
   const place = (next: Position) => {
