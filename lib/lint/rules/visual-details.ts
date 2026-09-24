@@ -1,6 +1,7 @@
 import { hasChroma, isNeutralColor, parseColor } from '../color';
-import { cssColorAlpha, parsePx, roundTo } from '../css';
+import { cssColorAlpha, parsePx, roundTo, splitTopLevelCommas } from '../css';
 import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import { classSelector, styleValue } from '../dom';
 
 const SIDE_TAB_MIN_RECT_WIDTH_PX = 20;
 const SIDE_TAB_MIN_RECT_HEIGHT_PX = 20;
@@ -62,10 +63,6 @@ const BORDER_SAFE_TAGS = new Set([
   'use',
 ]);
 
-function styleValue(ctx: ScanContext, el: Element, property: string, pseudo?: string): string {
-  return ctx.style(el, pseudo).getPropertyValue(property).trim();
-}
-
 function numericStyle(
   ctx: ScanContext,
   el: Element,
@@ -81,12 +78,6 @@ function numericStyle(
 function rectSize(el: Element): { width: number; height: number } {
   const rect = el.getBoundingClientRect();
   return { width: rect.width, height: rect.height };
-}
-
-function classSelector(el: Element): string {
-  const tag = el.tagName.toLowerCase() || 'el';
-  const classes = [...el.classList].filter(Boolean);
-  return classes.length > 0 ? `${tag}.${classes.join('.')}` : tag;
 }
 
 function isTabContext(el: Element): boolean {
@@ -261,23 +252,6 @@ function borderAccentTest(el: Element, ctx: ScanContext): RuleHit[] {
     .map((entry) => entry.hit);
 }
 
-function splitTopLevel(value: string): string[] {
-  const parts: string[] = [];
-  let start = 0;
-  let depth = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index];
-    if (char === '(') depth += 1;
-    else if (char === ')') depth = Math.max(0, depth - 1);
-    else if (char === ',' && depth === 0) {
-      parts.push(value.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-  parts.push(value.slice(start).trim());
-  return parts.filter(Boolean);
-}
-
 function shadowNumbers(layer: string): number[] {
   const withoutColors = layer
     .replace(/(?:rgba?|hsla?|oklch|oklab|hwb|lab|lch)\([^)]*\)/gi, ' ')
@@ -292,7 +266,7 @@ function shadowNumbers(layer: string): number[] {
 function shadowMaxBlur(value: string): number {
   if (!value || value.toLowerCase() === 'none') return 0;
   let maxBlur = 0;
-  for (const layer of splitTopLevel(value)) {
+  for (const layer of splitTopLevelCommas(value)) {
     const colors = [...layer.matchAll(/(?:rgba?|hsla?|oklch|oklab|hwb|lab|lch)\([^)]*\)|#[\da-f]{3,8}/gi)];
     const hasEnoughAlpha = colors.length === 0 || colors.some((match) => cssColorAlpha(match[0]!) >= GPT_SHADOW_MIN_ALPHA);
     if (!hasEnoughAlpha) continue;
@@ -402,7 +376,7 @@ function shadowColor(value: string): ReturnType<typeof parseColor> {
 }
 
 function insetStripeDetail(value: string): { thickness: number; edge: string } | undefined {
-  for (const layer of splitTopLevel(value)) {
+  for (const layer of splitTopLevelCommas(value)) {
     if (!/\binset\b/i.test(layer)) continue;
     const color = shadowColor(layer);
     if (!color || color.a < SIDE_TAB_PSEUDO_MIN_ALPHA || !hasChroma(color, SIDE_TAB_MIN_CHROMA)) continue;

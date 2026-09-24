@@ -1,6 +1,7 @@
 import { parseColor } from '../color';
 import { parsePx } from '../css';
 import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import { classSelector, styleValue } from '../dom';
 
 const EDGE_SCROLL_EXTRA_PX = 8;
 const EDGE_SCROLL_LEFT_MAX_PX = 4;
@@ -101,10 +102,6 @@ const DEMO_IDENTIFIER_RE = /\b(?:demo-area|demo-stage|demo-viewport)\b/i;
 const CAROUSEL_ROLE_RE = /\b(?:carousel|slider)\b/i;
 const INTERACTIVE_SELECTOR = 'a[href],button,input,select,summary,textarea,[tabindex]:not([tabindex="-1"]),[role="button"],[role="dialog"],[role="link"],[role="listbox"],[role="menu"],[role="menuitem"],[role="option"],[role="tooltip"]';
 
-function styleValue(ctx: ScanContext, el: Element, property: string): string {
-  return ctx.style(el).getPropertyValue(property).trim();
-}
-
 function numberValue(value: string, fallback = 0): number {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -112,12 +109,6 @@ function numberValue(value: string, fallback = 0): number {
 
 function roundValue(value: number): number {
   return Math.round(value);
-}
-
-function classSelector(el: Element): string {
-  const tag = el.tagName.toLowerCase() || 'el';
-  const classes = [...el.classList].filter(Boolean);
-  return classes.length > 0 ? `${tag}.${classes.join('.')}` : tag;
 }
 
 function directText(el: Element): string {

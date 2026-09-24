@@ -1,6 +1,7 @@
 import { parseColor } from '../color';
 import { parsePx } from '../css';
 import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import { classSelector, styleValue } from '../dom';
 
 const DOT_MIN_SIZE_PX = 2;
 const DOT_MAX_SIZE_PX = 16;
@@ -85,10 +86,6 @@ interface KeyframeInfo {
   frames: CSSKeyframeRule[];
 }
 
-function styleValue(ctx: ScanContext, el: Element, property: string): string {
-  return ctx.style(el).getPropertyValue(property).trim();
-}
-
 function splitCssList(value: string): string[] {
   return value.split(',').map((part) => part.trim()).filter(Boolean);
 }
@@ -106,12 +103,6 @@ function hasInfiniteAnimation(ctx: ScanContext, el: Element, name: string): bool
     const count = counts[index] ?? counts[counts.length - 1] ?? '';
     return count.toLowerCase() === 'infinite';
   });
-}
-
-function classSelector(el: Element): string {
-  const tag = el.tagName.toLowerCase() || 'el';
-  const classes = [...el.classList].filter(Boolean);
-  return classes.length > 0 ? `${tag}.${classes.join('.')}` : tag;
 }
 
 function readableRules(sheet: CSSStyleSheet): CSSRuleList | undefined {

@@ -25,3 +25,20 @@ export function roundTo(value: number, decimals = 0): number {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
 }
+
+export function splitTopLevelCommas(value: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === '(') depth += 1;
+    else if (char === ')') depth = Math.max(0, depth - 1);
+    else if (char === ',' && depth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start).trim());
+  return parts.filter(Boolean);
+}

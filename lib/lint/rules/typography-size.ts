@@ -1,5 +1,6 @@
 import { parsePx, trackingEm } from '../css';
 import type { ElementRule, Rule, RuleHit, ScanContext } from '../engine';
+import { collapseWhitespace, hasDirectTextLongerThan, tagName } from '../dom';
 
 const TINY_TEXT_FONT_PX = 12;
 const UNDERSIZED_UI_TEXT_FONT_PX = 11;
@@ -155,12 +156,6 @@ function directText(el: Element): string {
     .join('');
 }
 
-function hasDirectTextLongerThan(el: Element, min: number): boolean {
-  return Array.from(el.childNodes)
-    .filter((node) => node.nodeType === Node.TEXT_NODE)
-    .some((node) => (node.textContent ?? '').trim().length > min);
-}
-
 function textLength(el: Element): number {
   return (el.textContent ?? '').trim().length;
 }
@@ -176,20 +171,12 @@ function styleValue(ctx: ScanContext, el: Element, property: string): string {
   return (style as unknown as Record<string, string>)[normalized]?.trim() ?? '';
 }
 
-function collapseWhitespace(value: string): string {
-  return value.trim().replace(/\s+/g, ' ');
-}
-
 function fontSize(ctx: ScanContext, el: Element): number {
   return parsePx(styleValue(ctx, el, 'font-size')) ?? 16;
 }
 
 function resolvedPx(ctx: ScanContext, el: Element, property: string): number | undefined {
   return parsePx(styleValue(ctx, el, property));
-}
-
-function tagName(el: Element): string {
-  return el.tagName.toLowerCase();
 }
 
 function classContains(el: Element, words: string[]): boolean {

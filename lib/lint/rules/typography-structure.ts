@@ -1,6 +1,7 @@
 import { isAccentColor, parseColor } from '../color';
 import { parsePx, trackingEm } from '../css';
 import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import { collapseWhitespace, styleValue, tagName } from '../dom';
 
 const TYPE_HIERARCHY_MIN_ROLES = 3;
 const TYPE_HIERARCHY_MIN_STEP_RATIO = 1.25;
@@ -129,18 +130,6 @@ const BRAND_FONT_DOMAINS: Record<string, string[]> = {
   'geist mono': ['vercel.com', 'nextjs.org', 'v0.app'],
   'mona sans': ['github.com', 'githubnext.com'],
 };
-
-function styleValue(ctx: ScanContext, el: Element, property: string, pseudo?: string): string {
-  return ctx.style(el, pseudo).getPropertyValue(property).trim();
-}
-
-function tagName(el: Element): string {
-  return el.tagName.toLowerCase();
-}
-
-function collapseWhitespace(value: string): string {
-  return value.trim().replace(/\s+/g, ' ');
-}
 
 function directText(el: Element): string {
   return Array.from(el.childNodes)

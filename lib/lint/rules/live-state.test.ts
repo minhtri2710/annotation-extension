@@ -187,7 +187,7 @@ describe('live-state lint rules through the real engine', () => {
     place();
     const several = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'text-occlusion-unchecked');
     expect(several).toHaveLength(1);
-    expect(first(several)).toMatchObject({ severity: 'advisory', advisory: true, category: 'quality', detail: '3 text elements with pointer-events:none were not checked for occlusion' });
+    expect(first(several)).toMatchObject({ severity: 'advisory', category: 'quality', detail: '3 text elements with pointer-events:none were not checked for occlusion' });
     expect(first(several).el).toBeUndefined();
     expect(point).not.toHaveBeenCalled();
   });

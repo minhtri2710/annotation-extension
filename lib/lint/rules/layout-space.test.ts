@@ -473,7 +473,7 @@ describe('layout and space lint rules through the real engine', () => {
     const findings = (await collectFindings(layoutSpaceRules, createScanContext(window), new AbortController().signal))
       .filter((finding) => finding.ruleId === 'line-length');
     expect(findings).toHaveLength(1);
-    expect(first(findings)).toMatchObject({ severity: 'advisory', advisory: true });
+    expect(first(findings)).toMatchObject({ severity: 'advisory' });
   });
 
   it('expands multi-value margin and padding shorthands in inline and <style> spacing', async () => {

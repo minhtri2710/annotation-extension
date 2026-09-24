@@ -317,7 +317,7 @@ describe('visual-details lint rules through the real engine', () => {
   it('reports side-tab at advisory severity', async () => {
     const hits = await ruleFindings('<div class="card"></div>', 'side-tab', '.card { width: 200px; box-shadow: inset 4px 0 0 0 rgb(0, 128, 255); }');
     expect(hits).toHaveLength(1);
-    expect(first(hits)).toMatchObject({ severity: 'advisory', advisory: true });
+    expect(first(hits)).toMatchObject({ severity: 'advisory' });
     expect(visualDetailsRules.find((rule) => rule.id === 'side-tab')).toMatchObject({ severity: 'advisory' });
   });
 });

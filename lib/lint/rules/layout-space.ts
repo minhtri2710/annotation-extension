@@ -1,6 +1,7 @@
 import { parseColor, isAccentColor } from '../color';
 import { cssColorAlpha, parsePx } from '../css';
 import type { Checkpoint, ElementRule, PageHit, PageRule, Rule, RuleHit, ScanContext } from '../engine';
+import { hasDirectTextLongerThan, styleValue } from '../dom';
 
 const MONOTONOUS_MIN_VALUES = 10;
 const MONOTONOUS_DOMINANT_SHARE = 0.6;
@@ -150,10 +151,6 @@ interface NumberedCandidate {
   headingText: string;
   label: Element;
   heading: Element;
-}
-
-function styleValue(ctx: ScanContext, el: Element, property: string): string {
-  return ctx.style(el).getPropertyValue(property).trim();
 }
 
 function finitePx(value: string): number {
@@ -471,12 +468,6 @@ function lineLengthHit(el: Element, ctx: ScanContext): RuleHit[] {
   return [{
     detail: `~${Math.round(chars(longest))} chars on ${long.length} of ${lines.length} rendered lines (aim for <${max})`,
   }];
-}
-
-function hasDirectTextLongerThan(el: Element, minimum: number): boolean {
-  return Array.from(el.childNodes).some((node) => (
-    node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').trim().length > minimum
-  ));
 }
 
 function directTextRect(el: Element): Box | undefined {

@@ -48,7 +48,7 @@ describe('copy lint rules through the real engine', () => {
     setBodyText('a—b—c—d—e—f—g --h i\n\n--j and -- k');
     const findings = await ruleFindings('em-dash-overuse');
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({ detail: '8 em-dashes in body text', severity: 'advisory', advisory: true });
+    expect(findings[0]).toMatchObject({ detail: '8 em-dashes in body text', severity: 'advisory' });
   });
 
   it('does not flag 7 em-dashes, or 8 spread thinner than one per 500 characters', async () => {
@@ -108,7 +108,7 @@ describe('copy lint rules through the real engine', () => {
     setBodyText('This is security\n Theater at best, and compliance theater too.');
     const findings = await ruleFindings('theater-slop-phrase');
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({ detail: '"security Theater"', severity: 'advisory', advisory: true });
+    expect(findings[0]).toMatchObject({ detail: '"security Theater"', severity: 'advisory' });
   });
 
   it('does not flag theater without a preceding word or as a word prefix', async () => {

@@ -8,7 +8,7 @@ import { createScanPanel, deepScanPage, scanPage, type ScanPanelOptions } from '
 function finding(ruleId: string, name: string, severity: Severity, detail: string, el?: Element): Finding {
   return {
     ruleId, name, description: `${name} description`, severity, category: 'quality',
-    advisory: severity === 'advisory', detail, el,
+    detail, el,
   };
 }
 

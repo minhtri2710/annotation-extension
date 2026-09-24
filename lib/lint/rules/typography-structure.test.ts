@@ -182,7 +182,7 @@ describe('typography-structure lint rules through the real engine', () => {
       <p style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase">Features</p>
       <h2 style="font-size: 32px">Everything you need</h2>
     `;
-    expect(await firstRuleFinding('kicker-above-heading')).toMatchObject({ severity: 'advisory', advisory: true });
+    expect(await firstRuleFinding('kicker-above-heading')).toMatchObject({ severity: 'advisory' });
   });
 
   it('weights overused-font by text length, so a Georgia body with Helvetica chrome is not reported', async () => {

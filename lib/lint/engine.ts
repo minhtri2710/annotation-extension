@@ -37,7 +37,6 @@ export interface Finding {
   description: string;
   severity: Severity;
   category: RuleCategory;
-  advisory: boolean;
   el?: Element;
   detail: string;
 }
@@ -129,7 +128,6 @@ function toFinding(rule: Rule, hit: RuleHit, el: Element | undefined): Finding {
     description: rule.description,
     severity,
     category: rule.category,
-    advisory: severity === 'advisory',
     el,
     detail: hit.detail,
   };

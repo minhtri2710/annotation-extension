@@ -82,7 +82,6 @@ describe('imagery lint rules through the real engine', () => {
       expect(findings).toHaveLength(1);
       expect(findings[0]).toMatchObject({
         severity: 'advisory',
-        advisory: true,
         detail: 'inline <svg> scene: 8 primitive shapes, ~400x300px, 3 fill colors',
       });
       expect(findings[0]!.el?.localName).toBe('svg');
