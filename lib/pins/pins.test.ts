@@ -656,6 +656,21 @@ describe('fanOut', () => {
       { x: 100 + 2 * step, y: 200 },
     ]);
   });
+
+  it('clamps a left-fanned group that crosses the left edge at half a pin', () => {
+    const half = 9;
+    const fanned = fanOut(Array.from({ length: 16 }, () => ({ x: 311, y: 60 })), viewport);
+    expect(fanned.map(({ x }) => x)).toEqual([
+      ...Array.from({ length: 14 }, (_, k) => 311 - k * step),
+      half,
+      half,
+    ]);
+    for (const { x, y } of fanned) {
+      expect(x).toBeGreaterThanOrEqual(half);
+      expect(x).toBeLessThanOrEqual(viewport.width - half);
+      expect(y).toBe(60);
+    }
+  });
 });
 
 describe('pin tooltip dismissal', () => {
