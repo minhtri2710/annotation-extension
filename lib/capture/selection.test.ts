@@ -951,6 +951,13 @@ describe('capture mode hint', () => {
     controller.destroy();
     expect(hint()).toBeNull();
   });
+
+  it('sizes the hint to its text, capped at the viewport width minus an 8px margin per side, and lets it wrap', () => {
+    expect(hint()!.style.whiteSpace).not.toBe('nowrap');
+    expect(hint()!.style.width).toBe('max-content');
+    expect(hint()!.style.maxWidth).toBe('calc(100vw - 16px)');
+    expect(hint()!.style.textAlign).toBe('center');
+  });
 });
 
 describe('crosshair cursor', () => {

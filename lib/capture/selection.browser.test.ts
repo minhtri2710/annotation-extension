@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { page } from 'vitest/browser';
 import type { ElementContext } from './context';
 import { createCaptureController, type CaptureController, type CaptureEvents } from './selection';
 import { createEventBus } from '../ui/event-bus';
@@ -143,6 +144,40 @@ describe('capture mode feedback (real browser)', () => {
 
     controller.deactivate();
     expect(getComputedStyle(document.body).cursor).not.toBe('crosshair');
+  });
+
+  async function atViewport(width: number, height: number, check: (hint: HTMLElement) => void) {
+    const prior = { width: window.innerWidth, height: window.innerHeight };
+    try {
+      await page.viewport(width, height);
+      document.body.append(host);
+      controller.activate();
+      check(host.shadowRoot!.querySelector<HTMLElement>('[data-annotation-capture-hint]')!);
+    } finally {
+      await page.viewport(prior.width, prior.height);
+    }
+  }
+
+  it('wraps the key hint inside a 400px viewport, centered with an 8px margin and no clipped text', async () => {
+    await atViewport(400, 600, (hint) => {
+      const rect = hint.getBoundingClientRect();
+      expect(window.innerWidth).toBe(400);
+      expect(rect.left).toBeGreaterThanOrEqual(8);
+      expect(rect.right).toBeLessThanOrEqual(window.innerWidth - 8);
+      expect(rect.width).toBeCloseTo(window.innerWidth - 16, 0);
+      expect(Math.abs(rect.left + rect.width / 2 - window.innerWidth / 2)).toBeLessThanOrEqual(1);
+      expect(rect.height).toBeGreaterThan(24);
+      expect(hint.scrollWidth).toBeLessThanOrEqual(hint.clientWidth);
+    });
+  });
+
+  it('keeps the key hint on one centered line in a 1280px viewport', async () => {
+    await atViewport(1280, 720, (hint) => {
+      const rect = hint.getBoundingClientRect();
+      expect(window.innerWidth).toBe(1280);
+      expect(rect.height).toBe(24);
+      expect(Math.abs(rect.left + rect.width / 2 - window.innerWidth / 2)).toBeLessThanOrEqual(1);
+    });
   });
 });
 

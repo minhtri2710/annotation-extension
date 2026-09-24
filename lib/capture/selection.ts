@@ -64,7 +64,9 @@ const HINT_STYLE = [
   'background: #2f6fed',
   'color: #fff',
   'font: 12px/24px ui-monospace, monospace',
-  'white-space: nowrap',
+  'width: max-content',
+  'max-width: calc(100vw - 16px)',
+  'text-align: center',
 ].join(';');
 const CURSOR_ATTRIBUTE = 'data-annotation-capture-cursor';
 const CURSOR_CSS = 'html, html * { cursor: crosshair !important; }';
