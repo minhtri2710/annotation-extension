@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { errorMessage, isRecord } from '../guards';
+import { base64ToBlob, blobToBase64 } from '../base64';
 import { deleteAnnotation, restoreAnnotation } from '../annotation-storage';
 import {
   ID_PATTERN,
@@ -278,14 +279,12 @@ async function parseImage(value: unknown, label: 'screenshot' | 'attachment', fa
     return fail(`has an invalid ${label}`);
   }
   if (!isSupportedImageMimeType(value.mimeType)) fail(`has an unsupported ${label} type (${value.mimeType})`);
-  let binary = '';
+  let blob: Blob;
   try {
-    binary = atob(value.base64);
+    blob = base64ToBlob(value.base64, value.mimeType);
   } catch {
     fail(`has ${label} data that is not valid base64`);
   }
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  const blob = new Blob([bytes], { type: value.mimeType });
   try {
     await validateImageBlob(blob, value.mimeType);
   } catch (error) {
@@ -341,13 +340,6 @@ function lowerFirst(value: string): string {
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
 }
 
 const imageDimensions: ImageDimensions = async (blob) => {

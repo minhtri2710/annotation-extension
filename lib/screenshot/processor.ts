@@ -1,5 +1,6 @@
 import type { BoundingBox } from '../capture/context';
 import { computeCropRect } from './crop';
+import { base64ToBlob } from '../base64';
 
 export interface ProcessedScreenshot {
   blob: Blob;
@@ -51,8 +52,6 @@ function dataUrlToBlob(dataUrl: string): Blob {
     throw new Error('Screenshot capture is not a base64 data URL');
   }
 
-  const binary = atob(base64);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   const mimeType = header.slice('data:'.length, header.indexOf(';')) || 'image/png';
-  return new Blob([bytes], { type: mimeType });
+  return base64ToBlob(base64, mimeType);
 }

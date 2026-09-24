@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { errorMessage } from '../guards';
+import { base64ToBlob, blobToBase64 } from '../base64';
 import {
   addAnnotation,
   addAttachment,
@@ -175,7 +176,12 @@ async function addAttachmentMessage(
   message: AttachmentAddMessage,
   blobStore: BlobStore,
 ) {
-  const blob = base64ToBlob(message.base64, message.mimeType);
+  let blob: Blob;
+  try {
+    blob = base64ToBlob(message.base64, message.mimeType);
+  } catch {
+    throw new Error('Image base64 data is invalid.');
+  }
   const metadata = {
     id: crypto.randomUUID(),
     name: validateAttachmentName(message.name),
@@ -196,22 +202,4 @@ async function readBlob(
 
 function cleanupFailure(error: unknown, cleanupError: unknown): Error {
   return new Error(`${errorMessage(error)}; cleanup failed: ${errorMessage(cleanupError)}`);
-}
-
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  let binary: string;
-  try {
-    binary = atob(base64);
-  } catch {
-    throw new Error('Image base64 data is invalid.');
-  }
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  return new Blob([bytes], { type: mimeType });
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
 }

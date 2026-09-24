@@ -1,5 +1,6 @@
 import type { Annotation, CssDeclaration } from '../annotation';
 import { errorMessage } from '../guards';
+import { blobToBase64 } from '../base64';
 import { annotationWriteError, MAX_TEXT_LENGTH, type AnnotationWriteMessage } from '../annotation-messages';
 import {
   imageTypeOf,
@@ -255,7 +256,7 @@ export function createNotePanel(
       if (!mimeType) throw new Error(`${file.name} is not a PNG, JPEG or WebP image.`);
       await validateImageBlob(file, mimeType);
       const name = normalizeAttachmentName(file.name, mimeType);
-      const base64 = await fileToBase64(file);
+      const base64 = await blobToBase64(file);
       await persistence.addAttachment({
         pageUrl: context.url,
         annotationId: annotation.id,
@@ -630,11 +631,4 @@ function parseCssDeclarations(value: string): CssDeclaration[] {
     const editValue = line.slice(separator + 1).trim();
     return property && editValue ? [{ property, value: editValue }] : [];
   });
-}
-
-async function fileToBase64(file: Blob): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
 }
