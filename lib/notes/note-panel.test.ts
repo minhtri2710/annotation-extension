@@ -1256,6 +1256,34 @@ describe('note panel drafts', () => {
     expect(panel.querySelector('[data-annotation-status]')).toBeNull();
   });
 
+  it('keeps the edit draft when a save finds the note deleted elsewhere', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(null);
+    const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], { sendAnnotationWrite });
+    type(editNote(panel), 'Existing, edited');
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(editNote(panel).value).toBe('Existing, edited');
+  });
+
+  it('drops the edit draft once the note is deleted', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(true);
+    const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], { sendAnnotationWrite });
+    type(editNote(panel), 'Existing, edited');
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.delete', id: 'annotation-1', pageUrl });
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(editNote(panel).value).toBe('Existing');
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).not.toBe('Draft restored.');
+  });
+
   it('keys a new-note draft by element: another element opens with an empty field', async () => {
     const panel = document.createElement('div');
     const { notePanel } = await render(panel);

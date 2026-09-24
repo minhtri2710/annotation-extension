@@ -402,6 +402,50 @@ describe('live-state lint rules through the real engine', () => {
     expect(await occlusion()).toHaveLength(0);
   });
 
+  it('skips clip: rect(0, 0, 0, 0) screen-reader-only text for text-occlusion', async () => {
+    const headline = document.createElement('div');
+    headline.className = 'clipped';
+    headline.textContent = 'Readable headline';
+    const cover = document.createElement('div');
+    cover.className = 'cover';
+    cover.setAttribute('style', 'background: rgb(255, 255, 255)');
+    document.body.append(headline, cover);
+    stubRect(headline, { left: 100, top: 100, width: 240, height: 28 });
+    stubRect(cover, { left: 100, top: 100, width: 240, height: 28 });
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: (): Element[] => [cover, headline] });
+    const occlusion = async () => (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
+      (finding) => finding.ruleId === 'text-occlusion',
+    );
+    const positive = await occlusion();
+    expect(positive).toHaveLength(1);
+    expect(first(positive)).toMatchObject({
+      ruleId: 'text-occlusion',
+      detail: 'div.clipped "Readable headline" is 100% covered by an opaque element (div.cover)',
+    });
+
+    headline.setAttribute('style', 'position: absolute; clip: rect(0, 0, 0, 0)');
+    expect(await occlusion()).toHaveLength(0);
+  });
+
+  it('skips tiny absolute overflow-hidden screen-reader-only text for text-overflow', async () => {
+    const label = document.createElement('div');
+    label.className = 'tiny';
+    label.textContent = 'A long direct text run';
+    document.body.append(label);
+    stubRect(label, { left: 0, top: 0, width: 1, height: 1 });
+    stubMetric(label, 'clientWidth', 1);
+    stubMetric(label, 'scrollWidth', 17);
+    const overflow = async () => (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
+      (finding) => finding.ruleId === 'text-overflow',
+    );
+    const positive = await overflow();
+    expect(positive).toHaveLength(1);
+    expect(first(positive)).toMatchObject({ ruleId: 'text-overflow', detail: 'div.tiny overflows its box by 16px' });
+
+    label.setAttribute('style', 'position: absolute; overflow: hidden; width: 1px; height: 1px');
+    expect(await overflow()).toHaveLength(0);
+  });
+
   it('does not count screen-reader-only pointer-events:none text as unchecked for occlusion', async () => {
     const labels = ['one', 'two'].map((name, i) => {
       const label = document.createElement('div');

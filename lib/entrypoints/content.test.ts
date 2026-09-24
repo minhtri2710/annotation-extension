@@ -399,6 +399,9 @@ describe('content script entrypoint', () => {
 
     expect(panel().getAttribute('aria-label')).toBe('Page scan');
     expect(button('Scan').getAttribute('aria-expanded')).toBe('true');
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-status]')?.textContent).toBe('Deep scan cancelled'));
+    expect(panel().querySelector('[data-annotation-deep-scan]')).not.toBeNull();
+    expect(panel().querySelector('[data-annotation-deep-scan-cancel]')).toBeNull();
   });
 
   it('moving the toolbar keeps an open note panel anchored to its element', async () => {
