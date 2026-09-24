@@ -354,4 +354,80 @@ describe('content script entrypoint', () => {
 
     expect(captureState.map(({ unsubscribe }) => unsubscribe.mock.calls)).toEqual([[[]]]);
   });
+
+  it('View all after a route change lists the annotations of the new URL', async () => {
+    const firstUrl = location.href;
+    const nextUrl = new URL('/fx4-next-route', firstUrl).href;
+    await addAnnotation(nextUrl, {
+      note: 'Next route note',
+      selector: '#missing',
+      elementContext: {
+        selector: '#missing',
+        tagName: 'div',
+        id: 'missing',
+        classList: [],
+        text: '',
+        boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+        url: nextUrl,
+        viewport: { width: 800, height: 600 },
+        sourcePath: null,
+      },
+    });
+    await start();
+
+    history.pushState(null, '', nextUrl);
+    try {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      button('View all').click();
+
+      await vi.waitFor(() => expect(panel().querySelector('[data-annotation-row-edit]')).not.toBeNull());
+      expect(panel().textContent).toContain('Next route note');
+    } finally {
+      history.pushState(null, '', firstUrl);
+    }
+  });
+
+  it('Escape inside the scan panel during a deep scan cancels the scan and keeps the panel open', async () => {
+    await start();
+    button('Scan').click();
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-deep-scan]')).not.toBeNull());
+    panel().querySelector<HTMLButtonElement>('[data-annotation-deep-scan]')!.click();
+    const cancel = panel().querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]');
+    expect(cancel).not.toBeNull();
+
+    cancel!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+
+    expect(panel().getAttribute('aria-label')).toBe('Page scan');
+    expect(button('Scan').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('moving the toolbar keeps an open note panel anchored to its element', async () => {
+    await addAnnotation(location.href, {
+      note: 'Anchored note',
+      selector: '#missing',
+      elementContext: {
+        selector: '#missing',
+        tagName: 'div',
+        id: 'missing',
+        classList: [],
+        text: '',
+        boundingBox: { x: 300, y: 200, width: 10, height: 10 },
+        url: location.href,
+        viewport: { width: 800, height: 600 },
+        sourcePath: null,
+      },
+    });
+    await start();
+    button('View all').click();
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-row-edit]')).not.toBeNull());
+    panel().querySelector<HTMLButtonElement>('[data-annotation-row-edit]')!.click();
+    await vi.waitFor(() => expect(panel().style.top).not.toBe(''));
+    expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+    const anchored = { top: panel().style.top, left: panel().style.left };
+    expect(anchored).toEqual({ top: '192px', left: '10px' });
+
+    button('⠿').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+    expect({ top: panel().style.top, left: panel().style.left }).toEqual(anchored);
+  });
 });
