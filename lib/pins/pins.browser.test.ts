@@ -223,6 +223,29 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     });
   }
 
+  for (const [name, css] of [
+    ['away from the edges', 'left: 200px; top: 200px'],
+    ['at the right edge', 'right: 0; top: 200px; width: 20px'],
+  ] as const) {
+    it(`fans three pins on one element ${name} apart, none overlapping and each inside the viewport`, () => {
+      const { shell } = mountShell();
+      placeTarget(css);
+      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      controller.setAnnotations([0, 1, 2].map((index) => annotation(index, '#edge-target')));
+      controller.reanchor();
+
+      const pins = Array.from(shell.root.querySelectorAll<HTMLElement>('.annotation-pin'), (marker) => marker.getBoundingClientRect());
+      expect(pins).toHaveLength(3);
+      for (const pin of pins) expectInside(pin);
+      for (const [i, a] of pins.entries()) {
+        for (const b of pins.slice(i + 1)) {
+          const overlaps = a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+          expect(overlaps, `${JSON.stringify(a)} overlaps ${JSON.stringify(b)}`).toBe(false);
+        }
+      }
+    });
+  }
+
   it('leaves the pin of an element outside the viewport off-screen', () => {
     const { shell } = mountShell();
     placeTarget('left: -500px; top: 100px');

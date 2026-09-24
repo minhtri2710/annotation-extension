@@ -6,6 +6,7 @@ import type { ElementContext } from '../capture/context';
 import { buildSelector } from '../capture/selector';
 import {
   createPinsController as createController,
+  fanOut,
   type PinsController,
   type PinsControllerOptions,
   pinCenter,
@@ -230,6 +231,26 @@ describe('pins controller', () => {
     expect(marker.style.width).toBe('18px');
     expect(marker.style.height).toBe('18px');
     controller.destroy();
+  });
+
+  it('fans two pins on the same element apart by one step in list order, and keeps it after a rect change', () => {
+    const { toolbar, overlay, target } = setup();
+    const rect = (left: number, top: number) => ({
+      x: left, y: top, left, top, right: left + 56, bottom: top + 78, width: 56, height: 78, toJSON: () => ({}),
+    });
+    // happy-dom lays nothing out, so its viewport reads 0 x 0.
+    vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1280);
+    vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(720);
+    const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rect(12, 34));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1'), annotation('annotation-2')]);
+    const left = (id: string) => (overlay.querySelector(`[data-annotation-id="${id}"]`) as HTMLElement).style.left;
+
+    expect([left('annotation-1'), left('annotation-2')]).toEqual(['12px', '34px']);
+
+    getBoundingClientRect.mockReturnValue(rect(100, 50));
+    controller.reanchor();
+    expect([left('annotation-1'), left('annotation-2')]).toEqual(['100px', '122px']);
   });
 
   it('positions a pin for a shadow-deep annotation from the deep element rect', () => {
@@ -579,6 +600,61 @@ describe('pin and tooltip placement', () => {
     expect(placeTooltip({ left: 280, top: 40, right: 298 }, size, viewport)).toEqual({ left: 72, top: 40 });
     expect(placeTooltip({ left: 150, top: 460, right: 168 }, size, viewport)).toEqual({ left: 8, top: 412 });
     expect(placeTooltip({ left: 20, top: -5, right: 38 }, { width: 400, height: 60 }, viewport)).toEqual({ left: 8, top: 8 });
+  });
+});
+
+describe('fanOut', () => {
+  const viewport = { width: 320, height: 480 };
+  const step = 22;
+
+  it('returns a single pin and pins with distinct centres unchanged', () => {
+    expect(fanOut([{ x: 40, y: 60 }], viewport)).toEqual([{ x: 40, y: 60 }]);
+    const distinct = [{ x: 40, y: 60 }, { x: 41, y: 60 }, { x: 40, y: 61 }];
+    expect(fanOut(distinct, viewport)).toEqual(distinct);
+  });
+
+  it('fans identical centres right by step and twice the step in list order', () => {
+    expect(fanOut([{ x: 40, y: 60 }, { x: 40, y: 60 }, { x: 40, y: 60 }], viewport)).toEqual([
+      { x: 40, y: 60 },
+      { x: 40 + step, y: 60 },
+      { x: 40 + 2 * step, y: 60 },
+    ]);
+  });
+
+  it('fans an identical group left when its last pin would cross the right edge', () => {
+    expect(fanOut([{ x: 300, y: 60 }, { x: 300, y: 60 }, { x: 300, y: 60 }], viewport)).toEqual([
+      { x: 300, y: 60 },
+      { x: 300 - step, y: 60 },
+      { x: 300 - 2 * step, y: 60 },
+    ]);
+  });
+
+  it('doubles the step under zoom 2', () => {
+    expect(fanOut([{ x: 40, y: 60 }, { x: 40, y: 60 }], viewport, 2)).toEqual([
+      { x: 40, y: 60 },
+      { x: 40 + 2 * step, y: 60 },
+    ]);
+  });
+
+  it('leaves an off-screen centre unchanged', () => {
+    expect(fanOut([{ x: -500, y: 100 }, { x: -500, y: 100 }, { x: 40, y: 900 }, { x: 40, y: 900 }], viewport)).toEqual([
+      { x: -500, y: 100 },
+      { x: -500, y: 100 },
+      { x: 40, y: 900 },
+      { x: 40, y: 900 },
+    ]);
+  });
+
+  it('fans two separate groups independently', () => {
+    const a = { x: 40, y: 60 };
+    const b = { x: 100, y: 200 };
+    expect(fanOut([a, b, a, b, b], viewport)).toEqual([
+      a,
+      b,
+      { x: 40 + step, y: 60 },
+      { x: 100 + step, y: 200 },
+      { x: 100 + 2 * step, y: 200 },
+    ]);
   });
 });
 

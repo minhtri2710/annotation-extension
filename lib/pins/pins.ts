@@ -35,6 +35,7 @@ const PIN_CLASS = 'annotation-pin';
 const PULSE_CLASS = 'locate-pulse';
 const NOTE_PREVIEW_LENGTH = 120;
 const PIN_SIZE = 18;
+const FAN_GAP = 4;
 const TOOLTIP_GAP = 8;
 const TOOLTIP_MARGIN = 8;
 export const RERESOLVE_DEBOUNCE_MS = 250;
@@ -76,6 +77,35 @@ export function pinCenter(
   if (!intersects) return { x: rect.left, y: rect.top };
   const half = (PIN_SIZE * zoom) / 2;
   return { x: clamp(rect.left, half, viewport.width - half), y: clamp(rect.top, half, viewport.height - half) };
+}
+
+// Pins sharing an exact centre fan out along x in list order: the first keeps its centre, the k-th later
+// one moves k * (PIN_SIZE + FAN_GAP) * zoom right, or left for the whole group when its last pin would
+// cross the right edge. A centre outside the viewport (an off-screen element) stays where it is.
+export function fanOut(
+  centers: { x: number; y: number }[],
+  viewport: Viewport,
+  zoom = 1,
+): { x: number; y: number }[] {
+  const half = (PIN_SIZE * zoom) / 2;
+  const step = (PIN_SIZE + FAN_GAP) * zoom;
+  const onScreen = ({ x, y }: { x: number; y: number }) => x >= 0 && y >= 0 && x < viewport.width && y < viewport.height;
+  const groups = new Map<string, { size: number; next: number }>();
+  for (const center of centers) {
+    if (!onScreen(center)) continue;
+    const key = `${center.x},${center.y}`;
+    const group = groups.get(key);
+    if (group) group.size++;
+    else groups.set(key, { size: 1, next: 0 });
+  }
+  return centers.map((center) => {
+    if (!onScreen(center)) return center;
+    const group = groups.get(`${center.x},${center.y}`)!;
+    const k = group.next++;
+    const last = center.x + (group.size - 1) * step;
+    const direction = last > viewport.width - half ? -1 : 1;
+    return { x: clamp(center.x + direction * k * step, half, viewport.width - half), y: center.y };
+  });
 }
 
 // Right of the pin, or left of it when the right side has no room, then clamped into the viewport.
@@ -123,16 +153,18 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   const reanchor = () => {
     if (destroyed) return;
 
+    const visible: TrackedPin[] = [];
     for (const pin of trackedPins) {
-      if (!pin.element.isConnected) {
-        pin.marker.hidden = true;
-        continue;
-      }
-
-      pin.marker.hidden = false;
-      const { x, y } = pinCenter(pin.element.getBoundingClientRect(), viewport(), cssZoom(pin.marker));
-      placeFixed(pin.marker, { left: x, top: y });
+      pin.marker.hidden = !pin.element.isConnected;
+      if (!pin.marker.hidden) visible.push(pin);
     }
+    if (visible.length === 0) return;
+
+    // Every marker lives in the same container, so they share one zoom.
+    const zoom = cssZoom(visible[0]!.marker);
+    const size = viewport();
+    const centers = visible.map((pin) => pinCenter(pin.element.getBoundingClientRect(), size, zoom));
+    fanOut(centers, size, zoom).forEach(({ x, y }, i) => placeFixed(visible[i]!.marker, { left: x, top: y }));
   };
 
   const scheduleReanchor = () => {
