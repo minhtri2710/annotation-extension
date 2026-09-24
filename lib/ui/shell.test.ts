@@ -2,7 +2,14 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OVERLAY_STYLES } from './styles';
-import { buildOverlayShell, clampToolbarPosition, createPanelAnchor, keepPanelFocus, positionPopover } from './shell';
+import {
+  buildOverlayShell,
+  clampToolbarPosition,
+  createLiveRegion,
+  createPanelAnchor,
+  keepPanelFocus,
+  positionPopover,
+} from './shell';
 
 describe('overlay shell', () => {
   it('builds the themed toolbar and panel mounts with the injected stylesheet', () => {
@@ -262,5 +269,33 @@ describe('panel anchor', () => {
     control.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     await frame();
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createLiveRegion', () => {
+  it('builds a status paragraph marked as the annotation live region', () => {
+    const { element } = createLiveRegion(document);
+
+    expect(element.localName).toBe('p');
+    expect(element.getAttribute('role')).toBe('status');
+    expect(element.hasAttribute('data-annotation-live')).toBe(true);
+  });
+
+  it('writes the announced text', () => {
+    const live = createLiveRegion(document);
+
+    live.announce('Saved.');
+
+    expect(live.element.textContent).toBe('Saved.');
+  });
+
+  it('does not rewrite the region when the same text is announced again', () => {
+    const live = createLiveRegion(document);
+    live.announce('Saved.');
+    const node = live.element.firstChild;
+
+    live.announce('Saved.');
+
+    expect(live.element.firstChild).toBe(node);
   });
 });

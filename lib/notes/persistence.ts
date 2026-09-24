@@ -5,7 +5,7 @@ import { sendScreenshotCapture, sendBlobRead } from '../screenshot/messages';
 import type { AttachmentMetadata } from '../annotation';
 import { sendAttachmentAdd, sendAttachmentDelete } from '../attachments/messages';
 import type { ElementContext } from '../capture/context';
-import { resolveSelector } from '../capture/selector';
+import { resolveElementBox, resolveSelector } from '../capture/selector';
 
 export interface NotePanelPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
@@ -23,14 +23,13 @@ async function captureScreenshot(
   annotation: Annotation,
   context: ElementContext,
 ): Promise<Annotation['screenshot'] | undefined> {
-  const element = resolveSelector(document, annotation.selector);
-  if (!element) return undefined;
+  const rect = resolveElementBox(document, annotation.selector);
+  if (!rect) return undefined;
 
-  const rect = element.getBoundingClientRect();
   return sendScreenshotCapture({
     pageUrl: context.url,
     annotationId: annotation.id,
-    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    rect,
     devicePixelRatio: window.devicePixelRatio,
   });
 }

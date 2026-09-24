@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Annotation } from '../annotation';
-import { attachmentAssetFilename, format, formatAllPages, screenshotAssetFilename } from './format';
+import { annotationAssets, attachmentAssetFilename, format, formatAllPages, screenshotAssetFilename } from './format';
 
 const pageUrl = 'https://example.com/article';
 
@@ -312,5 +312,25 @@ describe('Markdown export keeps user text inside its block', () => {
   it('uses a fence longer than any backtick run in the content', () => {
     const markdown = format([annotation({ cssEdits: [{ property: 'content', value: '"``````"', original: 'none' }] })], pageUrl);
     expect(markdown).toContain('### CSS tweaks\n```````\ncontent: none -> "``````"\n```````');
+  });
+});
+
+describe('annotationAssets', () => {
+  it('lists the screenshot first, then the attachments in index order', () => {
+    expect(annotationAssets(annotation({
+      screenshot: { mimeType: 'image/webp', width: 10, height: 10, byteLength: 1 },
+      attachments: [
+        { id: 'first', name: 'a.png', mimeType: 'image/png', byteLength: 1 },
+        { id: 'second', name: 'b.jpeg', mimeType: 'image/jpeg', byteLength: 1 },
+      ],
+    }))).toEqual([
+      { key: 'screenshot:annotation-1', filename: 'annotations-annotation-1.webp' },
+      { key: 'attachment:first', filename: 'annotations-annotation-1-attachment-1.png' },
+      { key: 'attachment:second', filename: 'annotations-annotation-1-attachment-2.jpeg' },
+    ]);
+  });
+
+  it('returns no assets for an annotation without a screenshot or attachments', () => {
+    expect(annotationAssets(annotation())).toEqual([]);
   });
 });

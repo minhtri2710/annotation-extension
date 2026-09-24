@@ -1,5 +1,6 @@
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
+import { attachmentKey, screenshotKey } from '../blob-store';
 
 export function imageAssetExtension(mimeType: string): string {
   return mimeType === 'image/webp' ? 'webp' : mimeType === 'image/jpeg' ? 'jpeg' : 'png';
@@ -11,6 +12,17 @@ export function screenshotAssetFilename(annotationId: string, mimeType: string):
 
 export function attachmentAssetFilename(annotationId: string, index: number, mimeType: string): string {
   return `annotations-${annotationId}-attachment-${index + 1}.${imageAssetExtension(mimeType)}`;
+}
+
+// The blob key and export filename of each image: the screenshot first, then attachments in index order.
+export function annotationAssets(annotation: Annotation): { key: string; filename: string }[] {
+  const assets = annotation.screenshot
+    ? [{ key: screenshotKey(annotation.id), filename: screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType) }]
+    : [];
+  for (const [index, attachment] of (annotation.attachments ?? []).entries()) {
+    assets.push({ key: attachmentKey(attachment.id), filename: attachmentAssetFilename(annotation.id, index, attachment.mimeType) });
+  }
+  return assets;
 }
 
 export function format(annotations: Annotation[], pageUrl: string): string {

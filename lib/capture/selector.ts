@@ -104,3 +104,13 @@ function escapeCssIdentifier(value: string): string {
   }
   return escaped;
 }
+
+export function resolveElementBox(
+  document: Document,
+  selector: string,
+): { x: number; y: number; width: number; height: number } | undefined {
+  const element = resolveSelector(document, selector);
+  if (!element) return undefined;
+  const { x, y, width, height } = element.getBoundingClientRect();
+  return { x, y, width, height };
+}

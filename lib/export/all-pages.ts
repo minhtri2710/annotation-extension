@@ -1,8 +1,7 @@
 import type { Annotation } from '../annotation';
-import { attachmentKey, screenshotKey } from '../blob-store';
 import { errorMessage } from '../guards';
 import { clipboardFailure, type AnnotationExportDelivery } from './delivery';
-import { attachmentAssetFilename, formatAllPages, screenshotAssetFilename } from './format';
+import { annotationAssets, formatAllPages } from './format';
 
 export interface AllPagesExportDependencies {
   collect(): Promise<Annotation[]>;
@@ -32,15 +31,7 @@ export async function exportAllPages({ collect, readBlob, delivery }: AllPagesEx
       exported += 1;
     };
     for (const annotation of annotations) {
-      if (annotation.screenshot) {
-        await deliverAsset(screenshotKey(annotation.id), screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType));
-      }
-      for (const [attachmentIndex, attachment] of (annotation.attachments ?? []).entries()) {
-        await deliverAsset(
-          attachmentKey(attachment.id),
-          attachmentAssetFilename(annotation.id, attachmentIndex, attachment.mimeType),
-        );
-      }
+      for (const { key, filename } of annotationAssets(annotation)) await deliverAsset(key, filename);
     }
 
     const summary = `Exported ${plural(annotations.length, 'annotation')} and ${plural(exported, 'asset')}`;

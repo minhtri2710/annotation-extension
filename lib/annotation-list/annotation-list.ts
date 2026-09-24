@@ -1,11 +1,6 @@
 import type { Annotation } from '../annotation';
 import { errorMessage } from '../guards';
-import {
-  attachmentAssetFilename,
-  format,
-  formatElementContext,
-  screenshotAssetFilename,
-} from '../export/format';
+import { annotationAssets, format, formatElementContext } from '../export/format';
 import {
   productionExportDelivery,
   type AnnotationExportDelivery,
@@ -13,11 +8,10 @@ import {
 import { listAnnotations } from '../annotation-storage';
 import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 import { sendBlobRead } from '../screenshot/messages';
-import { attachmentKey, screenshotKey } from '../blob-store';
 import { readOnboardingOpen, writeOnboardingOpen } from '../ui/ui-prefs';
 import { resolveSelector } from '../capture/selector';
 import { createLocateHighlight } from '../ui/locate-highlight';
-import { createInlineConfirm, keepPanelFocus } from '../ui/shell';
+import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/shell';
 
 export interface AnnotationListPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
@@ -65,13 +59,7 @@ export function createAnnotationList(
   let clearVersion = 0;
   let statusMessage: string | undefined;
   const highlight = createLocateHighlight();
-  const live = panel.ownerDocument.createElement('p');
-  live.dataset.annotationLive = '';
-  live.setAttribute('role', 'status');
-
-  function announce(text: string): void {
-    if (live.textContent !== text) live.textContent = text;
-  }
+  const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
   async function render(): Promise<void> {
     const version = ++renderVersion;
@@ -196,20 +184,8 @@ export function createAnnotationList(
         try {
           delivery.download(markdown(), 'annotations.md');
           for (const annotation of annotations) {
-            if (annotation.screenshot) {
-              const blob = await persistence.readBlob(screenshotKey(annotation.id));
-              delivery.downloadAsset(
-                blob,
-                screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType),
-              );
-              images += 1;
-            }
-            for (const [attachmentIndex, attachment] of (annotation.attachments ?? []).entries()) {
-              const attachmentBlob = await persistence.readBlob(attachmentKey(attachment.id));
-              delivery.downloadAsset(
-                attachmentBlob,
-                attachmentAssetFilename(annotation.id, attachmentIndex, attachment.mimeType),
-              );
+            for (const { key, filename } of annotationAssets(annotation)) {
+              delivery.downloadAsset(await persistence.readBlob(key), filename);
               images += 1;
             }
           }

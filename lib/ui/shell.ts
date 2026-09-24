@@ -146,6 +146,19 @@ export function buildOverlayShell(
   return { root, toolbar, panel };
 }
 
+// A polite status region; announce writes only when the text changes, so a re-render does not re-announce.
+export function createLiveRegion(document: Document): { element: HTMLParagraphElement; announce(text: string): void } {
+  const element = document.createElement('p');
+  element.dataset.annotationLive = '';
+  element.setAttribute('role', 'status');
+  return {
+    element,
+    announce(text) {
+      if (element.textContent !== text) element.textContent = text;
+    },
+  };
+}
+
 export interface InlineConfirmOptions {
   trigger: HTMLButtonElement;
   question: string;

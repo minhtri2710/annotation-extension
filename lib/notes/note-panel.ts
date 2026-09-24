@@ -13,7 +13,7 @@ import { attachmentKey, screenshotKey } from '../blob-store';
 import type { ElementContext } from '../capture/context';
 import { formatElementContext } from '../export/format';
 import { createNotePanelPersistence, type NotePanelPersistence } from './persistence';
-import { createInlineConfirm, keepPanelFocus } from '../ui/shell';
+import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/shell';
 import { ScreenshotCaptureError } from '../screenshot/messages';
 
 export interface NotePanel {
@@ -50,13 +50,7 @@ export function createNotePanel(
   let restoredDraft = false;
   // CSS and repro groups the user left open or closed against their content default, kept in memory by annotation id and group.
   const groupStates = new Map<string, boolean>();
-  const live = panel.ownerDocument.createElement('p');
-  live.dataset.annotationLive = '';
-  live.setAttribute('role', 'status');
-
-  function announce(text: string): void {
-    if (live.textContent !== text) live.textContent = text;
-  }
+  const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
   // Opening moves focus into the panel: the first note of the element, else the new-note field.
   async function render(context: ElementContext): Promise<void> {

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from 'vitest';
-import { buildSelector, resolveSelector, SHADOW_SELECTOR_DELIMITER, isShadowRoot } from './selector';
+import { describe, expect, it, vi } from 'vitest';
+import { buildSelector, resolveElementBox, resolveSelector, SHADOW_SELECTOR_DELIMITER, isShadowRoot } from './selector';
 
 describe('buildSelector', () => {
   it('uses a unique id as the selector', () => {
@@ -178,5 +178,22 @@ describe('isShadowRoot', () => {
     expect(isShadowRoot(document)).toBe(false);
     expect(isShadowRoot(document.createDocumentFragment())).toBe(false);
     expect(isShadowRoot(document.createElement('div'))).toBe(false);
+  });
+});
+
+describe('resolveElementBox', () => {
+  it('returns the bounding box of the resolved element', () => {
+    const target = document.createElement('button');
+    target.id = 'target';
+    document.body.replaceChildren(target);
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(new DOMRect(1, 2, 30, 40));
+
+    expect(resolveElementBox(document, '#target')).toEqual({ x: 1, y: 2, width: 30, height: 40 });
+  });
+
+  it('returns undefined when the selector matches nothing', () => {
+    document.body.replaceChildren();
+
+    expect(resolveElementBox(document, '#missing')).toBeUndefined();
   });
 });

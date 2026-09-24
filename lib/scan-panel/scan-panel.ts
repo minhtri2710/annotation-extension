@@ -3,6 +3,7 @@ import { ALL_RULES, DEEP_SCAN_RULES } from '../lint/rules';
 import { revealSweep } from './reveal-sweep';
 import { errorMessage } from '../guards';
 import { createLocateHighlight } from '../ui/locate-highlight';
+import { createLiveRegion } from '../ui/shell';
 
 export interface ScanPanelOptions {
   scan: (signal: AbortSignal) => Promise<Finding[]>;
@@ -55,13 +56,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
   const highlight = createLocateHighlight();
   let stopScan: (() => void) | undefined;
   let deepScan: AbortController | undefined;
-  const live = panel.ownerDocument.createElement('p');
-  live.dataset.annotationLive = '';
-  live.setAttribute('role', 'status');
-
-  function announce(text: string): void {
-    if (live.textContent !== text) live.textContent = text;
-  }
+  const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
   function setStatus(status: HTMLElement, text: string): void {
     status.textContent = text;

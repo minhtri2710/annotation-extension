@@ -1,6 +1,7 @@
 import { createEventBus, type EventBus } from '../ui/event-bus';
 import { extractElementContext, type ElementContext } from './context';
 import { isShadowRoot } from './selector';
+import { createLiveRegion } from '../ui/shell';
 
 export interface CaptureEvents {
   'element:selected': ElementContext;
@@ -112,9 +113,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   label.style.cssText = LABEL_STYLE;
   label.hidden = true;
   options.shadowHost.shadowRoot?.append(highlight, label);
-  const live = options.document.createElement('p');
-  live.dataset.annotationLive = '';
-  live.setAttribute('role', 'status');
+  const live = createLiveRegion(options.document).element;
   const view = options.document.defaultView;
   const routes = view ? interceptPageEvents(view) : undefined;
   let active = false;
