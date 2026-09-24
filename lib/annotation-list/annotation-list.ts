@@ -33,6 +33,10 @@ export const ANNOTATION_EDIT_EVENT = 'annotation-edit';
 export const ANNOTATION_START_EVENT = 'annotation-start';
 const LOCATE_MISSING_MESSAGE = 'Element not found on this page';
 
+type StatusFilter = 'all' | Annotation['status'];
+const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'open', 'resolved'];
+const STATUS_FILTER_LABELS: Record<StatusFilter, string> = { all: 'All', open: 'Open', resolved: 'Resolved' };
+
 const productionPersistence: AnnotationListPersistence = {
   listAnnotations,
   sendAnnotationWrite,
@@ -58,6 +62,7 @@ export function createAnnotationList(
   let renderVersion = 0;
   let clearVersion = 0;
   let statusMessage: string | undefined;
+  let statusFilter: StatusFilter = 'all';
   const highlight = createLocateHighlight();
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
@@ -104,7 +109,7 @@ export function createAnnotationList(
       const rows = document.createElement('div');
       rows.dataset.annotationRows = '';
       annotations.forEach((annotation, index) => rows.append(createRow(document, annotation, index + 1)));
-      panel.append(rows);
+      panel.append(createStatusFilter(document, annotations, rows), rows);
     }
     restoreFocus();
   }
@@ -124,6 +129,45 @@ export function createAnnotationList(
       dataPrefix: 'annotation-clear',
     });
     return clear;
+  }
+
+  // Filtering hides rows in place, so rows keep their pin numbers and the pressed chip keeps focus.
+  function createStatusFilter(document: Document, annotations: Annotation[], rows: HTMLElement): DocumentFragment {
+    const group = document.createElement('div');
+    group.dataset.annotationFilter = '';
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Filter by status');
+    const empty = document.createElement('p');
+    empty.dataset.annotationFilterEmpty = '';
+
+    const chips = STATUS_FILTERS.map((value) => {
+      const count = value === 'all' ? annotations.length : annotations.filter((annotation) => annotation.status === value).length;
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.dataset.annotationFilterValue = value;
+      chip.textContent = `${STATUS_FILTER_LABELS[value]} (${count})`;
+      chip.addEventListener('click', () => {
+        statusFilter = value;
+        apply();
+        announce(`Showing ${value} annotations`);
+      });
+      return chip;
+    });
+    group.append(...chips);
+
+    function apply(): void {
+      for (const chip of chips) chip.setAttribute('aria-pressed', String(chip.dataset.annotationFilterValue === statusFilter));
+      annotations.forEach((annotation, index) => {
+        (rows.children[index] as HTMLElement).hidden = statusFilter !== 'all' && annotation.status !== statusFilter;
+      });
+      empty.hidden = statusFilter === 'all' || annotations.some((annotation) => annotation.status === statusFilter);
+      empty.textContent = empty.hidden ? '' : `No ${statusFilter} annotations.`;
+    }
+
+    apply();
+    const fragment = document.createDocumentFragment();
+    fragment.append(group, empty);
+    return fragment;
   }
 
   function createOnboarding(document: Document, open: boolean): HTMLElement {

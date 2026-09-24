@@ -733,3 +733,127 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Download started for annotations.md and 1 image file.');
   });
 });
+
+describe('annotation list status filter', () => {
+  const mixed = (): Annotation[] => [
+    annotation('a', 'One'),
+    { ...annotation('b', 'Two'), status: 'resolved' },
+    annotation('c', 'Three'),
+  ];
+  const chip = (panel: HTMLElement, value: string) =>
+    panel.querySelector(`[data-annotation-filter-value="${value}"]`) as HTMLButtonElement;
+  const visibleIds = (panel: HTMLElement) =>
+    [...panel.querySelectorAll<HTMLElement>('[data-annotation-row]')].filter((row) => !row.hidden).map((row) => row.dataset.annotationId);
+  const pressed = (panel: HTMLElement) =>
+    [...panel.querySelectorAll('[data-annotation-filter-value]')].filter((button) => button.getAttribute('aria-pressed') === 'true')
+      .map((button) => (button as HTMLElement).dataset.annotationFilterValue);
+  const visibleEmpty = (panel: HTMLElement) => {
+    const empty = panel.querySelector<HTMLElement>('[data-annotation-filter-empty]');
+    return empty && !empty.hidden ? empty.textContent : null;
+  };
+
+  it('renders All, Open and Resolved chips with counts between export and rows, All pressed by default', async () => {
+    const panel = document.createElement('div');
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('a', 'One'), annotation('b', 'Two')]));
+    await list.render();
+    const group = panel.querySelector('[data-annotation-filter]')!;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.getAttribute('aria-label')).toBe('Filter by status');
+    expect(group.previousElementSibling?.hasAttribute('data-annotation-export')).toBe(true);
+    expect(group.compareDocumentPosition(panel.querySelector('[data-annotation-rows]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const buttons = [...group.querySelectorAll('button')];
+    expect(buttons.map((button) => button.textContent)).toEqual(['All (2)', 'Open (2)', 'Resolved (0)']);
+    expect(buttons.every((button) => button.type === 'button')).toBe(true);
+    expect(pressed(panel)).toEqual(['all']);
+    expect(visibleIds(panel)).toEqual(['a', 'b']);
+    expect(visibleEmpty(panel)).toBeNull();
+  });
+
+  it('hides rows whose status differs from the picked chip and presses only that chip', async () => {
+    const panel = document.createElement('div');
+    const list = createAnnotationList(panel, pageUrl, persistence(mixed()));
+    await list.render();
+    chip(panel, 'open').click();
+    expect(visibleIds(panel)).toEqual(['a', 'c']);
+    expect(pressed(panel)).toEqual(['open']);
+    chip(panel, 'resolved').click();
+    expect(visibleIds(panel)).toEqual(['b']);
+    expect(pressed(panel)).toEqual(['resolved']);
+    chip(panel, 'all').click();
+    expect(visibleIds(panel)).toEqual(['a', 'b', 'c']);
+    expect(pressed(panel)).toEqual(['all']);
+  });
+
+  it('shows No open annotations. when the Open filter leaves no row', async () => {
+    const panel = document.createElement('div');
+    const list = createAnnotationList(panel, pageUrl, persistence([{ ...annotation('a', 'One'), status: 'resolved' }]));
+    await list.render();
+    chip(panel, 'open').click();
+    expect(visibleIds(panel)).toEqual([]);
+    expect(visibleEmpty(panel)).toBe('No open annotations.');
+    expect(panel.querySelector('[data-annotation-filter]')?.nextElementSibling?.hasAttribute('data-annotation-filter-empty')).toBe(true);
+    chip(panel, 'all').click();
+    expect(visibleEmpty(panel)).toBeNull();
+  });
+
+  it('shows No resolved annotations. when the Resolved filter leaves no row', async () => {
+    const panel = document.createElement('div');
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('a', 'One')]));
+    await list.render();
+    chip(panel, 'resolved').click();
+    expect(visibleIds(panel)).toEqual([]);
+    expect(visibleEmpty(panel)).toBe('No resolved annotations.');
+  });
+
+  it('keeps the picked filter across a re-render after a delete and across clear()', async () => {
+    const panel = document.createElement('div');
+    const store = persistence(mixed());
+    const list = createAnnotationList(panel, pageUrl, store);
+    await list.render();
+    chip(panel, 'resolved').click();
+    vi.mocked(store.listAnnotations).mockResolvedValue([annotation('a', 'One'), { ...annotation('b', 'Two'), status: 'resolved' }]);
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(2));
+    expect(pressed(panel)).toEqual(['resolved']);
+    expect(visibleIds(panel)).toEqual(['b']);
+    list.clear();
+    await list.render();
+    expect(pressed(panel)).toEqual(['resolved']);
+    expect(visibleIds(panel)).toEqual(['b']);
+  });
+
+  it('announces the picked filter and keeps focus on the pressed chip', async () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    const list = createAnnotationList(panel, pageUrl, persistence(mixed()));
+    await list.render();
+    for (const [value, text] of [['open', 'Showing open annotations'], ['resolved', 'Showing resolved annotations'], ['all', 'Showing all annotations']]) {
+      chip(panel, value!).focus();
+      chip(panel, value!).click();
+      expect(list.live.textContent).toBe(text);
+      expect(document.activeElement).toBe(chip(panel, value!));
+    }
+    panel.remove();
+  });
+
+  it('keeps each row position number when rows before it are filtered out', async () => {
+    const panel = document.createElement('div');
+    const list = createAnnotationList(panel, pageUrl, persistence(mixed()));
+    await list.render();
+    chip(panel, 'resolved').click();
+    const visible = [...panel.querySelectorAll<HTMLElement>('[data-annotation-row]')].filter((row) => !row.hidden);
+    expect(visible.map((row) => row.querySelector('[data-annotation-position]')?.textContent)).toEqual(['2']);
+    chip(panel, 'open').click();
+    const open = [...panel.querySelectorAll<HTMLElement>('[data-annotation-row]')].filter((row) => !row.hidden);
+    expect(open.map((row) => row.querySelector('[data-annotation-position]')?.textContent)).toEqual(['1', '3']);
+  });
+
+  it('renders no filter row when the page has no annotations', async () => {
+    const panel = document.createElement('div');
+    const list = createAnnotationList(panel, pageUrl, persistence([]));
+    await list.render();
+    expect(panel.querySelector('[data-annotation-filter]')).toBeNull();
+    expect(panel.querySelector('[data-annotation-filter-empty]')).toBeNull();
+  });
+});
