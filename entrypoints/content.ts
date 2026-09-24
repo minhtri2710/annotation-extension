@@ -4,7 +4,7 @@ import { ANNOTATION_EDIT_EVENT, ANNOTATION_START_EVENT, createAnnotationList } f
 import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../lib/notes/note-panel';
 import { createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
-import type { ElementContext } from '../lib/capture/context';
+import { extractElementContext, type ElementContext } from '../lib/capture/context';
 import type { Annotation } from '../lib/annotation';
 import { resolveLiveElementContext } from '../lib/wiring/live-element';
 import { watchRoute } from '../lib/wiring/route-watch';
@@ -72,6 +72,8 @@ export default defineContentScript({
             if (panelMode === 'scan') activePanelAnchor.place(anchorToToolbar);
           },
           highlightRoot: shell.root,
+          // The row's button is gone once the scan panel closes, so the note panel returns focus to the Scan toggle.
+          onAnnotate: (el, finding) => showNotePanel(extractElementContext(el), scanToggle, `${finding.name}: ${finding.detail}`),
         });
         scanPanel = activeScanPanel;
         // Live regions sit outside the panel mount so they persist while panels re-render and close.
@@ -149,11 +151,11 @@ export default defineContentScript({
         annotateToggle.addEventListener('click', () => controller?.toggle());
         shell.toolbar.append(annotateToggle);
 
-        const showNotePanel = (context: ElementContext, opener: HTMLElement | undefined) => {
+        const showNotePanel = (context: ElementContext, opener: HTMLElement | undefined, seed?: string) => {
           resetPanel();
           setPanelMode('note', opener);
           const sequence = ++renderSequence;
-          void activeNotePanel.render(context).then(() => {
+          void activeNotePanel.render(context, seed).then(() => {
             if (sequence !== renderSequence || panelMode !== 'note') return;
             activePanelAnchor.place(() => context.boundingBox);
           });

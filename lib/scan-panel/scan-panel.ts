@@ -10,6 +10,7 @@ export interface ScanPanelOptions {
   deepScan: (signal: AbortSignal, onProgress: (fraction: number) => void) => Promise<Finding[]>;
   onUpdate: () => void;
   highlightRoot: HTMLElement;
+  onAnnotate: (el: Element, finding: Finding) => void;
 }
 
 export interface ScanPanel {
@@ -343,7 +344,16 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       locate.textContent = 'Locate';
       locate.setAttribute('aria-label', `Locate finding ${index + 1}: ${finding.name}`);
       locate.addEventListener('click', () => highlight.show(options.highlightRoot, el));
-      row.append(' ', locate);
+      const annotate = document.createElement('button');
+      annotate.type = 'button';
+      annotate.dataset.annotationScanAnnotate = '';
+      annotate.textContent = 'Annotate';
+      annotate.setAttribute('aria-label', `Annotate finding ${index + 1}: ${finding.name}`);
+      annotate.addEventListener('click', () => {
+        highlight.remove();
+        options.onAnnotate(el, finding);
+      });
+      row.append(' ', locate, ' ', annotate);
     }
     return row;
   }

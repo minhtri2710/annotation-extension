@@ -1267,6 +1267,49 @@ describe('note panel drafts', () => {
     await notePanel.render(context);
     expect(newNote(panel).value).toBe('For #target');
   });
+
+  it('opens a seed in the new-note field without Draft restored', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel);
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    expect(newNote(panel).value).toBe('Low contrast: 2.1:1');
+    expect(panel.querySelector('[data-annotation-status]')).toBeNull();
+  });
+
+  it('keeps an existing new-note draft over the seed', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel);
+    type(newNote(panel), 'My draft');
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    expect(newNote(panel).value).toBe('My draft');
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Draft restored.');
+  });
+
+  it('keeps the seed across a re-render', async () => {
+    const panel = document.createElement('div');
+    const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')]);
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    (panel.querySelector('[data-annotation-status-toggle]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(3));
+    expect(newNote(panel).value).toBe('Low contrast: 2.1:1');
+  });
+
+  it('saves the seeded text through the add path', async () => {
+    const panel = document.createElement('div');
+    const { notePanel, sendAnnotationWrite } = await render(panel);
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.add',
+      pageUrl,
+      input: { note: 'Low contrast: 2.1:1', selector: context.selector, elementContext: context },
+    });
+  });
 });
 
 describe('note panel layout', () => {

@@ -186,6 +186,34 @@ describe('content script entrypoint', () => {
     expect(shadow().activeElement).toBe(toggle);
   });
 
+  it('Annotate on a scan finding opens the note panel for its element seeded with the finding, and closing it focuses Scan', async () => {
+    const image = document.createElement('img');
+    image.id = 'broken';
+    document.body.append(image);
+    await start();
+    const scan = button('Scan');
+    scan.click();
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-scan-annotate]')).not.toBeNull());
+    const annotate = panel().querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]')!;
+    expect(annotate.getAttribute('aria-label')).toBe('Annotate finding 1: Broken or placeholder image');
+    annotate.focus();
+
+    annotate.click();
+
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-new-note]')).not.toBeNull());
+    expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+    expect(scan.getAttribute('aria-expanded')).toBe('false');
+    expect(panel().querySelector<HTMLElement>('[data-annotation-hint]')?.title).toBe('#broken');
+    const note = panel().querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!;
+    expect(note.value).toBe('Broken or placeholder image: <img> with no src attribute');
+    expect(shadow().activeElement).toBe(note);
+
+    panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!.click();
+
+    expect(panel().hasAttribute('aria-label')).toBe(false);
+    expect(shadow().activeElement).toBe(scan);
+  });
+
   it('Start annotating in the empty list closes the panel and starts capture', async () => {
     await start();
     const [host] = hosts();

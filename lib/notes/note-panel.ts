@@ -17,7 +17,8 @@ import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/she
 import { ScreenshotCaptureError } from '../screenshot/messages';
 
 export interface NotePanel {
-  render(context: ElementContext): Promise<void>;
+  /** A seed fills the new-note field when this element has no new-note draft. */
+  render(context: ElementContext, seed?: string): Promise<void>;
   clear(): void;
   teardown(): void;
   /** Re-reads the page's annotations after a storage change; typed text is never overwritten. */
@@ -53,10 +54,14 @@ export function createNotePanel(
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
   // Opening moves focus into the panel: the first note of the element, else the new-note field.
-  async function render(context: ElementContext): Promise<void> {
+  // A seed is kept as the new-note draft, so it survives re-renders until saved, cleared or replaced.
+  async function render(context: ElementContext, seed?: string): Promise<void> {
+    const draftKey = newNoteDraftKey(context.url, context.selector);
+    const seeded = seed !== undefined && !drafts.has(draftKey);
+    if (seeded) drafts.set(draftKey, seed);
     await refresh(context);
     if (selectedContext !== context) return;
-    if (restoredDraft && !statusMessage) {
+    if (restoredDraft && !seeded && !statusMessage) {
       statusMessage = DRAFT_RESTORED_MESSAGE;
       showCurrentStatus();
     }

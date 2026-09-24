@@ -21,8 +21,9 @@ function setup(scan: Scan, deepScan: ScanPanelOptions['deepScan'] = () => new Pr
   document.body.append(panel, highlightRoot);
   const deepScanSpy = vi.fn(deepScan);
   const onUpdate = vi.fn();
-  const scanPanel = createScanPanel(panel, { scan, highlightRoot, deepScan: deepScanSpy, onUpdate });
-  return { panel, highlightRoot, scanPanel, deepScan: deepScanSpy, onUpdate };
+  const onAnnotate = vi.fn();
+  const scanPanel = createScanPanel(panel, { scan, highlightRoot, deepScan: deepScanSpy, onUpdate, onAnnotate });
+  return { panel, highlightRoot, scanPanel, deepScan: deepScanSpy, onUpdate, onAnnotate };
 }
 
 function deferredDeepScan() {
@@ -285,6 +286,46 @@ describe('scan panel', () => {
     expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).not.toBeNull();
     vi.advanceTimersByTime(1);
     expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).toBeNull();
+  });
+
+  it('renders Annotate after Locate on a finding with a connected element, named like Locate', async () => {
+    vi.useFakeTimers();
+    const target = document.createElement('p');
+    document.body.append(target);
+    const { panel, scanPanel } = setup(async () => [finding('r', 'Low contrast', 'error', 'a', target)]);
+    await renderNow(scanPanel.render);
+    const annotate = panel.querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]');
+    expect([annotate?.type, annotate?.textContent, annotate?.getAttribute('aria-label')]).toEqual([
+      'button', 'Annotate', 'Annotate finding 1: Low contrast',
+    ]);
+    expect(annotate?.previousElementSibling?.hasAttribute('data-annotation-scan-locate')).toBe(true);
+  });
+
+  it('Annotate removes the locate highlight and calls onAnnotate once with the element and finding', async () => {
+    vi.useFakeTimers();
+    const target = document.createElement('p');
+    document.body.append(target);
+    target.scrollIntoView = vi.fn();
+    const hit = finding('r', 'R', 'error', 'a', target);
+    const { panel, highlightRoot, scanPanel, onAnnotate } = setup(async () => [hit]);
+    await renderNow(scanPanel.render);
+    panel.querySelector<HTMLButtonElement>('[data-annotation-scan-locate]')?.click();
+    expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).not.toBeNull();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]')?.click();
+    expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).toBeNull();
+    expect(onAnnotate).toHaveBeenCalledTimes(1);
+    expect(onAnnotate).toHaveBeenCalledWith(target, hit);
+  });
+
+  it('renders no Annotate on a finding without an element or with a detached one', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => [
+      finding('r', 'R', 'error', 'a'),
+      finding('s', 'S', 'error', 'b', document.createElement('p')),
+    ]);
+    await renderNow(scanPanel.render);
+    expect(panel.querySelectorAll('[data-annotation-scan-finding]')).toHaveLength(2);
+    expect(panel.querySelector('[data-annotation-scan-annotate]')).toBeNull();
   });
 
   it('clear() removes the highlight and empties the panel', async () => {
