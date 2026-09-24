@@ -47,4 +47,55 @@ describe('locate highlight', () => {
     expect(root.childElementCount).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('scrolls instantly under reduced motion and leaves behavior unset otherwise', () => {
+    const root = document.createElement('div');
+    const el = document.createElement('p');
+    document.body.append(root, el);
+    el.scrollIntoView = vi.fn();
+    const highlight = createLocateHighlight();
+
+    highlight.show(root, el);
+    expect(el.scrollIntoView).toHaveBeenLastCalledWith({ block: 'center', inline: 'nearest' });
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query) => ({ matches: query === '(prefers-reduced-motion: reduce)' }) as MediaQueryList,
+    );
+    highlight.show(root, el);
+    expect(el.scrollIntoView).toHaveBeenLastCalledWith({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    highlight.remove();
+  });
+
+  it('follows the element on scroll and resize, and remove() detaches those listeners', () => {
+    const root = document.createElement('div');
+    const el = document.createElement('p');
+    document.body.append(root, el);
+    el.scrollIntoView = vi.fn();
+    const rect = vi.spyOn(el, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 1, y: 2, width: 3, height: 4 }));
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    const addDocument = vi.spyOn(document, 'addEventListener');
+    const removeDocument = vi.spyOn(document, 'removeEventListener');
+    const addWindow = vi.spyOn(window, 'addEventListener');
+    const removeWindow = vi.spyOn(window, 'removeEventListener');
+    const highlight = createLocateHighlight();
+
+    highlight.show(root, el);
+    const onScroll = addDocument.mock.calls.find(([type]) => type === 'scroll');
+    const onResize = addWindow.mock.calls.find(([type]) => type === 'resize');
+    expect(onScroll?.[2]).toEqual({ capture: true, passive: true });
+    rect.mockReturnValue(DOMRect.fromRect({ x: 5, y: 6, width: 3, height: 4 }));
+    document.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('resize'));
+    expect(frames).toHaveLength(1);
+    frames[0]!(0);
+    const box = root.querySelector<HTMLElement>('[data-annotation-scan-highlight]');
+    expect([box?.style.top, box?.style.left]).toEqual(['6px', '5px']);
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame');
+    document.dispatchEvent(new Event('scroll'));
+
+    highlight.remove();
+    expect(cancel).toHaveBeenCalledWith(2);
+    expect(removeDocument).toHaveBeenCalledWith('scroll', onScroll?.[1], { capture: true });
+    expect(removeWindow).toHaveBeenCalledWith('resize', onResize?.[1]);
+  });
 });

@@ -1179,3 +1179,71 @@ describe('note panel across tabs', () => {
     expect(panel.childElementCount).toBe(0);
   });
 });
+
+describe('note panel drafts', () => {
+  const type = (field: HTMLTextAreaElement, value: string) => {
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const newNote = (panel: HTMLElement) => panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+  const editNote = (panel: HTMLElement) => panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
+
+  it('keeps new-note text across close and reopen of the same element and says the draft was restored', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel);
+    type(newNote(panel), 'Half written');
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(newNote(panel).value).toBe('Half written');
+    expect(newNote(panel).defaultValue).toBe('');
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Draft restored.');
+    expect(notePanel.live.textContent).toBe('Draft restored.');
+  });
+
+  it('keeps new-note text when a write on another note re-renders the panel', async () => {
+    const panel = document.createElement('div');
+    const { listAnnotations } = await render(panel, [annotation('Existing')]);
+    type(newNote(panel), 'Still typing');
+    (panel.querySelector('[data-annotation-status-toggle]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(newNote(panel).value).toBe('Still typing');
+  });
+
+  it('keeps edit-field text across close and reopen', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    type(editNote(panel), 'Existing, edited');
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(editNote(panel).value).toBe('Existing, edited');
+    expect(editNote(panel).defaultValue).toBe('Existing');
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Draft restored.');
+  });
+
+  it('drops the new-note draft once the note is saved', async () => {
+    const panel = document.createElement('div');
+    const { notePanel, listAnnotations } = await render(panel);
+    type(newNote(panel), 'Saved note');
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(newNote(panel).value).toBe('Saved note');
+    (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(newNote(panel).value).toBe('');
+    expect(panel.querySelector('[data-annotation-status]')).toBeNull();
+  });
+
+  it('keys a new-note draft by element: another element opens with an empty field', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel);
+    type(newNote(panel), 'For #target');
+    notePanel.clear();
+    await notePanel.render({ ...context, selector: '#other' });
+    expect(newNote(panel).value).toBe('');
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(newNote(panel).value).toBe('For #target');
+  });
+});

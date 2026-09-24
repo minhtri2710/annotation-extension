@@ -29,6 +29,7 @@ const EMPTY_NOTE_MESSAGE = 'Write a note before saving.';
 const NOTE_SAVED_MESSAGE = 'Note saved.';
 const DELETED_ELSEWHERE_MESSAGE = 'This annotation was deleted in another tab.';
 const CHANGED_ELSEWHERE_MESSAGE = 'This annotation changed in another tab.';
+const DRAFT_RESTORED_MESSAGE = 'Draft restored.';
 
 export function createNotePanel(
   panel: HTMLElement,
@@ -42,6 +43,9 @@ export function createNotePanel(
   let shownVersion = '';
   let pendingWrites = 0;
   const previewUrls = new Set<string>();
+  // Unsaved note text, kept in memory across re-renders and reopening: new notes by page URL and selector, edits by id.
+  const drafts = new Map<string, string>();
+  let restoredDraft = false;
   const live = panel.ownerDocument.createElement('p');
   live.dataset.annotationLive = '';
   live.setAttribute('role', 'status');
@@ -54,6 +58,10 @@ export function createNotePanel(
   async function render(context: ElementContext): Promise<void> {
     await refresh(context);
     if (selectedContext !== context) return;
+    if (restoredDraft && !statusMessage) {
+      statusMessage = DRAFT_RESTORED_MESSAGE;
+      showCurrentStatus();
+    }
     panel
       .querySelector<HTMLTextAreaElement>('[data-annotation-edit-note], [data-annotation-new-note]')
       ?.focus();
@@ -74,6 +82,7 @@ export function createNotePanel(
     const annotations = pageAnnotations.filter((annotation) => annotation.selector === context.selector);
 
     shownVersion = versionOf(pageAnnotations, context.selector);
+    restoredDraft = false;
     revokePreviewUrls();
     const restoreFocus = keepPanelFocus(panel);
     panel.replaceChildren();
@@ -121,6 +130,12 @@ export function createNotePanel(
     note.dataset.annotationNewNote = '';
     note.maxLength = MAX_TEXT_LENGTH;
     note.setAttribute('aria-label', 'New note');
+    const draftKey = newNoteDraftKey(context.url, context.selector);
+    restoreDraft(note, draftKey);
+    note.addEventListener('input', () => {
+      if (note.value.trim()) drafts.set(draftKey, note.value);
+      else drafts.delete(draftKey);
+    });
     const save = document.createElement('button');
     save.type = 'submit';
     save.dataset.annotationSave = '';
@@ -170,6 +185,7 @@ export function createNotePanel(
         // The background answers null (update) or false (delete) when the id is no longer stored.
         const missing = (message.type === 'annotation.update' && result === null)
           || (message.type === 'annotation.delete' && result === false);
+        if (!missing) dropDraft(message);
         statusMessage = missing ? DELETED_ELSEWHERE_MESSAGE : successMessage;
         await refresh(context);
       } catch (error) {
@@ -177,6 +193,19 @@ export function createNotePanel(
         await refresh(context);
       }
     });
+  }
+
+  function restoreDraft(field: HTMLTextAreaElement, key: string): void {
+    const draft = drafts.get(key);
+    if (draft === undefined) return;
+    field.value = draft;
+    restoredDraft = true;
+  }
+
+  function dropDraft(message: AnnotationWriteMessage): void {
+    if (message.type === 'annotation.add') drafts.delete(newNoteDraftKey(message.pageUrl, message.input.selector));
+    else if (message.type === 'annotation.delete') drafts.delete(editDraftKey(message.id));
+    else if (message.type === 'annotation.update' && message.changes.note !== undefined) drafts.delete(editDraftKey(message.id));
   }
 
   async function whileWriting(operation: () => Promise<void>): Promise<void> {
@@ -267,6 +296,12 @@ export function createNotePanel(
     note.maxLength = MAX_TEXT_LENGTH;
     note.defaultValue = annotation.note;
     note.setAttribute('aria-label', `Edit note, annotation ${position}`);
+    const draftKey = editDraftKey(annotation.id);
+    restoreDraft(note, draftKey);
+    note.addEventListener('input', () => {
+      if (note.value === annotation.note) drafts.delete(draftKey);
+      else drafts.set(draftKey, note.value);
+    });
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.dataset.annotationEdit = '';
@@ -555,11 +590,20 @@ export function createNotePanel(
   }
 
   function teardown(): void {
+    drafts.clear();
     revokePreviewUrls();
     persistence.revertAllCssEdits();
   }
 
   return { render, clear, teardown, syncWithStorage, live };
+}
+
+function newNoteDraftKey(url: string, selector: string): string {
+  return `new ${url} ${selector}`;
+}
+
+function editDraftKey(id: string): string {
+  return `edit ${id}`;
 }
 
 function versionOf(pageAnnotations: Annotation[], selector: string): string {
