@@ -56,6 +56,8 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
   const highlight = createLocateHighlight();
   let stopScan: (() => void) | undefined;
   let deepScan: AbortController | undefined;
+  let severityFilter: Severity | 'all' = 'all';
+  let focusRescan = false;
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
   function setStatus(status: HTMLElement, text: string): void {
@@ -71,6 +73,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     status: HTMLElement;
   } {
     const version = ++renderVersion;
+    focusRescan = false;
     stopScan?.();
     highlight.remove();
     const controller = new AbortController();
@@ -131,7 +134,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       stopScan = undefined;
       deepScan = undefined;
       document.removeEventListener('keydown', onKeydown);
-      focusWasInPanel = panel.contains((panel.getRootNode() as Document | ShadowRoot).activeElement ?? null);
+      focusWasInPanel = focusIsInPanel();
     };
     const restoreFocus = () => {
       if (focusWasInPanel) panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan]')?.focus();
@@ -182,6 +185,58 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     options.onUpdate();
   }
 
+  function focusIsInPanel(): boolean {
+    return panel.contains((panel.getRootNode() as Document | ShadowRoot).activeElement ?? null);
+  }
+
+  function createRescanButton(document: Document): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.annotationRescan = '';
+    button.textContent = 'Rescan';
+    button.addEventListener('click', () => {
+      const wasInPanel = focusIsInPanel();
+      void render();
+      // render() resets the flag synchronously in begin(); set it after so only this scan's result takes focus.
+      focusRescan = wasInPanel;
+    });
+    return button;
+  }
+
+  function createFilter(document: Document, findings: Finding[], groups: { severity: Severity; element: HTMLElement }[]): HTMLElement {
+    const filter = document.createElement('div');
+    filter.dataset.annotationFilter = '';
+    filter.setAttribute('role', 'group');
+    filter.setAttribute('aria-label', 'Filter by severity');
+    const options: { value: Severity | 'all'; label: string; count: number }[] = [
+      { value: 'all', label: 'All', count: findings.length },
+    ];
+    for (const severity of SEVERITY_ORDER) {
+      const count = findings.filter((finding) => finding.severity === severity).length;
+      const plural = SEVERITY_COUNT[severity][1];
+      if (count > 0) options.push({ value: severity, label: plural[0]!.toUpperCase() + plural.slice(1), count });
+    }
+    const chips = options.map(({ value, label, count }) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.dataset.annotationFilterValue = value;
+      chip.textContent = `${label} (${count})`;
+      chip.addEventListener('click', () => {
+        severityFilter = value;
+        apply(value);
+        announce(value === 'all' ? 'Showing all findings' : `Showing ${label.toLowerCase()} only`);
+      });
+      return chip;
+    });
+    const apply = (value: Severity | 'all') => {
+      chips.forEach((chip) => chip.setAttribute('aria-pressed', String(chip.dataset.annotationFilterValue === value)));
+      for (const group of groups) group.element.hidden = value !== 'all' && group.severity !== value;
+    };
+    apply(options.some((option) => option.value === severityFilter) ? severityFilter : 'all');
+    filter.append(...chips);
+    return filter;
+  }
+
   function createDeepScanButton(document: Document): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
@@ -200,7 +255,12 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     summary.dataset.annotationScanSummary = '';
     summary.textContent = `${prefix}${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}: ${count('error')}, ${count('warning')}, ${count('advisory')}`;
     announce(summary.textContent);
-    panel.append(summary, createDeepScanButton(document));
+    const rescan = createRescanButton(document);
+    panel.append(summary, createDeepScanButton(document), rescan);
+    if (focusRescan) {
+      focusRescan = false;
+      rescan.focus();
+    }
 
     if (findings.length === 0) {
       const empty = document.createElement('p');
@@ -221,14 +281,16 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
         SEVERITY_ORDER.indexOf(a[0]!.severity) - SEVERITY_ORDER.indexOf(b[0]!.severity) ||
         a[0]!.name.localeCompare(b[0]!.name),
     );
-    for (const group of ordered) panel.append(createGroup(document, group));
+    const groupElements = ordered.map((group) => ({ severity: group[0]!.severity, element: createGroup(document, group) }));
+    panel.append(createFilter(document, findings, groupElements), ...groupElements.map((group) => group.element));
   }
 
   function createGroup(document: Document, group: Finding[]): HTMLElement {
     const first = group[0]!;
-    const section = document.createElement('section');
-    section.dataset.annotationScanGroup = '';
-    section.dataset.ruleId = first.ruleId;
+    const details = document.createElement('details');
+    details.dataset.annotationScanGroup = '';
+    details.dataset.ruleId = first.ruleId;
+    details.open = first.severity !== 'advisory';
 
     const heading = document.createElement('h3');
     heading.textContent = `${first.name} (${group.length})`;
@@ -258,8 +320,10 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       list.append(item);
     }
 
-    section.append(heading, severity, description, list);
-    return section;
+    const summary = document.createElement('summary');
+    summary.append(heading, ' ', severity);
+    details.append(summary, description, list);
+    return details;
   }
 
   function createRow(document: Document, finding: Finding, index: number): HTMLElement {
@@ -283,6 +347,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
 
   function clear(): void {
     renderVersion += 1;
+    focusRescan = false;
     stopScan?.();
     highlight.remove();
     panel.replaceChildren();

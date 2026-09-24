@@ -220,7 +220,28 @@ ${ANNOTATION_DARK_TOKENS}
   border-top: 1px solid var(--annotation-color-border);
 }
 
-[data-annotation-shell] [data-annotation-scan-group] h3,
+[data-annotation-shell] [data-annotation-scan-group] h3 {
+  display: inline;
+  margin: 0;
+}
+
+[data-annotation-shell] [data-annotation-scan-group] summary {
+  margin: 0 0 var(--annotation-space-2);
+}
+
+[data-annotation-shell] [data-annotation-filter] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--annotation-space-2);
+}
+
+[data-annotation-shell] [data-annotation-filter] button[aria-pressed="true"] {
+  border-color: var(--annotation-color-accent);
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-text);
+  font-weight: var(--annotation-font-weight-medium);
+}
+
 [data-annotation-shell] [data-annotation-scan-group] p,
 [data-annotation-shell] [data-annotation-scan-group] ul {
   margin: 0 0 var(--annotation-space-2);

@@ -365,7 +365,10 @@ describe('scan panel deep scan', () => {
     const full = setup(async () => [finding('a', 'A', 'error', 'x')]);
     await renderNow(full.scanPanel.render);
     expect(deepButton(full.panel)?.previousElementSibling?.hasAttribute('data-annotation-scan-summary')).toBe(true);
-    expect(deepButton(full.panel)?.nextElementSibling?.hasAttribute('data-annotation-scan-group')).toBe(true);
+    const rescan = deepButton(full.panel)?.nextElementSibling;
+    expect(rescan?.hasAttribute('data-annotation-rescan')).toBe(true);
+    expect(rescan?.nextElementSibling?.hasAttribute('data-annotation-filter')).toBe(true);
+    expect(rescan?.nextElementSibling?.nextElementSibling?.hasAttribute('data-annotation-scan-group')).toBe(true);
     expect(full.deepScan).not.toHaveBeenCalled();
   });
 
@@ -702,5 +705,182 @@ describe('scan panel live status', () => {
     deepButton(panel)?.click();
     scanPanel.clear();
     expect(scanPanel.isDeepScanRunning()).toBe(false);
+  });
+});
+
+describe('scan panel severity filter, groups and Rescan', () => {
+  const mixed = () => [
+    finding('e', 'E', 'error', 'e1'),
+    finding('e', 'E', 'error', 'e2'),
+    finding('w', 'W', 'warning', 'w1'),
+    finding('a', 'A', 'advisory', 'a1'),
+  ];
+  const chips = (panel: HTMLElement) => [...panel.querySelectorAll<HTMLButtonElement>('[data-annotation-filter] button')];
+  const chip = (panel: HTMLElement, value: string) =>
+    panel.querySelector<HTMLButtonElement>(`[data-annotation-filter-value="${value}"]`)!;
+  const pressed = (panel: HTMLElement) => chips(panel).filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.dataset.annotationFilterValue);
+  const visible = (panel: HTMLElement) =>
+    [...panel.querySelectorAll<HTMLElement>('[data-annotation-scan-group]')].filter((g) => !g.hidden).map((g) => g.dataset.ruleId);
+  const rescanButton = (panel: HTMLElement) => panel.querySelector<HTMLButtonElement>('[data-annotation-rescan]');
+
+  it('shows an All chip and one chip per present severity with counts, in severity order', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => [finding('a', 'A', 'advisory', 'a1'), finding('e', 'E', 'error', 'e1'), finding('b', 'B', 'advisory', 'b1')]);
+    await renderNow(scanPanel.render);
+    const filter = panel.querySelector('[data-annotation-filter]');
+    expect(filter?.tagName).toBe('DIV');
+    expect(filter?.getAttribute('role')).toBe('group');
+    expect(filter?.getAttribute('aria-label')).toBe('Filter by severity');
+    expect(chips(panel).map((c) => [c.dataset.annotationFilterValue, c.textContent, c.type])).toEqual([
+      ['all', 'All (3)', 'button'],
+      ['error', 'Errors (1)', 'button'],
+      ['advisory', 'Advisories (2)', 'button'],
+    ]);
+    expect(pressed(panel)).toEqual(['all']);
+  });
+
+  it('shows no filter when there are no findings', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => []);
+    await renderNow(scanPanel.render);
+    expect(panel.querySelector('[data-annotation-filter]')).toBeNull();
+  });
+
+  it('hides groups of other severities per chip, shows all on All, and moves aria-pressed', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => mixed());
+    await renderNow(scanPanel.render);
+    expect(visible(panel)).toEqual(['e', 'w', 'a']);
+    chip(panel, 'warning').click();
+    expect(visible(panel)).toEqual(['w']);
+    expect(pressed(panel)).toEqual(['warning']);
+    chip(panel, 'advisory').click();
+    expect(visible(panel)).toEqual(['a']);
+    expect(pressed(panel)).toEqual(['advisory']);
+    chip(panel, 'all').click();
+    expect(visible(panel)).toEqual(['e', 'w', 'a']);
+    expect(pressed(panel)).toEqual(['all']);
+  });
+
+  it('announces the picked filter', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => mixed());
+    await renderNow(scanPanel.render);
+    chip(panel, 'error').click();
+    expect(scanPanel.live.textContent).toBe('Showing errors only');
+    chip(panel, 'advisory').click();
+    expect(scanPanel.live.textContent).toBe('Showing advisories only');
+    chip(panel, 'all').click();
+    expect(scanPanel.live.textContent).toBe('Showing all findings');
+  });
+
+  it('keeps the picked severity across Rescan and a deep scan, and falls back to All when it has no findings', async () => {
+    vi.useFakeTimers();
+    let result = mixed();
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(async () => result, deepScan);
+    await renderNow(scanPanel.render);
+    chip(panel, 'warning').click();
+    rescanButton(panel)!.click();
+    await flush();
+    expect(pressed(panel)).toEqual(['warning']);
+    expect(visible(panel)).toEqual(['w']);
+
+    deepButton(panel)!.click();
+    calls[0]!.resolve(mixed());
+    await flush();
+    expect(pressed(panel)).toEqual(['warning']);
+    expect(visible(panel)).toEqual(['w']);
+
+    result = [finding('e', 'E', 'error', 'e1')];
+    rescanButton(panel)!.click();
+    await flush();
+    expect(pressed(panel)).toEqual(['all']);
+    expect(visible(panel)).toEqual(['e']);
+  });
+
+  it('renders each group as details, open for errors and warnings and closed for advisories', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => mixed());
+    await renderNow(scanPanel.render);
+    const groups = [...panel.querySelectorAll<HTMLDetailsElement>('[data-annotation-scan-group]')];
+    expect(groups.map((g) => [g.tagName, g.dataset.ruleId, g.open])).toEqual([
+      ['DETAILS', 'e', true],
+      ['DETAILS', 'w', true],
+      ['DETAILS', 'a', false],
+    ]);
+  });
+
+  it('puts the heading and severity chip in the summary, then the description and the list', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => mixed());
+    await renderNow(scanPanel.render);
+    const group = panel.querySelector<HTMLElement>('[data-annotation-scan-group]')!;
+    expect([...group.children].map((el) => el.tagName)).toEqual(['SUMMARY', 'P', 'UL']);
+    const summary = group.querySelector('summary')!;
+    expect([...summary.children].map((el) => el.tagName)).toEqual(['H3', 'SPAN']);
+    expect(summary.querySelector('h3')?.textContent).toBe('E (2)');
+    expect(summary.querySelector('[data-annotation-severity="error"]')?.textContent).toBe('Error');
+  });
+
+  it('Rescan runs the quick scan again and returns focus to the new Rescan button', async () => {
+    vi.useFakeTimers();
+    const scan = vi.fn(async () => mixed());
+    const { panel, scanPanel, deepScan } = setup(scan);
+    await renderNow(scanPanel.render);
+    const first = rescanButton(panel)!;
+    expect(first.type).toBe('button');
+    expect(first.textContent).toBe('Rescan');
+    first.focus();
+    first.click();
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Scanning…');
+    await flush();
+    expect(scan).toHaveBeenCalledTimes(2);
+    expect(deepScan).not.toHaveBeenCalled();
+    const next = rescanButton(panel);
+    expect(next).not.toBe(first);
+    expect(document.activeElement).toBe(next);
+  });
+
+  it('leaves focus alone after Rescan when focus was outside the panel', async () => {
+    vi.useFakeTimers();
+    const input = document.createElement('input');
+    document.body.append(input);
+    const { panel, scanPanel } = setup(async () => []);
+    await renderNow(scanPanel.render);
+    input.focus();
+    rescanButton(panel)!.click();
+    await flush();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('shows Rescan after quick and deep results, not while scanning or after a failure', async () => {
+    vi.useFakeTimers();
+    let fail = false;
+    const { deepScan, calls } = deferredDeepScan();
+    const { panel, scanPanel } = setup(async () => {
+      if (fail) throw new Error('boom');
+      return [];
+    }, deepScan);
+    const scanning = scanPanel.render();
+    expect(rescanButton(panel)).toBeNull();
+    await flush();
+    await scanning;
+    expect(rescanButton(panel)).not.toBeNull();
+
+    deepButton(panel)!.click();
+    expect(rescanButton(panel)).toBeNull();
+    calls[0]!.resolve([]);
+    await flush();
+    expect(rescanButton(panel)?.previousElementSibling).toBe(deepButton(panel));
+
+    deepButton(panel)!.click();
+    calls[1]!.reject(new Error('sweep broke'));
+    await flush();
+    expect(rescanButton(panel)).toBeNull();
+
+    fail = true;
+    await renderNow(scanPanel.render);
+    expect(rescanButton(panel)).toBeNull();
   });
 });

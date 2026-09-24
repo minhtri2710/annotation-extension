@@ -89,6 +89,24 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
     expect(Math.max(contrastRatio(ring, color(page)), contrastRatio(halo, color(page)))).toBeGreaterThanOrEqual(3);
   });
 
+  it('keeps the pressed filter chip text at 4.5:1 or more against its background', () => {
+    const { shell } = mountOverlay(theme);
+    const filter = document.createElement('div');
+    filter.dataset.annotationFilter = '';
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.textContent = 'Errors (2)';
+    chip.setAttribute('aria-pressed', 'true');
+    filter.append(chip);
+    shell.panel.append(filter);
+    const style = getComputedStyle(chip);
+    const raised = getComputedStyle(shell.panel).getPropertyValue('--annotation-color-surface-raised').trim();
+    expect(color(style.backgroundColor)).toEqual(color(raised));
+    const ratio = contrastRatio(color(style.color), color(style.backgroundColor));
+    console.info(`pressed filter chip contrast (${theme}): ${ratio.toFixed(2)}`);
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('outlines a focused textarea at 3:1 or more against the panel surface', async () => {
     const { shell } = mountOverlay(theme);
     const field = document.createElement('textarea');

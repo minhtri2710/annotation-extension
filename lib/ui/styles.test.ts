@@ -262,6 +262,23 @@ ${ANNOTATION_DARK_TOKENS}
     );
   });
 
+  it('sets scan group headings inline in the summary and styles the severity filter row and pressed chip from tokens', () => {
+    const heading = ruleBody('[data-annotation-shell] [data-annotation-scan-group] h3 {');
+    expect(heading).toContain('display: inline');
+    expect(heading).toContain('margin: 0');
+    const filter = ruleBody('[data-annotation-shell] [data-annotation-filter] {');
+    expect(filter).toContain('display: flex');
+    expect(filter).toContain('flex-wrap: wrap');
+    expect(filter).toContain('gap: var(--annotation-space-2)');
+    const pressed = ruleBody('[data-annotation-shell] [data-annotation-filter] button[aria-pressed="true"] {');
+    expect(pressed).toContain('border-color: var(--annotation-color-accent)');
+    expect(pressed).toContain('background: var(--annotation-color-surface-raised)');
+    expect(pressed).toContain('color: var(--annotation-color-text)');
+    expect(pressed).toContain('font-weight: var(--annotation-font-weight-medium)');
+    for (const body of [heading, filter, pressed]) expect(body).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
+    expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toContain('data-annotation-filter');
+  });
+
   it('styles the toolbar grip as a touch-safe drag handle with a grabbing state', () => {
     const body = ruleBody('[data-annotation-shell] [data-annotation-toolbar-grip] {');
     expect(body).toContain('cursor: grab');
