@@ -292,6 +292,27 @@ export function createNotePanel(
     if (annotation.cssEdits && annotation.cssEdits.length > 0) {
       persistence.applyCssEdits(annotation, annotation.cssEdits);
     }
+    const images = imagesSection(document, item, annotation, context, reportReadError);
+    const css = cssSection(document, annotation, position, context, reportReadError);
+    const repro = reproSection(document, annotation, position, context);
+    item.append(
+      ...noteSection(document, annotation, position, context),
+      ...images.controls,
+      ...css.controls,
+      ...repro.controls,
+      ...css.readout,
+      ...repro.readout,
+    );
+    await images.appendPreviews();
+    return item;
+  }
+
+  function noteSection(
+    document: Document,
+    annotation: Annotation,
+    position: number,
+    context: ElementContext,
+  ): HTMLElement[] {
     const note = document.createElement('textarea');
     note.dataset.annotationEditNote = '';
     note.maxLength = MAX_TEXT_LENGTH;
@@ -375,6 +396,17 @@ export function createNotePanel(
       },
       dataPrefix: 'annotation-delete',
     });
+    return [note, edit, statusToggle, capture, remove];
+  }
+
+  // The file input sits with the note controls; previews follow the readouts once their blobs are read.
+  function imagesSection(
+    document: Document,
+    item: HTMLElement,
+    annotation: Annotation,
+    context: ElementContext,
+    reportReadError: (error: unknown) => void,
+  ): { controls: HTMLElement[]; appendPreviews: () => Promise<void> } {
     const attachmentInput = document.createElement('input');
     attachmentInput.type = 'file';
     attachmentInput.accept = SUPPORTED_IMAGE_MIME_TYPES.join(',');
@@ -402,32 +434,54 @@ export function createNotePanel(
     const attachmentLabel = document.createElement('label');
     attachmentLabel.textContent = 'Attach image';
     attachmentLabel.append(attachmentInput);
-    // Each field sits in a visible label; its accessible name starts with that label text.
-    const labelledField = (text: string, value: string) => {
-      const field = document.createElement('textarea');
-      field.defaultValue = value;
-      field.setAttribute('aria-label', `${text}, annotation ${position}`);
-      const label = document.createElement('label');
-      label.append(text, field);
-      return { field, label };
+    const appendPreviews = async () => {
+      if (annotation.screenshot) {
+        try {
+          const blob = await persistence.readBlob(screenshotKey(annotation.id));
+          appendPreview(document, item, blob, 'Annotation screenshot', 'data-annotation-screenshot');
+        } catch (error) {
+          reportReadError(error);
+        }
+      }
+      for (const attachment of annotation.attachments ?? []) {
+        try {
+          const blob = await persistence.readBlob(attachmentKey(attachment.id));
+          const wrapper = document.createElement('figure');
+          wrapper.dataset.annotationAttachment = attachment.id;
+          appendPreview(document, wrapper, blob, attachment.name, 'data-annotation-attachment-preview');
+          const caption = document.createElement('figcaption');
+          caption.textContent = attachment.name;
+          const removeAttachment = document.createElement('button');
+          removeAttachment.type = 'button';
+          removeAttachment.dataset.annotationAttachmentDelete = attachment.id;
+          removeAttachment.textContent = 'Remove';
+          removeAttachment.addEventListener('click', () => {
+            void whileWriting(() => persistence.deleteAttachment({
+              pageUrl: context.url,
+              annotationId: annotation.id,
+              attachmentId: attachment.id,
+            }).then(() => reportFileSuccess(context), (error) => reportFileError(error, context)));
+          });
+          wrapper.append(caption, removeAttachment);
+          item.append(wrapper);
+        } catch (error) {
+          reportReadError(error);
+        }
+      }
     };
-    const { field: reproSteps, label: reproStepsLabel } = labelledField(
-      'Reproduction steps',
-      annotation.repro?.steps.join('\n') ?? '',
-    );
-    reproSteps.dataset.annotationReproSteps = '';
-    const { field: reproExpected, label: reproExpectedLabel } = labelledField(
-      'Expected result',
-      annotation.repro?.expected ?? '',
-    );
-    reproExpected.dataset.annotationReproExpected = '';
-    const { field: reproActual, label: reproActualLabel } = labelledField(
-      'Actual result',
-      annotation.repro?.actual ?? '',
-    );
-    reproActual.dataset.annotationReproActual = '';
-    for (const field of [reproSteps, reproExpected, reproActual]) field.maxLength = MAX_TEXT_LENGTH;
+    return { controls: [attachmentLabel], appendPreviews };
+  }
+
+  function cssSection(
+    document: Document,
+    annotation: Annotation,
+    position: number,
+    context: ElementContext,
+    reportReadError: (error: unknown) => void,
+  ): { controls: HTMLElement[]; readout: HTMLElement[] } {
     const { field: cssDecls, label: cssDeclsLabel } = labelledField(
+      document,
+      position,
       'CSS declarations',
       annotation.cssEdits?.map(({ property, value }) => `${property}: ${value}`).join('\n') ?? '',
     );
@@ -454,6 +508,9 @@ export function createNotePanel(
         context,
       );
     });
+    if (!annotation.cssEdits || annotation.cssEdits.length === 0) {
+      return { controls: [cssDeclsLabel, saveCss], readout: [] };
+    }
     const clearCss = document.createElement('button');
     clearCss.type = 'button';
     clearCss.dataset.annotationCssClear = '';
@@ -470,6 +527,44 @@ export function createNotePanel(
         context,
       );
     });
+    const readout = document.createElement('ul');
+    readout.dataset.annotationCss = '';
+    for (const { property, value, original } of annotation.cssEdits) {
+      const entry = document.createElement('li');
+      entry.textContent = `${property}: ${original} -> ${value}`;
+      readout.append(entry);
+    }
+    return { controls: [cssDeclsLabel, saveCss], readout: [clearCss, readout] };
+  }
+
+  function reproSection(
+    document: Document,
+    annotation: Annotation,
+    position: number,
+    context: ElementContext,
+  ): { controls: HTMLElement[]; readout: HTMLElement[] } {
+    const { field: reproSteps, label: reproStepsLabel } = labelledField(
+      document,
+      position,
+      'Reproduction steps',
+      annotation.repro?.steps.join('\n') ?? '',
+    );
+    reproSteps.dataset.annotationReproSteps = '';
+    const { field: reproExpected, label: reproExpectedLabel } = labelledField(
+      document,
+      position,
+      'Expected result',
+      annotation.repro?.expected ?? '',
+    );
+    reproExpected.dataset.annotationReproExpected = '';
+    const { field: reproActual, label: reproActualLabel } = labelledField(
+      document,
+      position,
+      'Actual result',
+      annotation.repro?.actual ?? '',
+    );
+    reproActual.dataset.annotationReproActual = '';
+    for (const field of [reproSteps, reproExpected, reproActual]) field.maxLength = MAX_TEXT_LENGTH;
     const saveRepro = document.createElement('button');
     saveRepro.type = 'button';
     saveRepro.dataset.annotationReproSave = '';
@@ -492,81 +587,22 @@ export function createNotePanel(
         context,
       );
     });
-    item.append(
-      note,
-      edit,
-      statusToggle,
-      capture,
-      remove,
-      attachmentLabel,
-      cssDeclsLabel,
-      saveCss,
-      reproStepsLabel,
-      reproExpectedLabel,
-      reproActualLabel,
-      saveRepro,
-    );
-    if (annotation.cssEdits && annotation.cssEdits.length > 0) {
-      item.append(clearCss);
-      const readout = document.createElement('ul');
-      readout.dataset.annotationCss = '';
-      for (const { property, value, original } of annotation.cssEdits) {
-        const entry = document.createElement('li');
-        entry.textContent = `${property}: ${original} -> ${value}`;
-        readout.append(entry);
-      }
-      item.append(readout);
+    const controls = [reproStepsLabel, reproExpectedLabel, reproActualLabel, saveRepro];
+    if (!annotation.repro) return { controls, readout: [] };
+    const readout = document.createElement('div');
+    readout.dataset.annotationRepro = '';
+    const stepsList = document.createElement('ol');
+    for (const step of annotation.repro.steps) {
+      const listItem = document.createElement('li');
+      listItem.textContent = step;
+      stepsList.append(listItem);
     }
-    if (annotation.repro) {
-      const readout = document.createElement('div');
-      readout.dataset.annotationRepro = '';
-      const stepsList = document.createElement('ol');
-      for (const step of annotation.repro.steps) {
-        const listItem = document.createElement('li');
-        listItem.textContent = step;
-        stepsList.append(listItem);
-      }
-      const expected = document.createElement('p');
-      expected.textContent = `Expected: ${annotation.repro.expected}`;
-      const actual = document.createElement('p');
-      actual.textContent = `Actual: ${annotation.repro.actual}`;
-      readout.append(stepsList, expected, actual);
-      item.append(readout);
-    }
-    if (annotation.screenshot) {
-      try {
-        const blob = await persistence.readBlob(screenshotKey(annotation.id));
-        appendPreview(document, item, blob, 'Annotation screenshot', 'data-annotation-screenshot');
-      } catch (error) {
-        reportReadError(error);
-      }
-    }
-    for (const attachment of annotation.attachments ?? []) {
-      try {
-        const blob = await persistence.readBlob(attachmentKey(attachment.id));
-        const wrapper = document.createElement('figure');
-        wrapper.dataset.annotationAttachment = attachment.id;
-        appendPreview(document, wrapper, blob, attachment.name, 'data-annotation-attachment-preview');
-        const caption = document.createElement('figcaption');
-        caption.textContent = attachment.name;
-        const removeAttachment = document.createElement('button');
-        removeAttachment.type = 'button';
-        removeAttachment.dataset.annotationAttachmentDelete = attachment.id;
-        removeAttachment.textContent = 'Remove';
-        removeAttachment.addEventListener('click', () => {
-          void whileWriting(() => persistence.deleteAttachment({
-            pageUrl: context.url,
-            annotationId: annotation.id,
-            attachmentId: attachment.id,
-          }).then(() => reportFileSuccess(context), (error) => reportFileError(error, context)));
-        });
-        wrapper.append(caption, removeAttachment);
-        item.append(wrapper);
-      } catch (error) {
-        reportReadError(error);
-      }
-    }
-    return item;
+    const expected = document.createElement('p');
+    expected.textContent = `Expected: ${annotation.repro.expected}`;
+    const actual = document.createElement('p');
+    actual.textContent = `Actual: ${annotation.repro.actual}`;
+    readout.append(stepsList, expected, actual);
+    return { controls, readout: [readout] };
   }
 
   function appendPreview(
@@ -628,6 +664,21 @@ function screenshotFailureMessage(error: unknown): string {
   const { shortcut } = error.failure;
   const grant = shortcut ? `toolbar icon, or press ${shortcut},` : 'toolbar icon';
   return `The screenshot needs your permission on this tab. Click the extension's ${grant} once on this tab, then select Capture screenshot again.`;
+}
+
+// Each field sits in a visible label; its accessible name starts with that label text.
+function labelledField(
+  document: Document,
+  position: number,
+  text: string,
+  value: string,
+): { field: HTMLTextAreaElement; label: HTMLLabelElement } {
+  const field = document.createElement('textarea');
+  field.defaultValue = value;
+  field.setAttribute('aria-label', `${text}, annotation ${position}`);
+  const label = document.createElement('label');
+  label.append(text, field);
+  return { field, label };
 }
 
 function parseCssDeclarations(value: string): CssDeclaration[] {
