@@ -13,8 +13,13 @@ function key(name: string) {
   return event;
 }
 
+function labelText() {
+  return host.shadowRoot!.querySelector('[data-annotation-highlight-label]')!.textContent!;
+}
+
+// The description part of the `<description> · <W>×<H>` label.
 function label() {
-  return host.shadowRoot!.querySelector('[data-annotation-highlight-label]')!.textContent;
+  return labelText().replace(/ · \d+×\d+$/, '');
 }
 
 beforeEach(() => {
@@ -120,6 +125,24 @@ describe('keyboard capture (real browser)', () => {
 
     expect(item.getBoundingClientRect().top).toBe(20);
     expect(box.style.top).toBe('20px');
+  });
+});
+
+describe('capture mode feedback (real browser)', () => {
+  it('labels the rounded size of the element and shows a crosshair cursor only while active', () => {
+    const box = document.createElement('div');
+    box.id = 'box';
+    box.style.cssText = 'width: 320.4px; height: 47.6px';
+    document.body.append(box, host);
+    expect(getComputedStyle(document.body).cursor).not.toBe('crosshair');
+
+    controller.activate();
+    box.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, composed: true }));
+    expect(labelText()).toBe('div#box · 320×48');
+    expect(getComputedStyle(document.body).cursor).toBe('crosshair');
+
+    controller.deactivate();
+    expect(getComputedStyle(document.body).cursor).not.toBe('crosshair');
   });
 });
 

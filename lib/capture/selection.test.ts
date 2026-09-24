@@ -45,6 +45,19 @@ function label() {
   return host.shadowRoot!.querySelector('[data-annotation-highlight-label]') as HTMLElement;
 }
 
+// The label reads `<description> · <W>×<H>`; this is the description part.
+function labelName() {
+  return label().textContent!.replace(/ · \d+×\d+$/, '');
+}
+
+function hint() {
+  return host.shadowRoot!.querySelector('[data-annotation-capture-hint]') as HTMLElement | null;
+}
+
+function cursorStyles() {
+  return document.querySelectorAll('style[data-annotation-capture-cursor]');
+}
+
 const PAGE_TYPES = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
 const recordPage = (event: Event) => pageEvents.push(event.type);
 
@@ -169,7 +182,7 @@ describe('deep target', () => {
     pointer('pointermove', deep);
     expect(highlight().hidden).toBe(false);
     expect(highlight().style.top).toBe('300px');
-    expect(label().textContent).toBe('span#deep.inner');
+    expect(labelName()).toBe('span#deep.inner');
 
     pointer('pointerdown', deep);
     expect(selected.map((context) => context.id)).toEqual(['deep']);
@@ -183,20 +196,20 @@ describe('deep target', () => {
     pointer('pointermove', deep);
 
     key('ArrowUp');
-    expect(label().textContent).toBe('p#para');
+    expect(labelName()).toBe('p#para');
     key('ArrowUp');
-    expect(label().textContent).toBe('x-chip');
+    expect(labelName()).toBe('x-chip');
     key('ArrowUp');
-    expect(label().textContent).toBe('x-card#card');
+    expect(labelName()).toBe('x-card#card');
     key('ArrowUp');
-    expect(label().textContent).toBe('x-card#card');
+    expect(labelName()).toBe('x-card#card');
 
     key('ArrowDown');
-    expect(label().textContent).toBe('x-chip');
+    expect(labelName()).toBe('x-chip');
     key('ArrowDown');
-    expect(label().textContent).toBe('p#para');
+    expect(labelName()).toBe('p#para');
     key('ArrowDown');
-    expect(label().textContent).toBe('span#deep.inner');
+    expect(labelName()).toBe('span#deep.inner');
     key('Enter');
     expect(selected.map((context) => context.id)).toEqual(['deep']);
   });
@@ -213,7 +226,7 @@ describe('deep target', () => {
     // happy-dom does not retarget composedPath() at a closed root; a browser presents the host as
     // composedPath()[0] to a document listener, so the event is dispatched at the host here.
     pointer('pointermove', closedHost);
-    expect(label().textContent).toBe('x-sealed#sealed');
+    expect(labelName()).toBe('x-sealed#sealed');
     pointer('pointerdown', closedHost);
     expect(selected.map((context) => context.id)).toEqual(['sealed']);
   });
@@ -240,7 +253,7 @@ describe('hover label', () => {
 
     pointer('pointermove', target);
     expect(label().hidden).toBe(false);
-    expect(label().textContent).toBe('button#target.primary.big');
+    expect(labelName()).toBe('button#target.primary.big');
     expect(label().style.pointerEvents).toBe('none');
     expect(label().style.top).toBe('76px');
   });
@@ -261,8 +274,18 @@ describe('hover label', () => {
     controller.activate();
 
     pointer('pointermove', target);
-    expect(label().textContent).toHaveLength(60);
-    expect(label().textContent!.endsWith('…')).toBe(true);
+    expect(labelName()).toHaveLength(60);
+    expect(labelName().endsWith('…')).toBe(true);
+    expect(label().textContent!.endsWith('… · 100×40')).toBe(true);
+  });
+
+  it('shows the rounded box size after the description', () => {
+    const target = document.querySelector('#target')!;
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rect(100, 10, 320.4, 47.6));
+    controller.activate();
+
+    pointer('pointermove', target);
+    expect(label().textContent).toBe('button#target.primary.big · 320×48');
   });
 
   it('hides with the highlight on deactivate', () => {
@@ -287,16 +310,16 @@ describe('keyboard navigation', () => {
     pointer('pointermove', target);
 
     expect(key('ArrowUp').defaultPrevented).toBe(true);
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
     key('ArrowUp');
-    expect(label().textContent).toBe('main#outer.wrap');
+    expect(labelName()).toBe('main#outer.wrap');
     key('ArrowUp');
-    expect(label().textContent).toBe('main#outer.wrap');
+    expect(labelName()).toBe('main#outer.wrap');
 
     key('ArrowDown');
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
     key('ArrowDown');
-    expect(label().textContent).toBe('button#target.primary.big');
+    expect(labelName()).toBe('button#target.primary.big');
   });
 
   it('Enter commits the highlighted element', () => {
@@ -319,7 +342,7 @@ describe('keyboard navigation', () => {
     pointer('pointermove', outer);
 
     key('ArrowDown');
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
   });
 
   it('Escape still deactivates', () => {
@@ -358,7 +381,7 @@ describe('keyboard-only capture', () => {
     expect(key('Enter').defaultPrevented).toBe(true);
     expect(selected).toEqual([]);
     expect(controller.active).toBe(true);
-    expect(label().textContent).toBe('p#first');
+    expect(labelName()).toBe('p#first');
   });
 
   it('starts at the element under the viewport centre, skipping the extension host', () => {
@@ -368,7 +391,7 @@ describe('keyboard-only capture', () => {
 
     expect(key('ArrowUp').defaultPrevented).toBe(true);
     expect(document.elementsFromPoint).toHaveBeenCalledWith(window.innerWidth / 2, window.innerHeight / 2);
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
     expect(highlight().hidden).toBe(false);
   });
 
@@ -385,7 +408,7 @@ describe('keyboard-only capture', () => {
     controller.activate();
 
     key('ArrowDown');
-    expect(label().textContent).toBe('span#inside');
+    expect(labelName()).toBe('span#inside');
   });
 
   it('falls back to the first element child of body when the centre hits nothing selectable', () => {
@@ -393,38 +416,38 @@ describe('keyboard-only capture', () => {
     controller.activate();
 
     key('ArrowRight');
-    expect(label().textContent).toBe('p#first');
+    expect(labelName()).toBe('p#first');
   });
 
   it('ArrowDown goes to the first child, ArrowLeft and ArrowRight walk siblings and clear the retrace', () => {
     pointHits = [document.querySelector('#outer')!];
     controller.activate();
     key('ArrowLeft');
-    expect(label().textContent).toBe('main#outer.wrap');
+    expect(labelName()).toBe('main#outer.wrap');
 
     key('ArrowDown');
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
     key('ArrowRight');
-    expect(label().textContent).toBe('aside#side');
+    expect(labelName()).toBe('aside#side');
     expect(key('ArrowRight').defaultPrevented).toBe(true);
-    expect(label().textContent).toBe('aside#side');
+    expect(labelName()).toBe('aside#side');
     key('ArrowLeft');
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
     key('ArrowLeft');
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
 
     key('ArrowRight');
     key('ArrowUp');
     key('ArrowLeft');
-    expect(label().textContent).toBe('p#first');
+    expect(labelName()).toBe('p#first');
     key('ArrowRight');
-    expect(label().textContent).toBe('main#outer.wrap');
+    expect(labelName()).toBe('main#outer.wrap');
     key('ArrowDown');
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
     key('ArrowDown');
-    expect(label().textContent).toBe('button#target.primary.big');
+    expect(labelName()).toBe('button#target.primary.big');
     key('ArrowDown');
-    expect(label().textContent).toBe('button#target.primary.big');
+    expect(labelName()).toBe('button#target.primary.big');
   });
 
   it('never moves onto the extension host or into its shadow root', () => {
@@ -434,11 +457,11 @@ describe('keyboard-only capture', () => {
     key('ArrowDown');
 
     key('ArrowRight');
-    expect(label().textContent).toBe('main#outer.wrap');
+    expect(labelName()).toBe('main#outer.wrap');
     key('ArrowRight');
-    expect(label().textContent).toBe('main#outer.wrap');
+    expect(labelName()).toBe('main#outer.wrap');
     key('ArrowUp');
-    expect(label().textContent).toBe('main#outer.wrap');
+    expect(labelName()).toBe('main#outer.wrap');
     expect(highlight().hidden).toBe(false);
   });
 
@@ -472,7 +495,7 @@ describe('keyboard-only capture', () => {
     controller.activate();
     key('ArrowDown');
     pointer('pointermove', document.querySelector('#first')!);
-    expect(label().textContent).toBe('p#first');
+    expect(labelName()).toBe('p#first');
   });
 });
 
@@ -501,7 +524,7 @@ describe('keys capture does not handle', () => {
       { key: 'Tab', prevented: false },
       { key: ' ', prevented: false },
     ]);
-    expect(label().textContent).toBe('button#target.primary.big');
+    expect(labelName()).toBe('button#target.primary.big');
     expect(controller.active).toBe(true);
   });
 
@@ -544,11 +567,11 @@ describe('keyboard walking over non-rendered and shadow content', () => {
     controller.activate();
 
     key('ArrowRight');
-    expect(label().textContent).toBe('p#a');
+    expect(labelName()).toBe('p#a');
     key('ArrowRight');
-    expect(label().textContent).toBe('p#b');
+    expect(labelName()).toBe('p#b');
     key('ArrowLeft');
-    expect(label().textContent).toBe('p#a');
+    expect(labelName()).toBe('p#a');
   });
 
   it('skips non-rendered first children on ArrowDown', () => {
@@ -560,7 +583,7 @@ describe('keyboard walking over non-rendered and shadow content', () => {
 
     key('ArrowRight');
     key('ArrowDown');
-    expect(label().textContent).toBe('p#kid');
+    expect(labelName()).toBe('p#kid');
   });
 
   it('starts past a non-rendered centre hit and non-rendered body children', () => {
@@ -572,7 +595,7 @@ describe('keyboard walking over non-rendered and shadow content', () => {
     controller.activate();
 
     key('ArrowDown');
-    expect(label().textContent).toBe('p#first');
+    expect(labelName()).toBe('p#first');
   });
 
   it('ArrowDown enters an open shadow root before light children, and ArrowUp returns to the host', () => {
@@ -586,13 +609,13 @@ describe('keyboard walking over non-rendered and shadow content', () => {
     controller.activate();
 
     key('ArrowRight');
-    expect(label().textContent).toBe('x-card#card');
+    expect(labelName()).toBe('x-card#card');
     key('ArrowDown');
-    expect(label().textContent).toBe('span#inner');
+    expect(labelName()).toBe('span#inner');
     key('ArrowUp');
-    expect(label().textContent).toBe('x-card#card');
+    expect(labelName()).toBe('x-card#card');
     key('ArrowDown');
-    expect(label().textContent).toBe('span#inner');
+    expect(labelName()).toBe('span#inner');
     key('Enter');
     expect(selected.map((context) => context.selector)).toEqual(['#card >>> #inner']);
   });
@@ -607,7 +630,7 @@ describe('keyboard walking over non-rendered and shadow content', () => {
 
     key('ArrowRight');
     key('ArrowDown');
-    expect(label().textContent).toBe('p#light');
+    expect(labelName()).toBe('p#light');
   });
 });
 
@@ -669,7 +692,7 @@ describe('highlight follows scroll and resize', () => {
     try {
       key('ArrowDown');
       expect(document.elementsFromPoint).toHaveBeenCalledWith(window.innerWidth / 2, window.innerHeight / 2);
-      expect(label().textContent).toBe('section#mid');
+      expect(labelName()).toBe('section#mid');
       expect(highlight().style.top).toBe('60px');
     } finally {
       delete (document as { elementsFromPoint?: unknown }).elementsFromPoint;
@@ -688,16 +711,16 @@ describe('highlight follows scroll and resize', () => {
     controller.activate();
     pointer('pointermove', target);
     key('ArrowUp');
-    expect(label().textContent).toBe('section#mid');
+    expect(labelName()).toBe('section#mid');
 
     outer.remove();
     document.dispatchEvent(new Event('scroll'));
     flushFrames();
     try {
       key('ArrowDown');
-      expect(label().textContent).toBe('aside#side');
+      expect(labelName()).toBe('aside#side');
       key('ArrowDown');
-      expect(label().textContent).toBe('aside#side');
+      expect(labelName()).toBe('aside#side');
     } finally {
       delete (document as { elementsFromPoint?: unknown }).elementsFromPoint;
     }
@@ -731,7 +754,7 @@ describe('capture target announcements', () => {
     const target = document.querySelector('#target')!;
     pointer('pointermove', target);
     expect(controller.live.textContent).toBe('button#target.primary.big');
-    expect(controller.live.textContent).toBe(label().textContent);
+    expect(controller.live.textContent).toBe(labelName());
 
     controller.live.textContent = '';
     pointer('pointermove', target);
@@ -747,6 +770,13 @@ describe('capture target announcements', () => {
     key('ArrowUp');
     expect(controller.live.textContent).toBe('section#mid');
     key('ArrowDown');
+    expect(controller.live.textContent).toBe('button#target.primary.big');
+  });
+
+  it('announces the description without the size', () => {
+    controller.activate();
+    pointer('pointermove', document.querySelector('#target')!);
+    expect(label().textContent).toBe('button#target.primary.big · 100×40');
     expect(controller.live.textContent).toBe('button#target.primary.big');
   });
 
@@ -774,6 +804,27 @@ describe('clicks inside frames', () => {
     expect(controller.live.textContent).toBe(FRAME_MESSAGE);
     expect(controller.active).toBe(true);
     expect(selected).toEqual([]);
+  });
+
+  it('writes the frame message again when it repeats', async () => {
+    const frame = document.createElement('iframe');
+    document.body.append(frame);
+    controller.activate();
+    vi.spyOn(document, 'activeElement', 'get').mockReturnValue(frame);
+    const writes: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) for (const node of record.addedNodes) writes.push(node.textContent ?? '');
+    });
+    observer.observe(controller.live, { childList: true });
+
+    window.dispatchEvent(new Event('blur'));
+    await nextTask();
+    window.dispatchEvent(new Event('blur'));
+    await nextTask();
+    await Promise.resolve();
+    observer.disconnect();
+
+    expect(writes).toEqual([FRAME_MESSAGE, FRAME_MESSAGE]);
   });
 
   it('says nothing when the window loses focus to anything but a frame, or while inactive', async () => {
@@ -846,7 +897,7 @@ describe('window capture listeners that precede the page', () => {
     controller.activate();
     const target = document.querySelector('#target')!;
     pointer('pointermove', target);
-    expect(label().textContent).toBe('button#target.primary.big');
+    expect(labelName()).toBe('button#target.primary.big');
     pointer('pointerdown', target);
     expect(selected.map((context) => context.id)).toEqual(['target']);
   });
@@ -883,5 +934,42 @@ describe('window capture listeners that precede the page', () => {
     expect(seen).toEqual(['pointermove:false', 'pointerdown:false', 'click:false', 'keydown:false']);
     expect(pageEvents).toEqual(['pointerdown', 'click']);
     expect(selected).toEqual([]);
+  });
+});
+
+describe('capture mode hint', () => {
+  it('shows the key hint while active, hides it on deactivate and removes it on destroy', () => {
+    expect(hint()!.hidden).toBe(true);
+    expect(hint()!.textContent).toBe('Click or press Enter to annotate · ↑ parent · ↓ child · ← → sibling · Esc to stop');
+    expect(hint()!.style.pointerEvents).toBe('none');
+    expect(hint()!.hasAttribute('aria-live')).toBe(false);
+
+    controller.activate();
+    expect(hint()!.hidden).toBe(false);
+    controller.deactivate();
+    expect(hint()!.hidden).toBe(true);
+    controller.destroy();
+    expect(hint()).toBeNull();
+  });
+});
+
+describe('crosshair cursor', () => {
+  it('adds one crosshair style to the page head while active and removes it on deactivate', () => {
+    controller.activate();
+    controller.activate();
+    expect(cursorStyles()).toHaveLength(1);
+    expect(cursorStyles()[0]?.parentElement).toBe(document.head);
+    expect(cursorStyles()[0]?.textContent).toBe('html, html * { cursor: crosshair !important; }');
+
+    controller.deactivate();
+    expect(cursorStyles()).toHaveLength(0);
+    controller.toggle();
+    expect(cursorStyles()).toHaveLength(1);
+  });
+
+  it('removes the style on destroy', () => {
+    controller.activate();
+    controller.destroy();
+    expect(cursorStyles()).toHaveLength(0);
   });
 });

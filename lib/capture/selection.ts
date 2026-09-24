@@ -49,6 +49,25 @@ const LABEL_STYLE = [
   'font: 12px/24px ui-monospace, monospace',
   'white-space: nowrap',
 ].join(';');
+const HINT_ATTRIBUTE = 'data-annotation-capture-hint';
+const HINT_TEXT = 'Click or press Enter to annotate · ↑ parent · ↓ child · ← → sibling · Esc to stop';
+const HINT_STYLE = [
+  'position: fixed',
+  'z-index: 2147483647',
+  'pointer-events: none',
+  'top: 8px',
+  'left: 50%',
+  'transform: translateX(-50%)',
+  'margin: 0',
+  'padding: 0 6px',
+  'box-sizing: border-box',
+  'background: #2f6fed',
+  'color: #fff',
+  'font: 12px/24px ui-monospace, monospace',
+  'white-space: nowrap',
+].join(';');
+const CURSOR_ATTRIBUTE = 'data-annotation-capture-cursor';
+const CURSOR_CSS = 'html, html * { cursor: crosshair !important; }';
 // Upper bound for a committed gesture's trailing events (pointerup/mouseup/click) when no click ever arrives.
 const GESTURE_TIMEOUT_MS = 1000;
 const KEYBOARD_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter']);
@@ -112,7 +131,15 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   label.setAttribute(LABEL_ATTRIBUTE, '');
   label.style.cssText = LABEL_STYLE;
   label.hidden = true;
-  options.shadowHost.shadowRoot?.append(highlight, label);
+  const hint = options.document.createElement('p');
+  hint.setAttribute(HINT_ATTRIBUTE, '');
+  hint.style.cssText = HINT_STYLE;
+  hint.textContent = HINT_TEXT;
+  hint.hidden = true;
+  options.shadowHost.shadowRoot?.append(highlight, label, hint);
+  const cursor = options.document.createElement('style');
+  cursor.setAttribute(CURSOR_ATTRIBUTE, '');
+  cursor.textContent = CURSOR_CSS;
   const live = createLiveRegion(options.document).element;
   const view = options.document.defaultView;
   const routes = view ? interceptPageEvents(view) : undefined;
@@ -327,6 +354,8 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     if (active) return;
     active = true;
     stopGestureSwallow();
+    hint.hidden = false;
+    (options.document.head ?? options.document.documentElement).append(cursor);
     options.document.addEventListener('scroll', scheduleFollow, { capture: true, passive: true });
     view?.addEventListener('resize', scheduleFollow, { passive: true });
     view?.addEventListener('blur', handleWindowBlur);
@@ -340,6 +369,8 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     retrace = [];
     highlight.hidden = true;
     label.hidden = true;
+    hint.hidden = true;
+    cursor.remove();
     announce('');
     syncRoute();
     options.document.removeEventListener('scroll', scheduleFollow, true);
@@ -355,6 +386,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     stopGestureSwallow();
     highlight.remove();
     label.remove();
+    hint.remove();
     live.remove();
   };
 
@@ -384,10 +416,11 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     highlight.hidden = false;
     placeFixed(highlight, { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
     label.hidden = false;
-    label.textContent = describeElement(element);
+    const description = describeElement(element);
+    label.textContent = `${description} · ${Math.round(rect.width)}×${Math.round(rect.height)}`;
     const labelHeight = LABEL_HEIGHT * cssZoom(label);
     placeFixed(label, { left: rect.left, top: rect.top < labelHeight ? rect.top : rect.top - labelHeight });
-    if (changed) announce(label.textContent);
+    if (changed) announce(description);
   }
 
   return {
