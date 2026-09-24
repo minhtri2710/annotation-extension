@@ -59,8 +59,7 @@ export function registerBackgroundMessageHandlers(
         }
       })();
 
-      void mutation.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
-      return true;
+      return reply(mutation, sendResponse);
     }
 
     // A refused write still gets an answer, so the sender never resolves to undefined.
@@ -77,8 +76,7 @@ export function registerBackgroundMessageHandlers(
 
     if (isAttachmentAddMessage(message)) {
       const add = addAttachmentMessage(message, blobStore);
-      void add.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
-      return true;
+      return reply(add, sendResponse);
     }
 
     if (isAttachmentDeleteMessage(message)) {
@@ -88,14 +86,12 @@ export function registerBackgroundMessageHandlers(
         message.attachmentId,
         blobStore,
       );
-      void remove.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
-      return true;
+      return reply(remove, sendResponse);
     }
 
     if (isBlobReadMessage(message)) {
       const read = readBlob(message, blobStore);
-      void read.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
-      return true;
+      return reply(read, sendResponse);
     }
 
     if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'blob.read') {
@@ -105,6 +101,11 @@ export function registerBackgroundMessageHandlers(
 
     return undefined;
   });
+}
+
+function reply(result: Promise<unknown>, sendResponse: (response: unknown) => void): true {
+  void result.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
+  return true;
 }
 
 async function captureScreenshot(

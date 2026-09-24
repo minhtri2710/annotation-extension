@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
-import { collectAllAnnotations, exportJson, importFileSizeError, importJson } from '../../lib/json-io';
+import { exportJson, importFileSizeError, importJson } from '../../lib/json-io';
+import { listAllAnnotations } from '../../lib/annotation-storage';
 import { createBlobStore } from '../../lib/blob-store';
 import { exportAllPages } from '../../lib/export/all-pages';
 import { productionExportDelivery } from '../../lib/export/delivery';
@@ -34,7 +35,7 @@ toggleButton?.addEventListener('click', async () => {
 exportButton?.addEventListener('click', async () => {
   setStatus(
     await exportJson({
-      collect: collectAllAnnotations,
+      collect: listAllAnnotations,
       blobStore,
       download: downloadJson,
       copy: (json) => navigator.clipboard.writeText(json),
@@ -45,7 +46,7 @@ exportButton?.addEventListener('click', async () => {
 exportMarkdownButton?.addEventListener('click', async () => {
   setStatus(
     await exportAllPages({
-      collect: collectAllAnnotations,
+      collect: listAllAnnotations,
       readBlob: (key) => blobStore.get(key),
       delivery: productionExportDelivery,
     }),

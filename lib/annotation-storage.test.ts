@@ -5,6 +5,7 @@ import {
   addAnnotation,
   clearAnnotations,
   deleteAnnotation,
+  listAllAnnotations,
   listAnnotations,
   updateAnnotation,
   addAttachment,
@@ -81,6 +82,14 @@ beforeEach(() => {
 });
 
 describe('annotation storage', () => {
+  it('lists every page in key order, reading only page keys and skipping a non-array value', async () => {
+    const second = await addAnnotation(secondPage, firstInput);
+    const first = await addAnnotation(firstPage, firstInput);
+    await fakeBrowser.storage.local.set({ 'other:key': [first], [pageKey('https://broken.example/')]: 'not a list' });
+
+    expect(await listAllAnnotations()).toEqual([first, second]);
+  });
+
   it('adds an annotation and lists it for its page', async () => {
     const created = await addAnnotation(firstPage, firstInput);
 

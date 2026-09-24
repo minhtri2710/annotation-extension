@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { pageKey } from '../utils/page-key';
+import { PAGE_KEY_PREFIX, pageKey } from '../utils/page-key';
 import { attachmentKey, screenshotKey, type BlobStore } from './blob-store';
 import { MAX_ATTACHMENTS, validateAttachmentName, validateImageBlob } from './attachments/validation';
 import type {
@@ -11,6 +11,14 @@ import type {
 } from './annotation';
 
 const writeQueues = new Map<string, Promise<void>>();
+
+export async function listAllAnnotations(): Promise<Annotation[]> {
+  const stored = await browser.storage.local.get(null);
+  return Object.keys(stored)
+    .filter((key) => key.startsWith(PAGE_KEY_PREFIX))
+    .sort()
+    .flatMap((key) => (Array.isArray(stored[key]) ? (stored[key] as Annotation[]) : []));
+}
 
 export async function addAnnotation(pageUrl: string, input: AnnotationInput): Promise<Annotation> {
   return withPageWrite(pageUrl, async (key) => {

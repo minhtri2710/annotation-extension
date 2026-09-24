@@ -1,5 +1,4 @@
-import { browser } from 'wxt/browser';
-import { isAnnotationErrorResponse, isAttachmentMetadata, type AnnotationErrorResponse } from '../annotation-messages';
+import { isAttachmentMetadata, sendBackgroundRequest } from '../annotation-messages';
 import type { AttachmentMetadata } from '../annotation';
 import { isRecord } from '../guards';
 
@@ -47,29 +46,19 @@ export function isAttachmentDeleteMessage(value: unknown): value is AttachmentDe
 export function sendAttachmentAdd(
   message: Omit<AttachmentAddMessage, 'type'>,
 ): Promise<AttachmentMetadata> {
-  return browser.runtime
-    .sendMessage<AttachmentAddMessage, AttachmentMetadata | AnnotationErrorResponse>({
-      type: 'attachment.add',
-      ...message,
-    })
-    .then((response) => {
-      if (isAnnotationErrorResponse(response)) throw new Error(response.error);
-      if (!isAttachmentMetadata(response)) throw new Error('Invalid attachment response');
-      return response;
-    });
+  return sendBackgroundRequest<AttachmentAddMessage, AttachmentMetadata>(
+    { type: 'attachment.add', ...message },
+    isAttachmentMetadata,
+    'Invalid attachment response',
+  );
 }
 
 export function sendAttachmentDelete(
   message: Omit<AttachmentDeleteMessage, 'type'>,
 ): Promise<boolean> {
-  return browser.runtime
-    .sendMessage<AttachmentDeleteMessage, boolean | AnnotationErrorResponse>({
-      type: 'attachment.delete',
-      ...message,
-    })
-    .then((response) => {
-      if (isAnnotationErrorResponse(response)) throw new Error(response.error);
-      if (typeof response !== 'boolean') throw new Error('Invalid attachment deletion response');
-      return response;
-    });
+  return sendBackgroundRequest<AttachmentDeleteMessage, boolean>(
+    { type: 'attachment.delete', ...message },
+    (response): response is boolean => typeof response === 'boolean',
+    'Invalid attachment deletion response',
+  );
 }

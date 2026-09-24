@@ -1,7 +1,6 @@
-import { browser } from 'wxt/browser';
 import { errorMessage, isRecord } from '../guards';
 import { base64ToBlob, blobToBase64 } from '../base64';
-import { deleteAnnotation, restoreAnnotation } from '../annotation-storage';
+import { deleteAnnotation, listAllAnnotations, restoreAnnotation } from '../annotation-storage';
 import {
   ID_PATTERN,
   isAnnotationStatus,
@@ -134,7 +133,7 @@ export async function importAll(
   blobStore: BlobStore = createBlobStore(),
 ): Promise<{ imported: number; skipped: number }> {
   // Ids are global and so are blob keys: skip any id stored on any page, and refuse to write over a stored attachment.
-  const stored = await collectAllAnnotations();
+  const stored = await listAllAnnotations();
   const storedIds = new Set(stored.map((annotation) => annotation.id));
   const storedAttachmentIds = new Set(stored.flatMap((annotation) => (annotation.attachments ?? []).map((attachment) => attachment.id)));
   for (const [index, { annotation }] of plan.entries()) {
@@ -180,14 +179,6 @@ export async function importJson(
   } catch (error) {
     return error instanceof JsonImportError ? error.message : 'Import failed. Nothing was imported.';
   }
-}
-
-export async function collectAllAnnotations(): Promise<Annotation[]> {
-  const stored = await browser.storage.local.get(null);
-  return Object.keys(stored)
-    .filter((key) => key.startsWith('page:'))
-    .sort()
-    .flatMap((key) => (Array.isArray(stored[key]) ? (stored[key] as Annotation[]) : []));
 }
 
 async function parseEntry(

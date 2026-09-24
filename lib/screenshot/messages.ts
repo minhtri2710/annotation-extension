@@ -2,6 +2,7 @@ import { browser } from 'wxt/browser';
 import {
   isAnnotationErrorResponse,
   isScreenshotMetadata,
+  sendBackgroundRequest,
   type AnnotationErrorResponse,
 } from '../annotation-messages';
 import type { BoundingBox } from '../capture/context';
@@ -83,19 +84,17 @@ export function sendScreenshotCapture(
     });
 }
 
-export function sendBlobRead(key: string): Promise<Blob> {
-  return browser.runtime
-    .sendMessage<BlobReadMessage, BlobReadResponse | AnnotationErrorResponse>({
-      type: 'blob.read',
-      key,
-    })
-    .then((response) => {
-      if (isAnnotationErrorResponse(response)) throw new Error(response.error);
-      if (!isRecord(response) || typeof response.mimeType !== 'string' || typeof response.base64 !== 'string') {
-        throw new Error('Invalid blob response');
-      }
-      return base64ToBlob(response.base64, response.mimeType);
-    });
+export async function sendBlobRead(key: string): Promise<Blob> {
+  const response = await sendBackgroundRequest<BlobReadMessage, BlobReadResponse>(
+    { type: 'blob.read', key },
+    isBlobReadResponse,
+    'Invalid blob response',
+  );
+  return base64ToBlob(response.base64, response.mimeType);
+}
+
+function isBlobReadResponse(value: unknown): value is BlobReadResponse {
+  return isRecord(value) && typeof value.mimeType === 'string' && typeof value.base64 === 'string';
 }
 
 function isBoundingBox(value: unknown): value is BoundingBox {

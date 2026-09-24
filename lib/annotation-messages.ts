@@ -41,6 +41,18 @@ export function isAnnotationErrorResponse(value: unknown): value is AnnotationEr
   return isRecord(value) && value.ok === false && typeof value.error === 'string';
 }
 
+/** Sends a message to the background; an error response throws its text and a malformed response throws invalidError. */
+export async function sendBackgroundRequest<M, R>(
+  message: M,
+  isResponse: (value: unknown) => value is R,
+  invalidError: string,
+): Promise<R> {
+  const response: unknown = await browser.runtime.sendMessage(message);
+  if (isAnnotationErrorResponse(response)) throw new Error(response.error);
+  if (!isResponse(response)) throw new Error(invalidError);
+  return response;
+}
+
 export function createAnnotationErrorResponse(error: unknown): AnnotationErrorResponse {
   return { ok: false, error: errorMessage(error) };
 }

@@ -14,6 +14,7 @@ import {
   isCssEdits,
   isScreenshotMetadata,
   sendAnnotationWrite,
+  sendBackgroundRequest,
 } from './annotation-messages';
 
 const pageUrl = 'https://example.com/message-test';
@@ -342,5 +343,25 @@ describe('shared caps on write messages', () => {
       `The note is longer than ${MAX_TEXT_LENGTH} characters.`,
     );
     await expect(listAnnotations(pageUrl)).resolves.toEqual([]);
+  });
+});
+
+describe('sendBackgroundRequest', () => {
+  const isNumber = (value: unknown): value is number => typeof value === 'number';
+
+  it('throws the text of an error response', async () => {
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'storage unavailable' } as never);
+    await expect(sendBackgroundRequest({ type: 'probe' }, isNumber, 'Invalid probe response')).rejects.toThrow('storage unavailable');
+  });
+
+  it('throws invalidError for a response failing the guard', async () => {
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue('not a number' as never);
+    await expect(sendBackgroundRequest({ type: 'probe' }, isNumber, 'Invalid probe response')).rejects.toThrow('Invalid probe response');
+  });
+
+  it('resolves to a valid response and sends the message unchanged', async () => {
+    const send = vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue(42 as never);
+    await expect(sendBackgroundRequest({ type: 'probe' }, isNumber, 'Invalid probe response')).resolves.toBe(42);
+    expect(send).toHaveBeenCalledWith({ type: 'probe' });
   });
 });
