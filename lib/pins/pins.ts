@@ -92,16 +92,57 @@ export function fanOut(
   const size = PIN_SIZE * zoom;
   const half = size / 2;
   const step = (PIN_SIZE + FAN_GAP) * zoom;
-  const onScreen = ({ x, y }: { x: number; y: number }) => x >= 0 && y >= 0 && x < viewport.width && y < viewport.height;
-  const placed: { x: number; y: number }[] = [];
-  const free = (x: number, y: number) => placed.every((pin) => Math.abs(pin.x - x) >= size || Math.abs(pin.y - y) >= size);
+  // Placed pins in cells of one pin size, indexed [row band + 1][column + 1] so a neighbour index is never
+  // negative: a pin overlapping a slot lies in one of the nine cells around it.
+  const cells: { x: number; y: number }[][][] = [];
+  // Per centre y then x, the slot after the one its last pin took (0 centre, k > 0 right, k < 0 left), or
+  // FULL. Pins only accumulate, so every slot before it in the order is still taken for that centre.
+  const FULL = Infinity;
+  const resume = new Map<number, Map<number, number>>();
+  const taken = (slot: number, y: number, band: number) => {
+    const column = Math.floor(slot / size) + 1;
+    for (let b = band; b <= band + 2; b++) {
+      const row = cells[b];
+      if (!row) continue;
+      for (let c = column - 1; c <= column + 1; c++) {
+        const cell = row[c];
+        if (!cell) continue;
+        for (let i = 0; i < cell.length; i++) {
+          if (Math.abs(cell[i]!.x - slot) < size && Math.abs(cell[i]!.y - y) < size) return true;
+        }
+      }
+    }
+    return false;
+  };
   return centers.map((center) => {
-    if (!onScreen(center)) return center;
-    const candidates = [center.x];
-    for (let k = 1; center.x + k * step <= viewport.width - half; k++) candidates.push(center.x + k * step);
-    for (let k = 1; center.x - k * step >= half; k++) candidates.push(center.x - k * step);
-    const pin = { x: candidates.find((x) => free(x, center.y)) ?? half, y: center.y };
-    placed.push(pin);
+    const { x, y } = center;
+    if (!(x >= 0 && y >= 0 && x < viewport.width && y < viewport.height)) return center;
+    const band = Math.floor(y / size);
+    let slots = resume.get(y);
+    if (!slots) resume.set(y, (slots = new Map()));
+    let k = slots.get(x) ?? 0;
+    let placedX = half;
+    if (k === 0) {
+      if (taken(x, y, band)) k = 1;
+      else placedX = x;
+    }
+    if (k > 0 && k !== FULL) {
+      while (x + k * step <= viewport.width - half && taken(x + k * step, y, band)) k++;
+      if (x + k * step <= viewport.width - half) placedX = x + k * step;
+      else k = -1;
+    }
+    if (k < 0) {
+      while (x - -k * step >= half && taken(x - -k * step, y, band)) k--;
+      if (x - -k * step >= half) placedX = x - -k * step;
+      else k = FULL;
+    }
+    slots.set(x, k === FULL ? FULL : k < 0 ? k - 1 : k + 1);
+    const pin = { x: placedX, y };
+    const row = (cells[band + 1] ??= []);
+    const column = Math.floor(placedX / size) + 1;
+    const cell = row[column];
+    if (cell) cell.push(pin);
+    else row[column] = [pin];
     return pin;
   });
 }

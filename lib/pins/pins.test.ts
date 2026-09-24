@@ -745,6 +745,84 @@ describe('fanOut', () => {
       }
     }
   });
+
+  it('moves a pin that overlaps one in the row band below or above it', () => {
+    const below = fanOut([{ x: 40, y: 17 }, { x: 45, y: 34 }], viewport);
+    expect(below[0]).toEqual({ x: 40, y: 17 });
+    expect(below[1]).not.toEqual({ x: 45, y: 34 });
+    expectApart(below);
+    const above = fanOut([{ x: 45, y: 34 }, { x: 40, y: 17 }], viewport);
+    expect(above[0]).toEqual({ x: 45, y: 34 });
+    expect(above[1]).not.toEqual({ x: 40, y: 17 });
+    expectApart(above);
+  });
+
+  // P9's all-pairs search, verbatim, as the reference the banded search must match.
+  const PIN_SIZE = 18;
+  const FAN_GAP = 4;
+  function referenceFanOut(
+    centers: { x: number; y: number }[],
+    viewport: { width: number; height: number },
+    zoom = 1,
+  ): { x: number; y: number }[] {
+    const size = PIN_SIZE * zoom;
+    const half = size / 2;
+    const step = (PIN_SIZE + FAN_GAP) * zoom;
+    const onScreen = ({ x, y }: { x: number; y: number }) => x >= 0 && y >= 0 && x < viewport.width && y < viewport.height;
+    const placed: { x: number; y: number }[] = [];
+    const free = (x: number, y: number) => placed.every((pin) => Math.abs(pin.x - x) >= size || Math.abs(pin.y - y) >= size);
+    return centers.map((center) => {
+      if (!onScreen(center)) return center;
+      const candidates = [center.x];
+      for (let k = 1; center.x + k * step <= viewport.width - half; k++) candidates.push(center.x + k * step);
+      for (let k = 1; center.x - k * step >= half; k++) candidates.push(center.x - k * step);
+      const pin = { x: candidates.find((x) => free(x, center.y)) ?? half, y: center.y };
+      placed.push(pin);
+      return pin;
+    });
+  }
+
+  it('places every seeded random layout and every stacked worst case exactly as the all-pairs search', () => {
+    const seed = 0x9e3779b9;
+    let state = seed;
+    // mulberry32
+    const random = () => {
+      state = (state + 0x6d2b79f5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const between = (min: number, max: number) => min + random() * (max - min);
+    const screen = { width: 1280, height: 800 };
+    for (let layout = 0; layout < 500; layout++) {
+      const zoom = [1, 1.5, 2][Math.floor(random() * 3)]!;
+      const half = (size * zoom) / 2;
+      const clusters = Array.from({ length: 1 + Math.floor(random() * 4) }, () => ({
+        x: between(half + 24, screen.width - half - 24),
+        y: between(half + 24, screen.height - half - 24),
+      }));
+      const centers = Array.from({ length: 2 + Math.floor(random() * 29) }, () => {
+        if (random() < 0.1) return { x: -between(1, 500), y: between(0, screen.height) };
+        const cluster = clusters[Math.floor(random() * clusters.length)]!;
+        return { x: cluster.x + between(-24, 24), y: cluster.y + between(-24, 24) };
+      });
+      expect(fanOut(centers, screen, zoom), `seed ${seed}, layout ${layout}, zoom ${zoom}`).toEqual(
+        referenceFanOut(centers, screen, zoom),
+      );
+    }
+    const stacks: [string, { x: number; y: number }, { width: number; height: number }, number][] = [
+      ['mid-row', { x: 640, y: 400 }, screen, 200],
+      ['top-left corner', { x: 0, y: 0 }, screen, 200],
+      ['top-right corner', { x: screen.width - 1, y: 0 }, screen, 200],
+      ['right edge of a 320 viewport', { x: 311, y: 60 }, viewport, 16],
+    ];
+    for (const [name, center, view, count] of stacks) {
+      const centers = Array.from({ length: count }, () => ({ ...center }));
+      for (const zoom of [1, 2]) {
+        expect(fanOut(centers, view, zoom), `${name}, zoom ${zoom}`).toEqual(referenceFanOut(centers, view, zoom));
+      }
+    }
+  });
 });
 
 describe('pin tooltip dismissal', () => {
