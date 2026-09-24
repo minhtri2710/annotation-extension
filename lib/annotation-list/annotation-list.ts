@@ -1,6 +1,11 @@
 import type { Annotation } from '../annotation';
 import { errorMessage } from '../guards';
-import { attachmentAssetFilename, format, screenshotAssetFilename } from '../export/format';
+import {
+  attachmentAssetFilename,
+  format,
+  formatElementContext,
+  screenshotAssetFilename,
+} from '../export/format';
 import {
   productionExportDelivery,
   type AnnotationExportDelivery,
@@ -231,17 +236,22 @@ export function createAnnotationList(
     row.dataset.annotationRow = '';
     row.dataset.annotationId = annotation.id;
 
+    const number = document.createElement('span');
+    number.dataset.annotationPosition = '';
+    number.textContent = String(position);
+
     const note = document.createElement('p');
     note.dataset.annotationNote = '';
     note.textContent = annotation.note;
 
     const hint = document.createElement('p');
     hint.dataset.annotationHint = '';
-    hint.textContent = annotation.selector;
+    hint.textContent = formatElementContext(annotation.elementContext) ?? annotation.selector;
+    hint.title = annotation.selector;
 
     const status = document.createElement('p');
     status.dataset.annotationStatus = annotation.status;
-    status.textContent = `Status: ${annotation.status}`;
+    status.textContent = annotation.status === 'open' ? 'Open' : 'Resolved';
 
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -274,12 +284,7 @@ export function createAnnotationList(
         announce(`Annotation ${position} located.`);
         return;
       }
-      if (!row.querySelector('[data-annotation-locate-missing]')) {
-        const missing = document.createElement('p');
-        missing.dataset.annotationLocateMissing = '';
-        missing.textContent = LOCATE_MISSING_MESSAGE;
-        row.append(missing);
-      }
+      flagMissing(document, row);
       announce(LOCATE_MISSING_MESSAGE);
     });
 
@@ -292,8 +297,17 @@ export function createAnnotationList(
       panel.dispatchEvent(new CustomEvent<Annotation>(ANNOTATION_EDIT_EVENT, { detail: annotation }));
     });
 
-    row.append(note, hint, status, locate, edit, remove);
+    row.append(number, note, hint, status, locate, edit, remove);
+    if (!resolveSelector(document, annotation.selector)) flagMissing(document, row);
     return row;
+  }
+
+  function flagMissing(document: Document, row: HTMLElement): void {
+    if (row.querySelector('[data-annotation-locate-missing]')) return;
+    const missing = document.createElement('p');
+    missing.dataset.annotationLocateMissing = '';
+    missing.textContent = LOCATE_MISSING_MESSAGE;
+    row.append(missing);
   }
 
   // An action re-renders only if clear() did not run while it was pending.

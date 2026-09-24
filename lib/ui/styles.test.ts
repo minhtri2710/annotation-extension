@@ -312,6 +312,24 @@ describe('overlay live region and panel chrome styles', () => {
     expect(ruleBody('[data-annotation-shell] [data-annotation-clear-prompt] {')).toMatch(/var\(--annotation-/);
     expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toMatch(/data-annotation-(?:live|locate-missing|clear-prompt)/);
   });
+
+  it('styles the row position number, one-line hint and status chip from tokens without motion', () => {
+    const position = ruleBody('[data-annotation-shell] [data-annotation-position] {');
+    expect(position).toContain('background: var(--annotation-color-accent)');
+    expect(position).toContain('font-weight: var(--annotation-font-weight-bold)');
+    const hint = ruleBody('[data-annotation-shell] [data-annotation-hint] {');
+    expect(hint).toContain('overflow: hidden');
+    expect(hint).toContain('text-overflow: ellipsis');
+    expect(hint).toContain('white-space: nowrap');
+    const chip = ruleBody('[data-annotation-shell] [data-annotation-row] [data-annotation-status] {');
+    expect(chip).toContain('border-radius: var(--annotation-radius-sm)');
+    expect(chip).toContain('background: var(--annotation-color-surface-raised)');
+    expect(ruleBody('[data-annotation-shell] [data-annotation-row] [data-annotation-status="open"] {')).toContain(
+      'border-color: var(--annotation-color-accent)',
+    );
+    for (const body of [position, hint, chip]) expect(body).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
+    expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toMatch(/data-annotation-(?:position|hint)/);
+  });
 });
 
 function ruleBody(selectorLine: string, css = OVERLAY_STYLES): string {

@@ -288,6 +288,45 @@ ${ANNOTATION_DARK_TOKENS}
   border: 0;
 }
 
+[data-annotation-shell] [data-annotation-position] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--annotation-space-4);
+  padding: 0 var(--annotation-space-1);
+  border-radius: var(--annotation-radius-sm);
+  background: var(--annotation-color-accent);
+  color: var(--annotation-color-surface);
+  font-size: var(--annotation-font-size-caption);
+  font-weight: var(--annotation-font-weight-bold);
+}
+
+[data-annotation-shell] [data-annotation-hint] {
+  margin: 0;
+  overflow: hidden;
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-annotation-shell] [data-annotation-row] [data-annotation-status] {
+  display: inline-block;
+  margin: 0;
+  padding: 0 var(--annotation-space-2);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-sm);
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+  font-weight: var(--annotation-font-weight-medium);
+}
+
+[data-annotation-shell] [data-annotation-row] [data-annotation-status="open"] {
+  border-color: var(--annotation-color-accent);
+  color: var(--annotation-color-text);
+}
+
 [data-annotation-shell] [data-annotation-locate-missing] {
   margin: 0;
   color: var(--annotation-color-danger);

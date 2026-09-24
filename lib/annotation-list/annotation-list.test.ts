@@ -612,6 +612,77 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     expect(other.scrollIntoView).not.toHaveBeenCalled();
   });
 
+  it('numbers each row with the same position text as its pin, in list order', async () => {
+    const { panel } = mounted();
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('a', 'One'), annotation('b', 'Two'), annotation('c', 'Three')]));
+    await list.render();
+    expect([...panel.querySelectorAll('[data-annotation-row] > [data-annotation-position]')].map((node) => node.textContent)).toEqual(['1', '2', '3']);
+    expect(panel.querySelector('[data-annotation-badge]')).toBeNull();
+  });
+
+  it('labels the row hint from the element context and keeps the raw selector in its title', async () => {
+    const { panel } = mounted();
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'One')]));
+    await list.render();
+    const hint = panel.querySelector('[data-annotation-hint]');
+    expect(hint?.textContent).toBe('BUTTON#target "Target"');
+    expect(hint?.getAttribute('title')).toBe('#target-annotation-1');
+  });
+
+  it('falls back to the selector as the hint when the element context has no label', async () => {
+    const { panel } = mounted();
+    const bare = { ...annotation('annotation-1', 'One'), elementContext: { ...elementContext, tagName: '', id: '', text: '  ' } };
+    const list = createAnnotationList(panel, pageUrl, persistence([bare]));
+    await list.render();
+    const hint = panel.querySelector('[data-annotation-hint]');
+    expect(hint?.textContent).toBe('#target-annotation-1');
+    expect(hint?.getAttribute('title')).toBe('#target-annotation-1');
+  });
+
+  it('shows the status as an Open or Resolved chip on the status element', async () => {
+    const { panel } = mounted();
+    const resolved: Annotation = { ...annotation('b', 'Two'), status: 'resolved' };
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('a', 'One'), resolved]));
+    await list.render();
+    expect(panel.querySelector('[data-annotation-id="a"] [data-annotation-status="open"]')?.textContent).toBe('Open');
+    expect(panel.querySelector('[data-annotation-id="b"] [data-annotation-status="resolved"]')?.textContent).toBe('Resolved');
+  });
+
+  it('pre-flags a row whose element is missing at render, without announcing it', async () => {
+    const { panel, root } = mounted();
+    anchor('here');
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('gone', 'Gone'), annotation('here', 'Here')]));
+    root.append(list.live);
+    await list.render();
+    const missing = panel.querySelectorAll('[data-annotation-locate-missing]');
+    expect(missing).toHaveLength(1);
+    expect(missing[0]?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id')).toBe('gone');
+    expect(missing[0]?.textContent).toBe('Element not found on this page');
+    expect(panel.querySelector('[data-annotation-id="here"] [data-annotation-locate-missing]')).toBeNull();
+    expect(list.live.textContent).toBe('');
+  });
+
+  it('Locate on a pre-flagged row whose element now exists removes the flag', async () => {
+    const { panel } = mounted();
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('late', 'Late')]));
+    await list.render();
+    expect(panel.querySelector('[data-annotation-locate-missing]')).not.toBeNull();
+    anchor('late');
+    panel.querySelector<HTMLButtonElement>('[data-annotation-locate]')!.click();
+    expect(panel.querySelector('[data-annotation-locate-missing]')).toBeNull();
+    list.clear();
+  });
+
+  it('Locate on a pre-flagged missing element keeps a single flag and announces it', async () => {
+    const { panel, root } = mounted();
+    const list = createAnnotationList(panel, pageUrl, persistence([annotation('gone', 'Gone')]));
+    root.append(list.live);
+    await list.render();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-locate]')!.click();
+    expect(panel.querySelectorAll('[data-annotation-locate-missing]')).toHaveLength(1);
+    expect(list.live.textContent).toBe('Element not found on this page');
+  });
+
   it('Edit asks the host to open the note panel on that annotation', async () => {
     const panel = document.createElement('div');
     const annotations = [annotation('annotation-1', 'One'), annotation('annotation-2', 'Two')];

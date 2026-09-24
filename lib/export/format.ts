@@ -121,7 +121,7 @@ function linkTarget(filename: string): string {
   return `./${encodeURIComponent(filename).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)}`;
 }
 
-function formatElementContext(elementContext: ElementContext): string | undefined {
+export function formatElementContext(elementContext: ElementContext): string | undefined {
   const { tagName, id, classList, text } = elementContext;
   const normalizedText = text.replace(/\s+/g, ' ').trim();
   const identity = `${tagName}${id ? `#${id}` : ''}${classList
