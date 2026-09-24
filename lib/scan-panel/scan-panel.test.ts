@@ -811,6 +811,41 @@ describe('scan panel severity filter, groups and Rescan', () => {
     ]);
   });
 
+  const openGroups = (panel: HTMLElement) =>
+    [...panel.querySelectorAll<HTMLDetailsElement>('[data-annotation-scan-group]')].map((g) => [g.dataset.ruleId, g.open]);
+
+  it('opens the advisory groups when the Advisories chip is picked, and All afterwards leaves them open', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => mixed());
+    await renderNow(scanPanel.render);
+    chip(panel, 'advisory').click();
+    expect(openGroups(panel)).toEqual([['e', true], ['w', true], ['a', true]]);
+    chip(panel, 'all').click();
+    expect(openGroups(panel)).toEqual([['e', true], ['w', true], ['a', true]]);
+  });
+
+  it('keeps advisory groups closed under the default All filter, and picking All opens nothing', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => mixed());
+    await renderNow(scanPanel.render);
+    expect(pressed(panel)).toEqual(['all']);
+    expect(openGroups(panel)).toEqual([['e', true], ['w', true], ['a', false]]);
+    chip(panel, 'all').click();
+    expect(openGroups(panel)).toEqual([['e', true], ['w', true], ['a', false]]);
+  });
+
+  it('opens the advisory groups when a stored Advisories filter is re-applied after Rescan', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => mixed());
+    await renderNow(scanPanel.render);
+    chip(panel, 'advisory').click();
+    rescanButton(panel)!.click();
+    await flush();
+    expect(pressed(panel)).toEqual(['advisory']);
+    expect(visible(panel)).toEqual(['a']);
+    expect(openGroups(panel)).toEqual([['e', true], ['w', true], ['a', true]]);
+  });
+
   it('puts the heading and severity chip in the summary, then the description and the list', async () => {
     vi.useFakeTimers();
     const { panel, scanPanel } = setup(async () => mixed());

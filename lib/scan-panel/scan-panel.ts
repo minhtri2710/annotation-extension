@@ -203,7 +203,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     return button;
   }
 
-  function createFilter(document: Document, findings: Finding[], groups: { severity: Severity; element: HTMLElement }[]): HTMLElement {
+  function createFilter(document: Document, findings: Finding[], groups: { severity: Severity; element: HTMLDetailsElement }[]): HTMLElement {
     const filter = document.createElement('div');
     filter.dataset.annotationFilter = '';
     filter.setAttribute('role', 'group');
@@ -230,7 +230,10 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     });
     const apply = (value: Severity | 'all') => {
       chips.forEach((chip) => chip.setAttribute('aria-pressed', String(chip.dataset.annotationFilterValue === value)));
-      for (const group of groups) group.element.hidden = value !== 'all' && group.severity !== value;
+      for (const group of groups) {
+        group.element.hidden = value !== 'all' && group.severity !== value;
+        if (group.severity === value) group.element.open = true;
+      }
     };
     apply(options.some((option) => option.value === severityFilter) ? severityFilter : 'all');
     filter.append(...chips);
@@ -285,7 +288,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     panel.append(createFilter(document, findings, groupElements), ...groupElements.map((group) => group.element));
   }
 
-  function createGroup(document: Document, group: Finding[]): HTMLElement {
+  function createGroup(document: Document, group: Finding[]): HTMLDetailsElement {
     const first = group[0]!;
     const details = document.createElement('details');
     details.dataset.annotationScanGroup = '';
