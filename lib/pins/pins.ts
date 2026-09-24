@@ -79,32 +79,30 @@ export function pinCenter(
   return { x: clamp(rect.left, half, viewport.width - half), y: clamp(rect.top, half, viewport.height - half) };
 }
 
-// Pins sharing an exact centre fan out along x in list order: the first keeps its centre, the k-th later
-// one moves k * (PIN_SIZE + FAN_GAP) * zoom right, or left for the whole group when its last pin would
-// cross the right edge. A centre outside the viewport (an off-screen element) stays where it is.
+// On-screen pins are placed in list order so no two PIN_SIZE * zoom squares overlap: each keeps its
+// centre when that is free, else takes the first free slot k * (PIN_SIZE + FAN_GAP) * zoom to the right
+// that stays inside the viewport, then the first free one to the left, keeping its y. A row with no free
+// slot left puts the pin at half a pin from the left edge. A centre outside the viewport (an off-screen
+// element) stays where it is and blocks nothing.
 export function fanOut(
   centers: { x: number; y: number }[],
   viewport: Viewport,
   zoom = 1,
 ): { x: number; y: number }[] {
-  const half = (PIN_SIZE * zoom) / 2;
+  const size = PIN_SIZE * zoom;
+  const half = size / 2;
   const step = (PIN_SIZE + FAN_GAP) * zoom;
   const onScreen = ({ x, y }: { x: number; y: number }) => x >= 0 && y >= 0 && x < viewport.width && y < viewport.height;
-  const groups = new Map<string, { size: number; next: number }>();
-  for (const center of centers) {
-    if (!onScreen(center)) continue;
-    const key = `${center.x},${center.y}`;
-    const group = groups.get(key);
-    if (group) group.size++;
-    else groups.set(key, { size: 1, next: 0 });
-  }
+  const placed: { x: number; y: number }[] = [];
+  const free = (x: number, y: number) => placed.every((pin) => Math.abs(pin.x - x) >= size || Math.abs(pin.y - y) >= size);
   return centers.map((center) => {
     if (!onScreen(center)) return center;
-    const group = groups.get(`${center.x},${center.y}`)!;
-    const k = group.next++;
-    const last = center.x + (group.size - 1) * step;
-    const direction = last > viewport.width - half ? -1 : 1;
-    return { x: clamp(center.x + direction * k * step, half, viewport.width - half), y: center.y };
+    const candidates = [center.x];
+    for (let k = 1; center.x + k * step <= viewport.width - half; k++) candidates.push(center.x + k * step);
+    for (let k = 1; center.x - k * step >= half; k++) candidates.push(center.x - k * step);
+    const pin = { x: candidates.find((x) => free(x, center.y)) ?? half, y: center.y };
+    placed.push(pin);
+    return pin;
   });
 }
 

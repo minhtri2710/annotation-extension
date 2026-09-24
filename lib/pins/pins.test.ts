@@ -609,7 +609,7 @@ describe('fanOut', () => {
 
   it('returns a single pin and pins with distinct centres unchanged', () => {
     expect(fanOut([{ x: 40, y: 60 }], viewport)).toEqual([{ x: 40, y: 60 }]);
-    const distinct = [{ x: 40, y: 60 }, { x: 41, y: 60 }, { x: 40, y: 61 }];
+    const distinct = [{ x: 40, y: 60 }, { x: 80, y: 60 }, { x: 40, y: 100 }];
     expect(fanOut(distinct, viewport)).toEqual(distinct);
   });
 
@@ -669,6 +669,80 @@ describe('fanOut', () => {
       expect(x).toBeGreaterThanOrEqual(half);
       expect(x).toBeLessThanOrEqual(viewport.width - half);
       expect(y).toBe(60);
+    }
+  });
+
+  const size = 18;
+  const intersects = (a: { x: number; y: number }, b: { x: number; y: number }, pin = size) =>
+    Math.abs(a.x - b.x) < pin && Math.abs(a.y - b.y) < pin;
+  const expectApart = (pins: { x: number; y: number }[], pin = size, message = '') => {
+    for (const [i, a] of pins.entries()) {
+      for (const b of pins.slice(i + 1)) {
+        expect(intersects(a, b, pin), `${message}${JSON.stringify(a)} overlaps ${JSON.stringify(b)}`).toBe(false);
+      }
+    }
+  };
+
+  it('separates a chain of centres less than a pin apart, keeping the first centre and every y', () => {
+    const fanned = fanOut([{ x: 40, y: 60 }, { x: 50, y: 60 }, { x: 60, y: 60 }], viewport);
+    expectApart(fanned);
+    expect(fanned[0]).toEqual({ x: 40, y: 60 });
+    expect(fanned.map(({ y }) => y)).toEqual([60, 60, 60]);
+  });
+
+  it('moves a partly overlapping pin and leaves pins exactly one pin apart unchanged', () => {
+    const partial = fanOut([{ x: 40, y: 60 }, { x: 50, y: 65 }], viewport);
+    expect(partial[0]).toEqual({ x: 40, y: 60 });
+    expect(partial[1]).not.toEqual({ x: 50, y: 65 });
+    expect(partial[1]!.y).toBe(65);
+    expectApart(partial);
+    const touching = [{ x: 40, y: 60 }, { x: 58, y: 60 }];
+    expect(fanOut(touching, viewport)).toEqual(touching);
+    const stacked = [{ x: 40, y: 60 }, { x: 40, y: 90 }];
+    expect(fanOut(stacked, viewport)).toEqual(stacked);
+  });
+
+  it('keeps 500 seeded random layouts free of overlaps, inside the viewport, and moves pins only when they must', () => {
+    const seed = 0x9e3779b9;
+    let state = seed;
+    // mulberry32
+    const random = () => {
+      state = (state + 0x6d2b79f5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const between = (min: number, max: number) => min + random() * (max - min);
+    const screen = { width: 1280, height: 800 };
+    for (let layout = 0; layout < 500; layout++) {
+      const zoom = [1, 1.5, 2][Math.floor(random() * 3)]!;
+      const pin = size * zoom;
+      const half = pin / 2;
+      const clusters = Array.from({ length: 1 + Math.floor(random() * 4) }, () => ({
+        x: between(half + 24, screen.width - half - 24),
+        y: between(half + 24, screen.height - half - 24),
+      }));
+      const centers = Array.from({ length: 2 + Math.floor(random() * 29) }, () => {
+        if (random() < 0.1) return { x: -between(1, 500), y: between(0, screen.height) };
+        const cluster = clusters[Math.floor(random() * clusters.length)]!;
+        return { x: cluster.x + between(-24, 24), y: cluster.y + between(-24, 24) };
+      });
+      const message = `seed ${seed}, layout ${layout}, zoom ${zoom}: `;
+      const fanned = fanOut(centers, screen, zoom);
+      const onScreen = (i: number) => centers[i]!.x >= 0;
+      expectApart(fanned.filter((_, i) => onScreen(i)), pin, message);
+      for (const [i, center] of centers.entries()) {
+        const out = fanned[i]!;
+        if (!onScreen(i)) {
+          expect(out, message).toEqual(center);
+          continue;
+        }
+        expect(out.x, message).toBeGreaterThanOrEqual(half);
+        expect(out.x, message).toBeLessThanOrEqual(screen.width - half);
+        expect(out.y, message).toBe(center.y);
+        const earlier = fanned.slice(0, i).filter((_, j) => onScreen(j));
+        if (earlier.every((other) => !intersects(center, other, pin))) expect(out, message).toEqual(center);
+      }
     }
   });
 });

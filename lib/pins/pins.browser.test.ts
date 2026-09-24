@@ -246,6 +246,29 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     });
   }
 
+  it('keeps the pins of two elements whose corners are 10 px apart from overlapping, each clickable at its centre', () => {
+    const { shadow, shell } = mountShell();
+    placeTarget('left: 200px; top: 200px');
+    const neighbour = document.createElement('div');
+    neighbour.id = 'neighbour-target';
+    neighbour.style.cssText = 'position: absolute; left: 210px; top: 200px; width: 100px; height: 40px';
+    document.body.append(neighbour);
+    document.getElementById('edge-target')!.style.position = 'absolute';
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller.setAnnotations([annotation(0, '#edge-target'), annotation(1, '#neighbour-target')]);
+    controller.reanchor();
+
+    const markers = Array.from(shell.root.querySelectorAll<HTMLElement>('.annotation-pin'));
+    expect(markers).toHaveLength(2);
+    const [a, b] = markers.map((marker) => marker.getBoundingClientRect()) as [DOMRect, DOMRect];
+    const overlaps = a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    expect(overlaps, `${JSON.stringify(a)} overlaps ${JSON.stringify(b)}`).toBe(false);
+    for (const marker of markers) {
+      const rect = marker.getBoundingClientRect();
+      expect(shadow.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)).toBe(marker);
+    }
+  });
+
   it('leaves the pin of an element outside the viewport off-screen', () => {
     const { shell } = mountShell();
     placeTarget('left: -500px; top: 100px');
