@@ -6,7 +6,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import contentScript from '../../entrypoints/content';
 import { interceptPageEvents, releasePageEvents } from '../capture';
-import { CAPTURE_TOGGLE_MESSAGE } from '../capture/activation';
+import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../capture/activation';
 import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
 
 // Spy: the content script's event bus is closure-private; the real bus runs, and each `on` records its unsubscriber.
@@ -264,6 +264,21 @@ describe('content script entrypoint', () => {
     await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
     expect(host!.hasAttribute('data-annotation-active')).toBe(true);
     expect(button('Stop annotating').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('answers a capture-state message through sendResponse and never for a toggle message', async () => {
+    const messageListeners = vi.spyOn(browser.runtime.onMessage, 'addListener');
+    await start();
+    const [listener] = messageListeners.mock.calls.map(([added]) => added);
+    const sendResponse = vi.fn();
+
+    expect(listener!({ type: CAPTURE_STATE_MESSAGE }, {}, sendResponse)).toBeUndefined();
+    expect(sendResponse.mock.calls).toEqual([[{ active: false }]]);
+    const toggleResponse = vi.fn();
+    expect(listener!({ type: CAPTURE_TOGGLE_MESSAGE }, {}, toggleResponse)).toBeUndefined();
+    expect(toggleResponse).not.toHaveBeenCalled();
+    expect(listener!({ type: CAPTURE_STATE_MESSAGE }, {}, sendResponse)).toBeUndefined();
+    expect(sendResponse.mock.calls).toEqual([[{ active: false }], [{ active: true }]]);
   });
 
   it('releases the capture-state subscription when the context is invalidated', async () => {

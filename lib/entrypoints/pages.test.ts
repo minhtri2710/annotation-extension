@@ -31,26 +31,56 @@ afterEach(() => {
 });
 
 describe('popup page', () => {
-  it('sends the capture toggle to the active tab and closes the popup', async () => {
+  const PAGE = 'https://example.com/page';
+  const RELOAD = 'Annotations are not available on this page. If it was open before the extension loaded, reload it.';
+
+  // Stub: the popup reads the active tab and asks it for its capture state through these two tab APIs.
+  function stubTab(url: string | undefined, reply: () => Promise<unknown>) {
+    const query = vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 11, url }] as never);
+    const sendMessage = vi.spyOn(browser.tabs, 'sendMessage').mockImplementation(reply as never);
+    return { query, sendMessage };
+  }
+
+  const input = (url: string, selector: string) => ({
+    note: 'Fix spacing',
+    selector,
+    elementContext: {
+      selector,
+      tagName: 'DIV',
+      id: '',
+      classList: [],
+      text: 'Hero',
+      boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+      url,
+      viewport: { width: 1280, height: 720 },
+      sourcePath: null,
+    },
+  });
+
+  async function openPopup() {
     loadPage('popup');
-    const query = vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 11 }] as never);
-    const sendMessage = vi.spyOn(browser.tabs, 'sendMessage').mockResolvedValue(undefined);
+    await import('../../entrypoints/popup/main');
+  }
+
+  it('sends the capture toggle to the active tab and closes the popup', async () => {
+    const { query, sendMessage } = stubTab(PAGE, async () => ({ active: false }));
     // Stub: happy-dom's window.close would tear the test window down.
     const close = vi.spyOn(window, 'close').mockImplementation(() => {});
-    await import('../../entrypoints/popup/main');
+    await openPopup();
+    await vi.waitFor(() => expect(byId<HTMLButtonElement>('toggle').disabled).toBe(false));
 
     byId<HTMLButtonElement>('toggle').click();
 
     await vi.waitFor(() => expect(close).toHaveBeenCalled());
-    expect(sendMessage.mock.calls).toEqual([[11, { type: 'capture.toggle' }]]);
-    expect(query.mock.calls).toEqual([[{ active: true, currentWindow: true }]]);
+    expect(sendMessage.mock.calls).toEqual([[11, { type: 'capture.state' }], [11, { type: 'capture.toggle' }]]);
+    expect(query.mock.calls).toEqual([[{ active: true, currentWindow: true }], [{ active: true, currentWindow: true }]]);
     expect(byId('status').textContent).toBe('');
   });
 
   it('names the popup exports and import by format and scope', () => {
     loadPage('popup');
     expect([...document.querySelectorAll('.annotation-page__actions button')].map((button) => button.textContent)).toEqual([
-      'Toggle capture mode',
+      'Start annotating',
       'Export JSON (all pages)',
       'Export Markdown (all pages)',
       'Import JSON',
@@ -58,16 +88,84 @@ describe('popup page', () => {
   });
 
   it('reports that annotations are unavailable when the tab cannot be reached', async () => {
-    loadPage('popup');
-    vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 11 }] as never);
-    vi.spyOn(browser.tabs, 'sendMessage').mockRejectedValue(new Error('Receiving end does not exist.'));
+    let reachable = true;
+    stubTab(PAGE, async () => {
+      if (reachable) return { active: false };
+      throw new Error('Receiving end does not exist.');
+    });
     const close = vi.spyOn(window, 'close').mockImplementation(() => {});
-    await import('../../entrypoints/popup/main');
+    await openPopup();
+    await vi.waitFor(() => expect(byId<HTMLButtonElement>('toggle').disabled).toBe(false));
+    reachable = false;
 
     byId<HTMLButtonElement>('toggle').click();
 
     await vi.waitFor(() => expect(byId('status').textContent).toBe('Annotations are not available on this page.'));
     expect(close).not.toHaveBeenCalled();
+  });
+
+  it('offers Stop annotating when capture is active on the tab', async () => {
+    stubTab(PAGE, async () => ({ active: true }));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId<HTMLButtonElement>('toggle').disabled).toBe(false));
+    expect(byId('toggle').textContent).toBe('Stop annotating');
+    expect(byId('status').textContent).toBe('');
+  });
+
+  it('offers Start annotating when capture is inactive on the tab', async () => {
+    stubTab(PAGE, async () => ({ active: false }));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId<HTMLButtonElement>('toggle').disabled).toBe(false));
+    expect(byId('toggle').textContent).toBe('Start annotating');
+  });
+
+  it.each([
+    [0, 'No annotations on this page yet.'],
+    [1, '1 annotation on this page.'],
+    [2, '2 annotations on this page.'],
+  ])('counts %i stored annotations on the page', async (count, text) => {
+    for (let index = 0; index < count; index += 1) {
+      await addAnnotation(PAGE, input(PAGE, `#n${index}`));
+    }
+    await addAnnotation('https://example.com/other', input('https://example.com/other', '#x'));
+    stubTab(PAGE, async () => ({ active: false }));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId('page-count').textContent).toBe(text));
+  });
+
+  it('disables the toggle on a page the extension cannot run on, without messaging it', async () => {
+    const { sendMessage } = stubTab('chrome://extensions/', async () => ({ active: false }));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe("Annotations can't run on this page."));
+    expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
+    expect(byId('page-count').textContent).toBe('');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('disables the toggle when Options turns annotations off for the site, without messaging it', async () => {
+    await writePolicy({ enabled: true, allowlist: ['other.example'] });
+    const { sendMessage } = stubTab(PAGE, async () => ({ active: false }));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe('Annotations are turned off for this site in Options.'));
+    expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
+    await vi.waitFor(() => expect(byId('page-count').textContent).toBe('No annotations on this page yet.'));
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a rejected state message', () => Promise.reject(new Error('Receiving end does not exist.'))],
+    ['a malformed state reply', () => Promise.resolve({ active: 'yes' })],
+  ])('asks for a reload after %s', async (_name, reply) => {
+    stubTab(PAGE, reply);
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe(RELOAD));
+    expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
   });
 });
 

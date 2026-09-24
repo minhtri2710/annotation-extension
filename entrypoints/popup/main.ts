@@ -1,7 +1,10 @@
 import { browser } from 'wxt/browser';
-import { CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
+import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
 import { exportJson, importFileSizeError, importJson } from '../../lib/json-io';
-import { listAllAnnotations } from '../../lib/annotation-storage';
+import { listAllAnnotations, listAnnotations } from '../../lib/annotation-storage';
+import { isRecord } from '../../lib/guards';
+import { isEnabledForUrl } from '../../lib/options/policy';
+import { readPolicy } from '../../lib/options/storage';
 import { createBlobStore } from '../../lib/blob-store';
 import { exportAllPages } from '../../lib/export/all-pages';
 import { productionExportDelivery } from '../../lib/export/delivery';
@@ -17,8 +20,11 @@ const exportMarkdownButton = document.querySelector<HTMLButtonElement>('#export-
 const importButton = document.querySelector<HTMLButtonElement>('#import');
 const importFile = document.querySelector<HTMLInputElement>('#import-file');
 const status = document.querySelector<HTMLParagraphElement>('#status');
+const pageCount = document.querySelector<HTMLParagraphElement>('#page-count');
 
 const blobStore = createBlobStore();
+
+void showTabState();
 
 toggleButton?.addEventListener('click', async () => {
   try {
@@ -67,6 +73,45 @@ importFile?.addEventListener('change', async () => {
     importFile.value = '';
   }
 });
+
+async function showTabState(): Promise<void> {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  const url = tab?.url;
+  if (tab?.id === undefined || !url || !['http:', 'https:', 'file:'].includes(new URL(url).protocol)) {
+    setStatus("Annotations can't run on this page.");
+    return;
+  }
+  void showPageCount(url);
+  if (!isEnabledForUrl(url, await readPolicy())) {
+    setStatus('Annotations are turned off for this site in Options.');
+    return;
+  }
+  let reply: unknown;
+  try {
+    reply = await browser.tabs.sendMessage(tab.id, { type: CAPTURE_STATE_MESSAGE });
+  } catch {
+    reply = undefined;
+  }
+  if (!isRecord(reply) || typeof reply.active !== 'boolean') {
+    setStatus('Annotations are not available on this page. If it was open before the extension loaded, reload it.');
+    return;
+  }
+  if (!toggleButton) return;
+  toggleButton.textContent = reply.active ? 'Stop annotating' : 'Start annotating';
+  toggleButton.disabled = false;
+}
+
+async function showPageCount(url: string): Promise<void> {
+  let count: number;
+  try {
+    count = (await listAnnotations(url)).length;
+  } catch {
+    return;
+  }
+  if (!pageCount) return;
+  if (count === 0) pageCount.textContent = 'No annotations on this page yet.';
+  else pageCount.textContent = `${count} annotation${count === 1 ? '' : 's'} on this page.`;
+}
 
 function downloadJson(json: string): void {
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));

@@ -9,3 +9,13 @@ export interface CaptureToggleMessage {
 export function isCaptureToggleMessage(value: unknown): value is CaptureToggleMessage {
   return isRecord(value) && value.type === CAPTURE_TOGGLE_MESSAGE;
 }
+
+export const CAPTURE_STATE_MESSAGE = 'capture.state' as const;
+
+export interface CaptureStateMessage {
+  type: typeof CAPTURE_STATE_MESSAGE;
+}
+
+export function isCaptureStateMessage(value: unknown): value is CaptureStateMessage {
+  return isRecord(value) && value.type === CAPTURE_STATE_MESSAGE;
+}

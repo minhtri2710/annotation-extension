@@ -19,6 +19,7 @@ import { readPolicy, SITE_POLICY_STORAGE_KEY } from '../lib/options/storage';
 import {
   createCaptureController,
   interceptPageEvents,
+  isCaptureStateMessage,
   isCaptureToggleMessage,
   releasePageEvents,
   type CaptureEvents,
@@ -41,7 +42,9 @@ export default defineContentScript({
     let unsubscribeCaptureState: (() => void) | undefined;
     type StorageListener = Parameters<typeof browser.storage.onChanged.addListener>[0];
     let storageChanged: StorageListener | undefined;
-    let runtimeMessageListener: ((message: unknown) => void) | undefined;
+    let runtimeMessageListener:
+      | ((message: unknown, _sender: unknown, sendResponse: (response: { active: boolean }) => void) => void)
+      | undefined;
     let annotationListToggle: HTMLButtonElement | undefined;
     let scanToggleButton: HTMLButtonElement | undefined;
     let scanPanel: ReturnType<typeof createScanPanel> | undefined;
@@ -227,7 +230,8 @@ export default defineContentScript({
         });
         controller = activeController;
         shell.root.append(activeController.live);
-        runtimeMessageListener = (message) => {
+        runtimeMessageListener = (message, _sender, sendResponse) => {
+          if (isCaptureStateMessage(message)) sendResponse({ active: controller?.active ?? false });
           if (isCaptureToggleMessage(message)) controller?.toggle();
         };
         browser.runtime.onMessage.addListener(runtimeMessageListener);

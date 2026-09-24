@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAPTURE_TOGGLE_MESSAGE, isCaptureToggleMessage } from './activation';
+import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE, isCaptureStateMessage, isCaptureToggleMessage } from './activation';
 
 describe('isCaptureToggleMessage', () => {
   it('accepts the toggle message, with or without extra fields', () => {
@@ -20,6 +20,22 @@ describe('isCaptureToggleMessage', () => {
     expect(isCaptureToggleMessage(null)).toBe(false);
     for (const value of [undefined, 'capture.toggle', 0, true]) {
       expect(isCaptureToggleMessage(value)).toBe(false);
+    }
+  });
+});
+
+describe('isCaptureStateMessage', () => {
+  it('accepts the state message', () => {
+    expect(CAPTURE_STATE_MESSAGE).toBe('capture.state');
+    expect(isCaptureStateMessage({ type: 'capture.state' })).toBe(true);
+  });
+
+  it('rejects the toggle message, another type and non-records', () => {
+    expect(isCaptureStateMessage({ type: CAPTURE_TOGGLE_MESSAGE })).toBe(false);
+    expect(isCaptureStateMessage({ type: 'Capture.State' })).toBe(false);
+    expect(isCaptureStateMessage(Object.assign(['capture.state'], { type: 'capture.state' }))).toBe(false);
+    for (const value of [null, undefined, 'capture.state', 0]) {
+      expect(isCaptureStateMessage(value)).toBe(false);
     }
   });
 });
