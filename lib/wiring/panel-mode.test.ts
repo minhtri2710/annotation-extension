@@ -106,6 +106,41 @@ describe('createPanelMode', () => {
     expect(box?.()).toBe(context.boundingBox);
   });
 
+  it('never places the anchor for a list render superseded by a reopen of the same mode', async () => {
+    const { panels, anchor, anchorToToolbar, list } = setup();
+    const first = deferred();
+    const second = deferred();
+    list.render.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    panels.toggle('list');
+    panels.toggle('list');
+    panels.toggle('list');
+    first.resolve();
+    await first.promise;
+    await Promise.resolve();
+    expect(anchor.place).not.toHaveBeenCalled();
+
+    second.resolve();
+    await second.promise;
+    await Promise.resolve();
+    expect(anchor.place).toHaveBeenCalledTimes(1);
+    expect(anchor.place).toHaveBeenCalledWith(anchorToToolbar);
+  });
+
+  it.each(['list', 'scan'] as const)('never places the anchor for a %s render that resolves after the mode closed', async (mode) => {
+    const { panels, anchor, list, scanPanel } = setup();
+    const render = deferred();
+    (mode === 'list' ? list : scanPanel).render.mockReturnValueOnce(render.promise);
+
+    panels.toggle(mode);
+    panels.close();
+    render.resolve();
+    await render.promise;
+    await Promise.resolve();
+
+    expect(anchor.place).not.toHaveBeenCalled();
+  });
+
   it('returns focus to the opener on close only when focus was in the panel', () => {
     const { panels, inner, outside, listToggle } = setup();
     panels.toggle('list');

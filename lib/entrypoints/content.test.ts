@@ -5,6 +5,7 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import contentScript from '../../entrypoints/content';
+import { addAnnotation } from '../annotation-storage';
 import { interceptPageEvents, releasePageEvents } from '../capture';
 import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../capture/activation';
 import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
@@ -212,6 +213,40 @@ describe('content script entrypoint', () => {
 
     expect(panel().hasAttribute('aria-label')).toBe(false);
     expect(shadow().activeElement).toBe(scan);
+  });
+
+  it('Edit on a list row opens the note panel, and closing it focuses View all', async () => {
+    await addAnnotation(location.href, {
+      note: 'Stored note',
+      selector: '#missing',
+      elementContext: {
+        selector: '#missing',
+        tagName: 'div',
+        id: 'missing',
+        classList: [],
+        text: '',
+        boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+        url: location.href,
+        viewport: { width: 800, height: 600 },
+        sourcePath: null,
+      },
+    });
+    await start();
+    const toggle = button('View all');
+    toggle.click();
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-row-edit]')).not.toBeNull());
+    const edit = panel().querySelector<HTMLButtonElement>('[data-annotation-row-edit]')!;
+    edit.focus();
+
+    edit.click();
+
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-close]')).not.toBeNull());
+    expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+    panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!.focus();
+    panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!.click();
+
+    expect(panel().hasAttribute('aria-label')).toBe(false);
+    expect(shadow().activeElement).toBe(toggle);
   });
 
   it('Start annotating in the empty list closes the panel and starts capture', async () => {
