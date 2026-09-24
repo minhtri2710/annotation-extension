@@ -199,6 +199,20 @@ describe('processScreenshot', () => {
     expectColor(image.pixel(1500, 564), BLUE);
   });
 
+  it('scales the unrounded crop size, not the rounded one, before rounding the output size', async () => {
+    const capture = await splitImage(3100, 1100);
+
+    // At dpr 1 box 3000.4 x 1002.4 is 3000.4 x 1002.4 device pixels; scale 1600 / 3000.4 gives 1600 x 534.542, so 1600 x 535.
+    // Rounding the crop size first (3000 x 1002) and then scaling gives 1599.787 x 534.329, so 1600 x 534.
+    const result = await processScreenshot(capture, { x: 0, y: 0, width: 3000.4, height: 1002.4 }, 1);
+
+    expect([result.width, result.height]).toEqual([1600, 535]);
+    const image = await decode(result.blob);
+    expect([image.width, image.height]).toEqual([1600, 535]);
+    expectColor(image.pixel(100, 267), RED);
+    expectColor(image.pixel(1500, 267), BLUE);
+  });
+
   it('downscales a tall crop so its height is 1600px', async () => {
     const capture = await splitImage(1000, 3200);
 
