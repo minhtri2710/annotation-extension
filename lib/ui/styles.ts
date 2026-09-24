@@ -310,6 +310,18 @@ ${ANNOTATION_DARK_TOKENS}
   white-space: nowrap;
 }
 
+[data-annotation-shell] summary {
+  color: var(--annotation-color-text);
+  font-weight: var(--annotation-font-weight-medium);
+  cursor: pointer;
+}
+
+[data-annotation-shell] [data-annotation-unsaved] {
+  margin: 0;
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+}
+
 [data-annotation-shell] [data-annotation-row] [data-annotation-status] {
   display: inline-block;
   margin: 0;

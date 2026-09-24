@@ -11,6 +11,7 @@ import {
 import { SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/validation';
 import { attachmentKey, screenshotKey } from '../blob-store';
 import type { ElementContext } from '../capture/context';
+import { formatElementContext } from '../export/format';
 import { createNotePanelPersistence, type NotePanelPersistence } from './persistence';
 import { createInlineConfirm, keepPanelFocus } from '../ui/shell';
 import { ScreenshotCaptureError } from '../screenshot/messages';
@@ -47,6 +48,8 @@ export function createNotePanel(
   // Unsaved note text, kept in memory across re-renders and reopening: new notes by page URL and selector, edits by id.
   const drafts = new Map<string, string>();
   let restoredDraft = false;
+  // Open or closed CSS and repro groups the user toggled, kept in memory by annotation id and group.
+  const groupStates = new Map<string, boolean>();
   const live = panel.ownerDocument.createElement('p');
   live.dataset.annotationLive = '';
   live.setAttribute('role', 'status');
@@ -91,13 +94,17 @@ export function createNotePanel(
     const heading = document.createElement('h2');
     heading.textContent = 'Notes';
     heading.tabIndex = -1;
+    const hint = document.createElement('p');
+    hint.dataset.annotationHint = '';
+    hint.textContent = formatElementContext(context) ?? context.selector;
+    hint.title = context.selector;
     const close = document.createElement('button');
     close.type = 'button';
     close.dataset.annotationClose = '';
     close.textContent = 'Close';
     close.setAttribute('aria-label', 'Close annotation note');
     close.addEventListener('click', () => panel.dispatchEvent(new Event(NOTE_PANEL_CLOSE_EVENT)));
-    panel.append(heading, close);
+    panel.append(heading, hint, close);
     let status: HTMLParagraphElement | undefined;
     const showStatus = () => {
       announce(statusMessage ?? '');
@@ -107,7 +114,7 @@ export function createNotePanel(
         status.dataset.annotationStatus = '';
       }
       status.textContent = statusMessage;
-      if (!status.isConnected) panel.insertBefore(status, panel.children[2] ?? null);
+      if (!status.isConnected) panel.insertBefore(status, close.nextSibling);
     };
     showStatus();
     showCurrentStatus = showStatus;
@@ -295,16 +302,38 @@ export function createNotePanel(
     const images = imagesSection(document, item, annotation, context, reportReadError);
     const css = cssSection(document, annotation, position, context, reportReadError);
     const repro = reproSection(document, annotation, position, context);
+    const hasCss = (annotation.cssEdits?.length ?? 0) > 0;
     item.append(
       ...noteSection(document, annotation, position, context),
       ...images.controls,
-      ...css.controls,
-      ...repro.controls,
-      ...css.readout,
-      ...repro.readout,
+      group(document, annotation.id, 'css', 'CSS tweaks', hasCss, [...css.controls, ...css.readout]),
+      group(document, annotation.id, 'repro', 'Reproduction steps', annotation.repro !== undefined, [
+        ...repro.controls,
+        ...repro.readout,
+      ]),
     );
     await images.appendPreviews();
     return item;
+  }
+
+  // A group starts open when it has content, until the user toggles it.
+  function group(
+    document: Document,
+    id: string,
+    name: 'css' | 'repro',
+    title: string,
+    hasContent: boolean,
+    children: HTMLElement[],
+  ): HTMLDetailsElement {
+    const details = document.createElement('details');
+    details.dataset[name === 'css' ? 'annotationCssGroup' : 'annotationReproGroup'] = '';
+    const key = `${id} ${name}`;
+    details.open = groupStates.get(key) ?? hasContent;
+    details.addEventListener('toggle', () => groupStates.set(key, details.open));
+    const summary = document.createElement('summary');
+    summary.textContent = title;
+    details.append(summary, ...children);
+    return details;
   }
 
   function noteSection(
@@ -320,15 +349,20 @@ export function createNotePanel(
     note.setAttribute('aria-label', `Edit note, annotation ${position}`);
     const draftKey = editDraftKey(annotation.id);
     restoreDraft(note, draftKey);
+    const unsaved = document.createElement('p');
+    unsaved.dataset.annotationUnsaved = '';
+    unsaved.textContent = 'Unsaved changes';
+    unsaved.hidden = note.value === annotation.note;
     note.addEventListener('input', () => {
-      if (note.value === annotation.note) drafts.delete(draftKey);
+      unsaved.hidden = note.value === annotation.note;
+      if (unsaved.hidden) drafts.delete(draftKey);
       else drafts.set(draftKey, note.value);
     });
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.dataset.annotationEdit = '';
-    edit.textContent = 'Edit';
-    edit.addEventListener('click', () => {
+    edit.textContent = 'Save note';
+    const saveNote = () => {
       const value = note.value.trim();
       if (!value) return;
       void mutate(
@@ -340,6 +374,12 @@ export function createNotePanel(
         },
         context,
       );
+    };
+    edit.addEventListener('click', saveNote);
+    note.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      saveNote();
     });
     note.addEventListener('paste', (event) => {
       const files = Array.from(event.clipboardData?.files ?? []);
@@ -396,10 +436,10 @@ export function createNotePanel(
       },
       dataPrefix: 'annotation-delete',
     });
-    return [note, edit, statusToggle, capture, remove];
+    return [note, edit, statusToggle, capture, remove, unsaved];
   }
 
-  // The file input sits with the note controls; previews follow the readouts once their blobs are read.
+  // The file input sits with the note controls; previews follow the groups once their blobs are read.
   function imagesSection(
     document: Document,
     item: HTMLElement,

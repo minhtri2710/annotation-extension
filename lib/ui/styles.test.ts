@@ -330,6 +330,18 @@ describe('overlay live region and panel chrome styles', () => {
     for (const body of [position, hint, chip]) expect(body).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
     expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toMatch(/data-annotation-(?:position|hint)/);
   });
+
+  it('styles note panel group summaries and the unsaved-changes note from tokens without motion', () => {
+    const summary = ruleBody('[data-annotation-shell] summary {');
+    expect(summary).toContain('font-weight: var(--annotation-font-weight-medium)');
+    expect(summary).toContain('cursor: pointer');
+    const unsaved = ruleBody('[data-annotation-shell] [data-annotation-unsaved] {');
+    expect(unsaved).toContain('color: var(--annotation-color-text-muted)');
+    expect(unsaved).toContain('font-size: var(--annotation-font-size-caption)');
+    expect(unsaved).not.toContain('display:');
+    for (const body of [summary, unsaved]) expect(body).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
+    expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toMatch(/data-annotation-unsaved|summary/);
+  });
 });
 
 function ruleBody(selectorLine: string, css = OVERLAY_STYLES): string {

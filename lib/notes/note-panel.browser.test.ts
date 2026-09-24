@@ -77,6 +77,7 @@ describe('note panel in a real browser', () => {
     });
     shell.root.append(notePanel.live);
     await notePanel.render(context);
+    for (const group of shell.panel.querySelectorAll('details')) group.open = true;
 
     for (const [selector, text] of [
       ['[data-annotation-css-decls]', 'CSS declarations'],

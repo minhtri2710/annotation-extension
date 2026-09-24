@@ -1268,3 +1268,184 @@ describe('note panel drafts', () => {
     expect(newNote(panel).value).toBe('For #target');
   });
 });
+
+describe('note panel layout', () => {
+  const type = (field: HTMLTextAreaElement, value: string) => {
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const keyEnter = (target: HTMLElement, init: KeyboardEventInit) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }));
+  const editNote = (panel: HTMLElement) => panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
+  const unsaved = (panel: HTMLElement) => panel.querySelector<HTMLElement>('[data-annotation-unsaved]');
+  const cssGroup = (panel: HTMLElement) => panel.querySelector('[data-annotation-css-group]') as HTMLDetailsElement;
+  const reproGroup = (panel: HTMLElement) => panel.querySelector('[data-annotation-repro-group]') as HTMLDetailsElement;
+
+  it('names the element under the Notes heading with the selector as its title', async () => {
+    const panel = document.createElement('div');
+    await render(panel);
+    const hint = panel.querySelector<HTMLElement>('[data-annotation-hint]');
+    expect(panel.children[0]?.textContent).toBe('Notes');
+    expect(panel.children[1]).toBe(hint);
+    expect(hint?.textContent).toBe('BUTTON#target.primary "Target"');
+    expect(hint?.title).toBe('#target');
+  });
+
+  it('falls back to the selector when the element has no name', async () => {
+    const panel = document.createElement('div');
+    const notePanel = createNotePanel(panel, {
+      listAnnotations: vi.fn().mockResolvedValue([]),
+      sendAnnotationWrite: vi.fn(),
+      captureScreenshot: vi.fn(),
+      readBlob: vi.fn(),
+      addAttachment: vi.fn(),
+      deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(),
+      revertCssEdits: vi.fn(),
+      revertAllCssEdits: vi.fn(),
+    });
+    await notePanel.render({ ...context, tagName: '', id: '', classList: [], text: ' ' });
+    expect(panel.querySelector('[data-annotation-hint]')?.textContent).toBe('#target');
+  });
+
+  it('puts the status right after the heading, element name and Close', async () => {
+    const panel = document.createElement('div');
+    await render(panel, [], { listAnnotations: vi.fn().mockRejectedValue(new Error('list failed')) });
+    expect(Array.from(panel.children, (child) => child.tagName)).toEqual(['H2', 'P', 'BUTTON', 'P', 'FORM']);
+    expect(panel.children[3]?.hasAttribute('data-annotation-status')).toBe(true);
+  });
+
+  it('labels the edit save button Save note', async () => {
+    const panel = document.createElement('div');
+    await render(panel, [annotation('Existing')]);
+    expect(panel.querySelector('[data-annotation-edit]')?.textContent).toBe('Save note');
+  });
+
+  it('saves an edit with Ctrl+Enter and Cmd+Enter exactly like Save note, and never a blank one', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(annotation('x'));
+    const { listAnnotations } = await render(panel, [annotation('Existing')], { sendAnnotationWrite });
+    const expected = (note: string) => ({
+      type: 'annotation.update',
+      pageUrl,
+      id: 'annotation-1',
+      changes: { note },
+    } satisfies AnnotationWriteMessage);
+    // Each save re-reads storage and re-renders; the form is appended last, once the re-render is done.
+    const saveAndSettle = async (value: string, save: () => unknown, writes: number) => {
+      const before = panel.querySelector('form');
+      editNote(panel).value = value;
+      save();
+      await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenNthCalledWith(writes, expected(value.trim())));
+      await vi.waitFor(() => {
+        expect(listAnnotations).toHaveBeenCalledTimes(writes + 1);
+        expect(panel.querySelector('form')).not.toBe(before);
+        expect(panel.querySelector('form')).not.toBeNull();
+      });
+    };
+
+    await saveAndSettle(' With ctrl ', () => expect(keyEnter(editNote(panel), { ctrlKey: true })).toBe(false), 1);
+    await saveAndSettle('With cmd', () => keyEnter(editNote(panel), { metaKey: true }), 2);
+    await saveAndSettle('By button', () => (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click(), 3);
+    editNote(panel).value = '   ';
+    keyEnter(editNote(panel), { ctrlKey: true });
+    keyEnter(editNote(panel), { metaKey: true });
+    editNote(panel).value = 'Plain enter';
+    keyEnter(editNote(panel), {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows Unsaved changes while the edit differs from the stored note, without announcing it', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    expect(unsaved(panel)?.hidden).toBe(true);
+    type(editNote(panel), 'Existing, edited');
+    expect(unsaved(panel)?.hidden).toBe(false);
+    expect(unsaved(panel)?.textContent).toBe('Unsaved changes');
+    expect(notePanel.live.textContent).toBe('');
+    type(editNote(panel), 'Existing');
+    expect(unsaved(panel)?.hidden).toBe(true);
+  });
+
+  it('shows Unsaved changes for a restored edit draft', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    type(editNote(panel), 'Draft text');
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(unsaved(panel)?.hidden).toBe(false);
+  });
+
+  it('opens a group only when the annotation has content for it', async () => {
+    const empty = document.createElement('div');
+    await render(empty, [{ ...annotation('Plain'), cssEdits: [] }]);
+    expect(cssGroup(empty).open).toBe(false);
+    expect(reproGroup(empty).open).toBe(false);
+    expect(cssGroup(empty).querySelector('summary')?.textContent).toBe('CSS tweaks');
+    expect(reproGroup(empty).querySelector('summary')?.textContent).toBe('Reproduction steps');
+
+    const full = document.createElement('div');
+    await render(full, [{
+      ...annotation('Full'),
+      cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
+      repro: { steps: ['Click'], expected: 'Opens', actual: 'Nothing' },
+    }]);
+    expect(cssGroup(full).open).toBe(true);
+    expect(reproGroup(full).open).toBe(true);
+  });
+
+  it('keeps a toggled group open or closed across a re-render', async () => {
+    const panel = document.createElement('div');
+    const withRepro = { ...annotation('Existing'), repro: { steps: ['Click'], expected: 'a', actual: 'b' } };
+    const { notePanel } = await render(panel, [withRepro]);
+    cssGroup(panel).open = true;
+    reproGroup(panel).open = false;
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(cssGroup(panel).open).toBe(true);
+    expect(reproGroup(panel).open).toBe(false);
+  });
+
+  it('orders an item as note section, Unsaved changes, Attach image, CSS group, repro group, then previews', async () => {
+    const panel = document.createElement('div');
+    await render(panel, [{
+      ...annotation('Full'),
+      cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
+      repro: { steps: ['Click'], expected: 'Opens', actual: 'Nothing' },
+      screenshot: { mimeType: 'image/png', width: 1, height: 1, byteLength: 1 },
+      attachments: [{ id: 'att-1', name: 'a.png', mimeType: 'image/png', byteLength: 1 }],
+    }]);
+    const item = panel.querySelector('[data-annotation-id="annotation-1"]') as HTMLElement;
+    const nameOf = (child: Element) =>
+      child.getAttributeNames().find((name) => name.startsWith('data-annotation-')) ?? child.tagName;
+    expect(Array.from(item.children, nameOf)).toEqual([
+      'data-annotation-edit-note',
+      'data-annotation-edit',
+      'data-annotation-status-toggle',
+      'data-annotation-capture-screenshot',
+      'data-annotation-delete',
+      'data-annotation-unsaved',
+      'LABEL',
+      'data-annotation-css-group',
+      'data-annotation-repro-group',
+      'data-annotation-screenshot',
+      'data-annotation-attachment',
+    ]);
+    expect(Array.from(cssGroup(panel).children, nameOf)).toEqual([
+      'SUMMARY',
+      'LABEL',
+      'data-annotation-css-save',
+      'data-annotation-css-clear',
+      'data-annotation-css',
+    ]);
+    expect(Array.from(reproGroup(panel).children, nameOf)).toEqual([
+      'SUMMARY',
+      'LABEL',
+      'LABEL',
+      'LABEL',
+      'data-annotation-repro-save',
+      'data-annotation-repro',
+    ]);
+  });
+});
