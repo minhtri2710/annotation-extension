@@ -10,7 +10,7 @@ import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-
 import { sendBlobRead } from '../screenshot/messages';
 import { readOnboardingOpen, writeOnboardingOpen } from '../ui/ui-prefs';
 import { resolveSelector } from '../capture/selector';
-import { readCaptureShortcut } from '../capture/activation';
+import { captureShortcutHint, readCaptureShortcut, SHORTCUT_SETTINGS } from '../capture/activation';
 import { createLocateHighlight } from '../ui/locate-highlight';
 import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/shell';
 
@@ -51,9 +51,9 @@ const productionPersistence: AnnotationListPersistence = {
 // undefined means the shortcut could not be read.
 function onboardingSteps(shortcut: string | undefined): string[] {
   const first = shortcut === undefined
-    ? "Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in your browser's extension shortcut settings."
+    ? `Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in ${SHORTCUT_SETTINGS}.`
     : shortcut === ''
-      ? "Click Annotate, then click any element to leave a note. No keyboard shortcut is set; you can add one in your browser's extension shortcut settings."
+      ? `Click Annotate, then click any element to leave a note. ${captureShortcutHint('')}`
       : `Click Annotate or press ${shortcut}, then click any element to leave a note.`;
   return [first, ...LATER_ONBOARDING_STEPS];
 }

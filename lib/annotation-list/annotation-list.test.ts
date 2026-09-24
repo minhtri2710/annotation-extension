@@ -359,8 +359,8 @@ describe('annotation list', () => {
 
   describe('first How it works step names the capture shortcut', () => {
     const SET = 'Click Annotate or press Alt+Q, then click any element to leave a note.';
-    const UNSET = "Click Annotate, then click any element to leave a note. No keyboard shortcut is set; you can add one in your browser's extension shortcut settings.";
-    const FAILED = "Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in your browser's extension shortcut settings.";
+    const UNSET = "Click Annotate, then click any element to leave a note. No keyboard shortcut is set; you can add one in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).";
+    const FAILED = "Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).";
     const KEY_TOKEN = /\b(Ctrl|Control|Alt|Shift|Cmd|Command|MacCtrl)\b|⌘|⇧/;
 
     async function firstStep(shortcut: Promise<string>): Promise<string> {

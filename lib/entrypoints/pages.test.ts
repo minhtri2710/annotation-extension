@@ -233,6 +233,75 @@ describe('popup page', () => {
     await vi.waitFor(() => expect(byId('status').textContent).toBe(RELOAD));
     expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
   });
+
+  describe('shortcut hint', () => {
+    const UNSET = "No keyboard shortcut is set; you can add one in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).";
+
+    // Stub: the popup reads the capture shortcut straight from the commands API.
+    const stubShortcut = (shortcut?: string) =>
+      vi.spyOn(browser.commands, 'getAll').mockResolvedValue([
+        { name: '_execute_action', shortcut: 'Alt+P' },
+        { name: 'capture.toggle', shortcut },
+      ] as never);
+
+    // Stub: tabs.create would open a page; the hint must never open one.
+    const stubCreate = () => vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+
+    it('names a set shortcut and describes the toggle with it', async () => {
+      stubShortcut('Alt+Q');
+      const create = stubCreate();
+      stubTab(PAGE, async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(byId('shortcut-hint').textContent).toBe('Shortcut: Alt+Q'));
+      expect(byId('shortcut-hint').hidden).toBe(false);
+      expect(byId('shortcut-hint').childElementCount).toBe(0);
+      expect(byId('toggle').getAttribute('aria-describedby')).toBe('shortcut-hint');
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it('points to the shortcut settings in plain text when no shortcut is set', async () => {
+      stubShortcut();
+      const create = stubCreate();
+      stubTab(PAGE, async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(byId('shortcut-hint').textContent).toBe(UNSET));
+      expect(byId('shortcut-hint').hidden).toBe(false);
+      expect(byId('shortcut-hint').childElementCount).toBe(0);
+      expect(byId('toggle').getAttribute('aria-describedby')).toBe('shortcut-hint');
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it('leaves the hint empty and hidden, describing nothing, when the read rejects', async () => {
+      const getAll = vi.spyOn(browser.commands, 'getAll').mockRejectedValue(new Error('no commands'));
+      const create = stubCreate();
+      stubTab(PAGE, async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(byId<HTMLButtonElement>('toggle').disabled).toBe(false));
+      await vi.waitFor(() => expect(getAll).toHaveBeenCalledOnce());
+      await Promise.resolve();
+      expect(byId('shortcut-hint').textContent).toBe('');
+      expect(byId('shortcut-hint').hidden).toBe(true);
+      expect(byId('shortcut-hint').childElementCount).toBe(0);
+      expect(byId('toggle').hasAttribute('aria-describedby')).toBe(false);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it('still names the shortcut on a page the extension cannot run on', async () => {
+      stubShortcut('Alt+Q');
+      const create = stubCreate();
+      stubTab('chrome://extensions/', async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(byId('shortcut-hint').textContent).toBe('Shortcut: Alt+Q'));
+      expect(byId('status').textContent).toBe("Annotations can't run on this page.");
+      expect(byId('shortcut-hint').hidden).toBe(false);
+      expect(byId('shortcut-hint').childElementCount).toBe(0);
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('options page', () => {

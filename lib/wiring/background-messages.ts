@@ -30,7 +30,7 @@ import {
   type ScreenshotCaptureErrorResponse,
   type ScreenshotCaptureMessage,
 } from '../screenshot/messages';
-import { isCaptureShortcutMessage } from '../capture/activation';
+import { isCaptureShortcutMessage, lookupCaptureShortcut } from '../capture/activation';
 import { createBlobStore, screenshotKey, type BlobStore } from '../blob-store';
 import { processScreenshot, type ScreenshotProcessor } from '../screenshot/processor';
 
@@ -76,7 +76,7 @@ export function registerBackgroundMessageHandlers(
     }
 
     if (isCaptureShortcutMessage(message)) {
-      return reply(captureShortcut().then((shortcut) => ({ shortcut })), sendResponse);
+      return reply(lookupCaptureShortcut().then((shortcut) => ({ shortcut })), sendResponse);
     }
 
     if (isAttachmentAddMessage(message)) {
@@ -165,14 +165,9 @@ async function captureVisibleTab(windowId: number | undefined): Promise<string> 
       : await browser.tabs.captureVisibleTab(windowId);
   } catch (error) {
     if (!MISSING_GRANT.test(errorMessage(error))) throw error;
-    const shortcut = await captureShortcut();
+    const shortcut = await lookupCaptureShortcut();
     throw new ScreenshotCaptureError(shortcut ? { kind: 'needs-grant', shortcut } : { kind: 'needs-grant' });
   }
-}
-
-async function captureShortcut(): Promise<string> {
-  const commands = await browser.commands.getAll();
-  return commands.find((command) => command.name === 'capture.toggle')?.shortcut ?? '';
 }
 
 function createScreenshotCaptureErrorResponse(error: unknown): ScreenshotCaptureErrorResponse {

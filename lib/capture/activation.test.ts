@@ -4,9 +4,11 @@ import {
   CAPTURE_SHORTCUT_MESSAGE,
   CAPTURE_STATE_MESSAGE,
   CAPTURE_TOGGLE_MESSAGE,
+  captureShortcutHint,
   isCaptureShortcutMessage,
   isCaptureStateMessage,
   isCaptureToggleMessage,
+  lookupCaptureShortcut,
   readCaptureShortcut,
 } from './activation';
 
@@ -89,5 +91,45 @@ describe('readCaptureShortcut', () => {
       sendMessage.mockResolvedValue(response as never);
       await expect(readCaptureShortcut()).rejects.toThrow('Invalid capture shortcut response');
     }
+  });
+});
+
+describe('lookupCaptureShortcut', () => {
+  it('returns the capture.toggle shortcut when another command is listed first', async () => {
+    vi.spyOn(browser.commands, 'getAll').mockResolvedValue([
+      { name: '_execute_action', shortcut: 'Alt+P' },
+      { name: 'capture.toggle', shortcut: 'Alt+Q' },
+    ] as never);
+    await expect(lookupCaptureShortcut()).resolves.toBe('Alt+Q');
+  });
+
+  it('returns the empty string for a capture.toggle command without a shortcut and for an absent command', async () => {
+    const getAll = vi.spyOn(browser.commands, 'getAll').mockResolvedValue([
+      { name: '_execute_action', shortcut: 'Alt+P' },
+      { name: 'capture.toggle' },
+    ] as never);
+    await expect(lookupCaptureShortcut()).resolves.toBe('');
+
+    getAll.mockResolvedValue([{ name: '_execute_action', shortcut: 'Alt+P' }] as never);
+    await expect(lookupCaptureShortcut()).resolves.toBe('');
+  });
+
+  it('rejects when getAll rejects', async () => {
+    vi.spyOn(browser.commands, 'getAll').mockRejectedValue(new Error('no commands'));
+    await expect(lookupCaptureShortcut()).rejects.toThrow('no commands');
+  });
+});
+
+describe('captureShortcutHint', () => {
+  it('names a set shortcut', () => {
+    expect(captureShortcutHint('Alt+Q')).toBe('Shortcut: Alt+Q');
+  });
+
+  it('points to the shortcut settings in plain text, naming no key, when none is set', () => {
+    const hint = captureShortcutHint('');
+    expect(hint).toBe("No keyboard shortcut is set; you can add one in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).");
+    expect(hint).toContain('chrome://extensions/shortcuts');
+    expect(hint).toContain('Manage Extension Shortcuts');
+    expect(hint).not.toMatch(/\b(Ctrl|Control|Alt|Shift|Cmd|Command|MacCtrl)\b|⌘|⇧/);
   });
 });

@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../../lib/capture';
+import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE, captureShortcutHint, lookupCaptureShortcut } from '../../lib/capture';
 import { exportJson, importFileSizeError, importJson } from '../../lib/json-io';
 import { listAllAnnotations, listAnnotations } from '../../lib/annotation-storage';
 import { isRecord } from '../../lib/guards';
@@ -21,11 +21,13 @@ const importButton = document.querySelector<HTMLButtonElement>('#import');
 const importFile = document.querySelector<HTMLInputElement>('#import-file');
 const status = document.querySelector<HTMLParagraphElement>('#status');
 const pageCount = document.querySelector<HTMLParagraphElement>('#page-count');
+const shortcutHint = document.querySelector<HTMLParagraphElement>('#shortcut-hint');
 
 const blobStore = createBlobStore();
 const UNAVAILABLE_STATUS = 'Annotations are not available on this page. If it was open before the extension loaded, reload it.';
 
 void showTabState();
+void showShortcutHint();
 
 toggleButton?.addEventListener('click', async () => {
   try {
@@ -104,6 +106,19 @@ async function showTabState(): Promise<void> {
   } catch {
     setStatus(UNAVAILABLE_STATUS);
   }
+}
+
+async function showShortcutHint(): Promise<void> {
+  let shortcut: string;
+  try {
+    shortcut = await lookupCaptureShortcut();
+  } catch {
+    return;
+  }
+  if (!shortcutHint) return;
+  shortcutHint.textContent = captureShortcutHint(shortcut);
+  shortcutHint.hidden = false;
+  toggleButton?.setAttribute('aria-describedby', 'shortcut-hint');
 }
 
 async function showPageCount(url: string): Promise<void> {
