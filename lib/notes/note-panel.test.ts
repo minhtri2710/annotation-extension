@@ -1485,6 +1485,47 @@ describe('note panel drafts', () => {
     expect(statusText(panel)).toBeUndefined();
   });
 
+  const cssGroup = (panel: HTMLElement) => panel.querySelector('[data-annotation-css-group]') as HTMLDetailsElement;
+  const withCss = () => ({ ...annotation('Styled'), cssEdits: [{ property: 'color', value: 'red', original: 'blue' }] });
+
+  it('closes a group force-opened by a restored draft once the draft is gone, despite its late initial toggle event', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    type(cssDecls(panel), 'color: red');
+    await reopen(panel, notePanel);
+    expect(cssGroup(panel).open).toBe(true);
+    cssGroup(panel).dispatchEvent(new Event('toggle'));
+    type(cssDecls(panel), '');
+    await reopen(panel, notePanel);
+    expect(cssGroup(panel).open).toBe(false);
+  });
+
+  it('keeps a user-closed content group closed after a restored draft force-opens it and the draft is gone', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [withCss()]);
+    const stored = cssDecls(panel).defaultValue;
+    cssGroup(panel).open = false;
+    type(cssDecls(panel), 'color: green');
+    await reopen(panel, notePanel);
+    expect(cssGroup(panel).open).toBe(true);
+    cssGroup(panel).dispatchEvent(new Event('toggle'));
+    type(cssDecls(panel), stored);
+    await reopen(panel, notePanel);
+    expect(cssGroup(panel).open).toBe(false);
+  });
+
+  it('keeps a content group closed when the user opens it from closed and closes it again', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [withCss()]);
+    cssGroup(panel).open = false;
+    await reopen(panel, notePanel);
+    expect(cssGroup(panel).open).toBe(false);
+    cssGroup(panel).open = true;
+    cssGroup(panel).open = false;
+    await reopen(panel, notePanel);
+    expect(cssGroup(panel).open).toBe(false);
+  });
+
 });
 
 describe('note panel layout', () => {

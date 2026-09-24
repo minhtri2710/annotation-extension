@@ -335,8 +335,8 @@ export function createNotePanel(
     return item;
   }
 
-  // A group starts open when it holds a restored draft, else when it has content unless the user left it the other way. The initial toggle event
-  // arrives after the listener in real browsers, so a state that matches the content default is not stored.
+  // A group starts open when it holds a restored draft, else when it has content unless the user left it the other way. Real browsers fire the
+  // initial toggle event after the listener, so only a toggle that changes the shown state counts; a state that matches the content default is not stored.
   function group(
     document: Document,
     id: string,
@@ -350,7 +350,10 @@ export function createNotePanel(
     details.dataset[name === 'css' ? 'annotationCssGroup' : 'annotationReproGroup'] = '';
     const key = `${id} ${name}`;
     details.open = restored || (groupStates.get(key) ?? hasContent);
+    let shown = details.open;
     details.addEventListener('toggle', () => {
+      if (details.open === shown) return;
+      shown = details.open;
       if (details.open === hasContent) groupStates.delete(key);
       else groupStates.set(key, details.open);
     });
