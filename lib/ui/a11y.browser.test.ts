@@ -4,7 +4,7 @@ import popupHtml from '../../entrypoints/popup/index.html?raw';
 import { contrastRatio, parseColor, type Rgba } from '../lint/color';
 import { PAGE_STYLES } from './page-styles';
 import { buildOverlayShell, raiseOverlay } from './shell';
-import type { ThemeMode } from './theme';
+import { applyThemeMode, type ThemeMode } from './theme';
 import { createToolbarControls } from './toolbar-controls';
 
 const cleanups: (() => void)[] = [];
@@ -28,7 +28,8 @@ function mountOverlay(theme: ThemeMode) {
   reset.textContent = ':host{all:initial !important;}';
   const container = document.createElement('div');
   shadow.append(reset, container);
-  const shell = buildOverlayShell(container, { theme });
+  const shell = buildOverlayShell(container);
+  applyThemeMode(shell.root, theme);
   raiseOverlay(host);
   const buttons = ['Scan', 'View all', 'Annotate'].map((label) => {
     const button = document.createElement('button');
@@ -116,6 +117,23 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
     expect(style.outlineStyle).toBe('solid');
     expect(Number.parseFloat(style.outlineWidth)).toBeGreaterThanOrEqual(2);
     expect(contrastRatio(color(style.outlineColor), color(getComputedStyle(shell.panel).backgroundColor))).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('live theme switch', () => {
+  it('switches the panel text and surface colors when the theme changes on a mounted root', () => {
+    const { shell } = mountOverlay('light');
+    const read = () => {
+      const style = getComputedStyle(shell.panel);
+      return { text: color(style.color), surface: color(style.backgroundColor) };
+    };
+    const light = read();
+    applyThemeMode(shell.root, 'dark');
+    const dark = read();
+    expect(dark.text).not.toEqual(light.text);
+    expect(dark.surface).not.toEqual(light.surface);
+    applyThemeMode(shell.root, 'light');
+    expect(read()).toEqual(light);
   });
 });
 

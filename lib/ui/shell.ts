@@ -1,5 +1,3 @@
-import { applyThemeMode, resolveThemeMode } from './theme';
-import type { PrefersDarkSignal, ThemePreference } from './theme';
 import { OVERLAY_STYLES } from './styles';
 
 export const TOOLBAR_MOUNT = 'toolbar' as const;
@@ -9,11 +7,6 @@ export interface OverlayShell {
   root: HTMLDivElement;
   toolbar: HTMLDivElement;
   panel: HTMLDivElement;
-}
-
-export interface OverlayShellOptions {
-  theme?: ThemePreference;
-  prefersDark?: PrefersDarkSignal;
 }
 
 export function positionPopover(
@@ -122,10 +115,7 @@ export function clampToolbarPosition(
   };
 }
 
-export function buildOverlayShell(
-  container: HTMLElement,
-  options: OverlayShellOptions = {},
-): OverlayShell {
+export function buildOverlayShell(container: HTMLElement): OverlayShell {
   const document = container.ownerDocument;
   const root = document.createElement('div');
   const toolbar = document.createElement('div');
@@ -139,7 +129,6 @@ export function buildOverlayShell(
   toolbar.setAttribute('aria-label', 'Annotation tools');
   panel.dataset.annotationMount = PANEL_MOUNT;
   panel.setAttribute('role', 'region');
-  applyThemeMode(root, resolveThemeMode(options.theme ?? 'system', options.prefersDark));
   root.append(toolbar, panel);
   container.replaceChildren(style, root);
 

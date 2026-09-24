@@ -249,6 +249,11 @@ ${ANNOTATION_DARK_TOKENS}
     expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toContain('data-annotation-scan');
   });
 
+  it('rings the scan highlight outline with the surface color so it shows on light and dark pages', () => {
+    const body = ruleBody('[data-annotation-shell] [data-annotation-scan-highlight] {');
+    expect(body).toContain('box-shadow: 0 0 0 4px var(--annotation-color-surface)');
+  });
+
   it('styles scan groups, caption-size rows, the summary, and token-coloured severities', () => {
     expect(ruleBody('[data-annotation-shell] [data-annotation-scan-group] {')).toMatch(/var\(--annotation-/);
     expect(ruleBody('[data-annotation-shell] [data-annotation-scan-finding] {')).toContain(

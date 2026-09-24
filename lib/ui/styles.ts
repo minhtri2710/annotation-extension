@@ -276,6 +276,7 @@ ${ANNOTATION_DARK_TOKENS}
 [data-annotation-shell] [data-annotation-scan-highlight] {
   z-index: 2147483644;
   outline: 2px solid var(--annotation-color-accent);
+  box-shadow: 0 0 0 4px var(--annotation-color-surface);
   pointer-events: none;
 }
 

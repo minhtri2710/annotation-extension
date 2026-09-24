@@ -12,6 +12,7 @@ import { buildOverlayShell, createPanelAnchor, raiseOverlay, type PanelAnchor } 
 import { createEventBus } from '../lib/ui/event-bus';
 import { createToolbarControls } from '../lib/ui/toolbar-controls';
 import { readToolbarPrefs, writeToolbarPrefs } from '../lib/ui/ui-prefs';
+import { watchColorScheme } from '../lib/ui/theme';
 import { pageKey } from '../utils/page-key';
 import { isEnabledForUrl } from '../lib/options/policy';
 import { readPolicy, SITE_POLICY_STORAGE_KEY } from '../lib/options/storage';
@@ -47,6 +48,7 @@ export default defineContentScript({
     let annotationToggle: HTMLButtonElement | undefined;
     let panelAnchor: PanelAnchor | undefined;
     let stopRouteWatch: (() => void) | undefined;
+    let stopColorScheme: (() => void) | undefined;
     let toolbarControls: ReturnType<typeof createToolbarControls> | undefined;
 
     const ui = await createShadowRootUi(ctx, {
@@ -54,13 +56,8 @@ export default defineContentScript({
       position: 'overlay',
       alignment: 'bottom-right',
       onMount: (container, _shadow, shadowHost) => {
-        const shell = buildOverlayShell(container, {
-          theme: 'system',
-          prefersDark: () =>
-            typeof window.matchMedia === 'function'
-              ? window.matchMedia('(prefers-color-scheme: dark)').matches
-              : undefined,
-        });
+        const shell = buildOverlayShell(container);
+        stopColorScheme = watchColorScheme(shell.root, window);
         let url = document.location.href;
         const activeNotePanel = createNotePanel(shell.panel);
         notePanel = activeNotePanel;
@@ -245,6 +242,8 @@ export default defineContentScript({
       onRemove: () => {
         stopRouteWatch?.();
         stopRouteWatch = undefined;
+        stopColorScheme?.();
+        stopColorScheme = undefined;
         unsubscribeSelection?.();
         unsubscribeSelection = undefined;
         unsubscribeCaptureState?.();

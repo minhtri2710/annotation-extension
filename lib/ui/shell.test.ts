@@ -10,14 +10,17 @@ import {
   keepPanelFocus,
   positionPopover,
 } from './shell';
+import { applyThemeMode } from './theme';
 
 describe('overlay shell', () => {
-  it('builds the themed toolbar and panel mounts with the injected stylesheet', () => {
+  it('builds the toolbar and panel mounts with the injected stylesheet and no theme of its own', () => {
     const container = document.createElement('div');
 
-    const shell = buildOverlayShell(container, { theme: 'dark' });
+    const shell = buildOverlayShell(container);
 
     expect(shell.root).toBe(container.querySelector('[data-annotation-shell]'));
+    expect(shell.root.dataset.theme).toBeUndefined();
+    applyThemeMode(shell.root, 'dark');
     expect(shell.root.dataset.theme).toBe('dark');
     expect(shell.toolbar.dataset.annotationMount).toBe('toolbar');
     expect(shell.panel.dataset.annotationMount).toBe('panel');
