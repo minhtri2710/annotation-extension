@@ -62,6 +62,20 @@ describe('popup page', () => {
     await import('../../entrypoints/popup/main');
   }
 
+  // Stub: fakeBrowser's commands.getAll throws "Not implemented"; default every popup test to a set shortcut.
+  beforeEach(() => {
+    vi.spyOn(browser.commands, 'getAll').mockResolvedValue([{ name: 'capture.toggle', shortcut: 'Alt+Shift+Y' }] as never);
+  });
+
+  it('names the default stubbed shortcut and describes the toggle with it', async () => {
+    stubTab(PAGE, async () => ({ active: false }));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId('shortcut-hint').textContent).toBe('Shortcut: Alt+Shift+Y'));
+    expect(byId('shortcut-hint').hidden).toBe(false);
+    expect(byId('toggle').getAttribute('aria-describedby')).toBe('shortcut-hint');
+  });
+
   it('sends the capture toggle to the active tab and closes the popup', async () => {
     const { query, sendMessage } = stubTab(PAGE, async () => ({ active: false }));
     // Stub: happy-dom's window.close would tear the test window down.

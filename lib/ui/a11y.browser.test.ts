@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import popupHtml from '../../entrypoints/popup/index.html?raw';
+import { captureShortcutHint } from '../capture/activation';
 import { contrastRatio, parseColor, type Rgba } from '../lint/color';
 import { PAGE_STYLES } from './page-styles';
 import { buildOverlayShell, raiseOverlay } from './shell';
@@ -212,4 +213,87 @@ describe('popup heading', () => {
     expect(withHeading.heading!.width).toBeLessThanOrEqual(1);
     expect(withHeading.heading!.height).toBeLessThanOrEqual(1);
   });
+});
+
+describe('popup shortcut hint', () => {
+  type HintState = { kind: 'set'; shortcut: string } | { kind: 'unset' } | { kind: 'failed' };
+
+  // Mirrors popup/main.ts showShortcutHint: a read shortcut fills and shows the hint; a failed read leaves it untouched.
+  function mountPopup(state: HintState, withHint = true) {
+    const parsed = new DOMParser().parseFromString(popupHtml, 'text/html');
+    const style = document.createElement('style');
+    style.textContent = PAGE_STYLES;
+    document.head.append(style);
+    const main = document.importNode(parsed.querySelector('main')!, true);
+    document.body.classList.add('annotation-page--popup');
+    document.body.append(main);
+    cleanups.push(() => {
+      main.remove();
+      style.remove();
+      document.body.classList.remove('annotation-page--popup');
+    });
+    const hint = main.querySelector<HTMLParagraphElement>('#shortcut-hint')!;
+    const toggle = main.querySelector<HTMLButtonElement>('#toggle')!;
+    if (!withHint) hint.remove();
+    else if (state.kind !== 'failed') {
+      hint.textContent = captureShortcutHint(state.kind === 'set' ? state.shortcut : '');
+      hint.hidden = false;
+      toggle.setAttribute('aria-describedby', 'shortcut-hint');
+    }
+    return { main, hint, toggle };
+  }
+
+  it.each<HintState>([
+    { kind: 'set', shortcut: 'Ctrl+Shift+Y' },
+    { kind: 'set', shortcut: 'MacCtrl+Shift+Alt+Y' },
+    { kind: 'unset' },
+  ])('fits the popup width without horizontal overflow: %o', (state) => {
+    const { main, hint } = mountPopup(state);
+    const root = document.documentElement;
+    expect(root.scrollWidth).toBeLessThanOrEqual(root.clientWidth);
+    expect(hint.scrollWidth).toBeLessThanOrEqual(hint.clientWidth);
+    const hintRect = hint.getBoundingClientRect();
+    const mainRect = main.getBoundingClientRect();
+    expect(hintRect.width).toBeGreaterThan(0);
+    expect(hintRect.left).toBeGreaterThanOrEqual(mainRect.left);
+    expect(hintRect.right).toBeLessThanOrEqual(mainRect.right);
+    if (state.kind === 'unset') {
+      const lineHeight = Number.parseFloat(getComputedStyle(hint).lineHeight);
+      expect(hintRect.height).toBeGreaterThan(lineHeight);
+    }
+  });
+
+  it('takes no space when the read fails, leaving the other controls where they are without it', () => {
+    const measure = (withHint: boolean) => {
+      const { main, hint } = mountPopup({ kind: 'failed' }, withHint);
+      const rects = [...main.querySelectorAll('button, p')]
+        .filter((element) => element !== hint)
+        .map((element) => element.getBoundingClientRect().toJSON());
+      const hintRect = withHint ? hint.getBoundingClientRect() : undefined;
+      cleanups.pop()!();
+      return { rects, hintRect };
+    };
+    const failed = measure(true);
+    expect(failed.hintRect!.height).toBe(0);
+    expect(failed.rects).toEqual(measure(false).rects);
+  });
+
+  it.each<HintState>([{ kind: 'set', shortcut: 'Ctrl+Shift+Y' }, { kind: 'unset' }, { kind: 'failed' }])(
+    'describes the toggle with one visible, non-empty hint only when the read succeeds: %o',
+    (state) => {
+      const { toggle } = mountPopup(state);
+      if (state.kind === 'failed') {
+        expect(toggle.hasAttribute('aria-describedby')).toBe(false);
+        return;
+      }
+      const ids = toggle.getAttribute('aria-describedby')!.split(/\s+/);
+      expect(ids).toHaveLength(1);
+      const described = document.querySelectorAll(`#${ids[0]}`);
+      expect(described).toHaveLength(1);
+      const rect = described[0]!.getBoundingClientRect();
+      expect(rect.width).toBeGreaterThan(0);
+      expect(rect.height).toBeGreaterThan(0);
+      expect(described[0]!.textContent!.trim()).not.toBe('');
+    },
+  );
 });
