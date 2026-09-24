@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { AnnotationWriteMessage } from '../annotation-messages';
 import { format } from '../export/format';
-import { ANNOTATION_EDIT_EVENT, createAnnotationList } from './annotation-list';
+import { ANNOTATION_EDIT_EVENT, ANNOTATION_START_EVENT, createAnnotationList } from './annotation-list';
 import { buildOverlayShell } from '../ui/shell';
 import type { AnnotationListPersistence } from './annotation-list';
 import type { AnnotationExportDelivery } from '../export/delivery';
@@ -121,6 +121,7 @@ describe('annotation list', () => {
     const list = createAnnotationList(panel, pageUrl, store);
     await list.render();
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(panel.textContent).toContain('delete failed'));
     expect(panel.querySelector('[data-annotation-row]')).not.toBeNull();
   });
@@ -151,6 +152,7 @@ describe('annotation list', () => {
     const list = createAnnotationList(panel, pageUrl, store);
     await list.render();
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1));
     expect(store.sendAnnotationWrite).toHaveBeenCalledWith({
@@ -182,6 +184,7 @@ describe('annotation list', () => {
     const list = createAnnotationList(panel, pageUrl, store);
     await list.render();
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1);
 
     list.clear();
@@ -241,7 +244,9 @@ describe('annotation list', () => {
     await list.render();
     const deletes = panel.querySelectorAll<HTMLButtonElement>('[data-annotation-delete]');
     deletes[0]!.click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     deletes[1]!.click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(2);
 
     resolvers.get('annotation-a')!();
@@ -259,11 +264,13 @@ describe('annotation list', () => {
     const list = createAnnotationList(panel, pageUrl, store);
     await list.render();
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('delete failed'));
 
     let resolveWrite: (value: unknown) => void = () => undefined;
     vi.mocked(store.sendAnnotationWrite).mockReturnValueOnce(new Promise((resolve) => { resolveWrite = resolve; }));
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     await list.render();
     expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('delete failed');
     resolveWrite(undefined);
@@ -426,6 +433,90 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     expect(store.sendAnnotationWrite).not.toHaveBeenCalled();
   });
 
+  it('asks inline before deleting a row, focuses Cancel, and only Delete sends annotation.delete', async () => {
+    const { panel } = mounted();
+    const store = persistence([annotation('annotation-1', 'One'), annotation('annotation-2', 'Two')]);
+    await createAnnotationList(panel, pageUrl, store).render();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-id="annotation-2"] [data-annotation-delete]')!.click();
+    await Promise.resolve();
+
+    expect(store.sendAnnotationWrite).not.toHaveBeenCalled();
+    const prompt = panel.querySelector('[data-annotation-id="annotation-2"] [data-annotation-delete-prompt]');
+    expect([prompt?.getAttribute('role'), prompt?.getAttribute('aria-label')]).toEqual(['group', 'Confirm delete annotation 2']);
+    expect(prompt?.querySelector('p')?.textContent).toBe('Delete annotation 2? This cannot be undone.');
+    const confirm = prompt?.querySelector<HTMLButtonElement>('[data-annotation-delete-confirm]');
+    const cancel = prompt?.querySelector<HTMLButtonElement>('[data-annotation-delete-cancel]');
+    expect([confirm?.textContent, cancel?.textContent]).toEqual(['Delete', 'Cancel']);
+    expect(document.activeElement).toBe(cancel);
+
+    confirm?.click();
+    await vi.waitFor(() => expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(store.sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.delete', pageUrl, id: 'annotation-2' } satisfies AnnotationWriteMessage);
+  });
+
+  it('Cancel and Escape keep the row, restore its Delete with focus, and keep Escape inside the prompt', async () => {
+    const { panel } = mounted();
+    const store = persistence([annotation('annotation-1', 'One')]);
+    const panelKeydown = vi.fn();
+    panel.addEventListener('keydown', panelKeydown);
+    await createAnnotationList(panel, pageUrl, store).render();
+    const remove = () => panel.querySelector<HTMLButtonElement>('[data-annotation-delete]');
+
+    remove()!.click();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-delete-cancel]')!.click();
+    expect(panel.querySelector('[data-annotation-delete-prompt]')).toBeNull();
+    expect(document.activeElement).toBe(remove());
+
+    remove()!.click();
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    panel.querySelector('[data-annotation-delete-cancel]')!.dispatchEvent(escape);
+    expect(panel.querySelector('[data-annotation-delete-prompt]')).toBeNull();
+    expect(document.activeElement).toBe(remove());
+    expect(panelKeydown).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(store.sendAnnotationWrite).not.toHaveBeenCalled();
+    expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(1);
+  });
+
+  it('offers Start annotating under the empty state, which asks the host to start capture', async () => {
+    const panel = document.createElement('div');
+    const onStart = vi.fn();
+    panel.addEventListener(ANNOTATION_START_EVENT, onStart);
+    await createAnnotationList(panel, pageUrl, persistence([])).render();
+    const start = panel.querySelector<HTMLButtonElement>('[data-annotation-start]');
+    expect(panel.querySelector('[data-annotation-empty-state]')?.nextElementSibling).toBe(start);
+    expect([start?.textContent, start?.type]).toEqual(['Start annotating', 'button']);
+
+    start!.click();
+    expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the export buttons by the Markdown they produce', async () => {
+    const panel = document.createElement('div');
+    await createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'One')])).render();
+    expect([...panel.querySelectorAll('[data-annotation-export] button')].map((button) => button.textContent))
+      .toEqual(['Copy Markdown', 'Download Markdown']);
+  });
+
+  it('counts every downloaded screenshot and attachment in the Download status', async () => {
+    const panel = document.createElement('div');
+    const annotations = [annotation('annotation-1', 'One', 'image/webp'), annotation('annotation-2', 'Two')];
+    annotations[1]!.attachments = [{ id: 'attachment-1', name: 'photo.png', mimeType: 'image/png', byteLength: 3 }];
+    const store = persistence(annotations);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-export-download]')!.click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Download started for annotations.md and 2 image files.'));
+    expect(delivery.downloadAsset).toHaveBeenCalledTimes(2);
+
+    vi.mocked(store.listAnnotations).mockResolvedValue([annotation('annotation-3', 'Text only')]);
+    await list.render();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-export-download]')!.click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Download started for annotations.md.'));
+    expect(delivery.downloadAsset).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps focus inside the panel on the heading after Delete all re-renders', async () => {
     const { panel } = mounted();
     const store = persistence([]);
@@ -447,6 +538,7 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     const before = second();
     before.focus();
     before.click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('delete failed'));
     expect(document.activeElement).toBe(second());
     expect(document.activeElement).not.toBe(before);
@@ -462,6 +554,7 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     await list.render();
     expect(list.live.textContent).toBe('');
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(list.live.textContent).toBe('delete failed'));
     expect(list.live.isConnected).toBe(true);
     list.clear();
@@ -564,8 +657,8 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     root.append(list.live);
     await list.render();
     panel.querySelector<HTMLButtonElement>('[data-annotation-export-download]')!.click();
-    await vi.waitFor(() => expect(list.live.textContent).toBe('Download started for annotations.md.'));
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Download started for annotations.md and 1 image file.'));
     expect(delivery.downloadAsset).toHaveBeenCalledTimes(1);
-    expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Download started for annotations.md.');
+    expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Download started for annotations.md and 1 image file.');
   });
 });

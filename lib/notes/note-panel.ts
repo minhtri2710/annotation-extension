@@ -12,7 +12,7 @@ import { SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/validation';
 import { attachmentKey, screenshotKey } from '../blob-store';
 import type { ElementContext } from '../capture/context';
 import { createNotePanelPersistence, type NotePanelPersistence } from './persistence';
-import { keepPanelFocus } from '../ui/shell';
+import { createInlineConfirm, keepPanelFocus } from '../ui/shell';
 import { ScreenshotCaptureError } from '../screenshot/messages';
 
 export interface NotePanel {
@@ -361,11 +361,19 @@ export function createNotePanel(
     remove.type = 'button';
     remove.dataset.annotationDelete = '';
     remove.textContent = 'Delete';
-    remove.addEventListener('click', () => {
-      void mutate(
-        { type: 'annotation.delete', pageUrl: context.url, id: annotation.id },
-        context,
-      );
+    const dismissDelete = createInlineConfirm(document, {
+      trigger: remove,
+      question: 'Delete this annotation? This cannot be undone.',
+      confirmLabel: 'Delete',
+      ariaLabel: 'Confirm delete annotation',
+      onConfirm: () => {
+        dismissDelete();
+        void mutate(
+          { type: 'annotation.delete', pageUrl: context.url, id: annotation.id },
+          context,
+        );
+      },
+      dataPrefix: 'annotation-delete',
     });
     const attachmentInput = document.createElement('input');
     attachmentInput.type = 'file';

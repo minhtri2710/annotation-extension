@@ -12,7 +12,7 @@ import { attachmentKey, screenshotKey } from '../blob-store';
 import { readOnboardingOpen, writeOnboardingOpen } from '../ui/ui-prefs';
 import { resolveSelector } from '../capture/selector';
 import { createLocateHighlight } from '../ui/locate-highlight';
-import { keepPanelFocus } from '../ui/shell';
+import { createInlineConfirm, keepPanelFocus } from '../ui/shell';
 
 export interface AnnotationListPersistence {
   listAnnotations(pageUrl: string): Promise<Annotation[]>;
@@ -30,6 +30,8 @@ export interface AnnotationList {
 
 // Dispatched on the panel mount with the annotation as detail when a row's Edit is clicked.
 export const ANNOTATION_EDIT_EVENT = 'annotation-edit';
+// Dispatched on the panel mount when the empty list's Start annotating is clicked.
+export const ANNOTATION_START_EVENT = 'annotation-start';
 const LOCATE_MISSING_MESSAGE = 'Element not found on this page';
 
 const productionPersistence: AnnotationListPersistence = {
@@ -98,7 +100,12 @@ export function createAnnotationList(
       const empty = document.createElement('p');
       empty.dataset.annotationEmptyState = '';
       empty.textContent = 'No annotations on this page.';
-      panel.append(empty);
+      const start = document.createElement('button');
+      start.type = 'button';
+      start.dataset.annotationStart = '';
+      start.textContent = 'Start annotating';
+      start.addEventListener('click', () => panel.dispatchEvent(new CustomEvent(ANNOTATION_START_EVENT)));
+      panel.append(empty, start);
     } else {
       panel.append(createClearAll(document, annotations.length), createExportSection(document, annotations));
       const rows = document.createElement('div');
@@ -115,40 +122,13 @@ export function createAnnotationList(
     clear.type = 'button';
     clear.dataset.annotationClear = '';
     clear.textContent = 'Clear all';
-
-    const prompt = document.createElement('div');
-    prompt.dataset.annotationClearPrompt = '';
-    prompt.setAttribute('role', 'group');
-    const question = document.createElement('p');
-    question.textContent = `Delete all ${count} ${count === 1 ? 'annotation' : 'annotations'} on this page? This cannot be undone.`;
-    const confirm = document.createElement('button');
-    confirm.type = 'button';
-    confirm.dataset.annotationClearConfirm = '';
-    confirm.textContent = 'Delete all';
-    const cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.dataset.annotationClearCancel = '';
-    cancel.textContent = 'Cancel';
-    prompt.setAttribute('aria-label', 'Confirm clear all');
-    prompt.append(question, confirm, cancel);
-
-    const dismiss = () => {
-      prompt.replaceWith(clear);
-      clear.focus();
-    };
-    clear.addEventListener('click', () => {
-      clear.replaceWith(prompt);
-      cancel.focus();
-    });
-    confirm.addEventListener('click', () => {
-      void mutate({ type: 'annotation.clear', pageUrl });
-    });
-    cancel.addEventListener('click', dismiss);
-    prompt.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape') return;
-      // Escape here dismisses the prompt only; it must not also close the panel.
-      event.stopPropagation();
-      dismiss();
+    createInlineConfirm(document, {
+      trigger: clear,
+      question: `Delete all ${count} ${count === 1 ? 'annotation' : 'annotations'} on this page? This cannot be undone.`,
+      confirmLabel: 'Delete all',
+      ariaLabel: 'Confirm clear all',
+      onConfirm: () => void mutate({ type: 'annotation.clear', pageUrl }),
+      dataPrefix: 'annotation-clear',
     });
     return clear;
   }
@@ -184,7 +164,7 @@ export function createAnnotationList(
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.dataset.annotationExportCopy = '';
-    copy.textContent = 'Copy';
+    copy.textContent = 'Copy Markdown';
     copy.addEventListener('click', () => {
       const version = clearVersion;
       void (async () => {
@@ -203,10 +183,11 @@ export function createAnnotationList(
     const download = document.createElement('button');
     download.type = 'button';
     download.dataset.annotationExportDownload = '';
-    download.textContent = 'Download';
+    download.textContent = 'Download Markdown';
     download.addEventListener('click', () => {
       const version = clearVersion;
       void (async () => {
+        let images = 0;
         try {
           delivery.download(markdown(), 'annotations.md');
           for (const annotation of annotations) {
@@ -216,6 +197,7 @@ export function createAnnotationList(
                 blob,
                 screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType),
               );
+              images += 1;
             }
             for (const [attachmentIndex, attachment] of (annotation.attachments ?? []).entries()) {
               const attachmentBlob = await persistence.readBlob(attachmentKey(attachment.id));
@@ -223,6 +205,7 @@ export function createAnnotationList(
                 attachmentBlob,
                 attachmentAssetFilename(annotation.id, attachmentIndex, attachment.mimeType),
               );
+              images += 1;
             }
           }
         } catch (error) {
@@ -232,7 +215,9 @@ export function createAnnotationList(
           return;
         }
         if (version !== clearVersion) return;
-        statusMessage = 'Download started for annotations.md.';
+        statusMessage = images === 0
+          ? 'Download started for annotations.md.'
+          : `Download started for annotations.md and ${images} ${images === 1 ? 'image file' : 'image files'}.`;
         await render();
       })();
     });
@@ -263,8 +248,16 @@ export function createAnnotationList(
     remove.dataset.annotationDelete = '';
     remove.setAttribute('aria-label', `Delete annotation ${position}`);
     remove.textContent = 'Delete';
-    remove.addEventListener('click', () => {
-      void mutate({ type: 'annotation.delete', pageUrl, id: annotation.id });
+    const dismissDelete = createInlineConfirm(document, {
+      trigger: remove,
+      question: `Delete annotation ${position}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      ariaLabel: `Confirm delete annotation ${position}`,
+      onConfirm: () => {
+        dismissDelete();
+        void mutate({ type: 'annotation.delete', pageUrl, id: annotation.id });
+      },
+      dataPrefix: 'annotation-delete',
     });
 
     const locate = document.createElement('button');

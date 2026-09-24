@@ -186,6 +186,35 @@ describe('content script entrypoint', () => {
     expect(shadow().activeElement).toBe(toggle);
   });
 
+  it('Start annotating in the empty list closes the panel and starts capture', async () => {
+    await start();
+    const [host] = hosts();
+    const toggle = button('View all');
+    toggle.click();
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-start]')).not.toBeNull());
+
+    panel().querySelector<HTMLButtonElement>('[data-annotation-start]')!.click();
+
+    expect(panel().hasAttribute('aria-label')).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(host!.hasAttribute('data-annotation-active')).toBe(true);
+    expect(button('Stop annotating').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Start annotating keeps an active capture on', async () => {
+    await start();
+    const [host] = hosts();
+    await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+    expect(host!.hasAttribute('data-annotation-active')).toBe(true);
+    button('View all').click();
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-start]')).not.toBeNull());
+
+    panel().querySelector<HTMLButtonElement>('[data-annotation-start]')!.click();
+
+    expect(host!.hasAttribute('data-annotation-active')).toBe(true);
+    expect(button('Stop annotating').getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('releases the page listeners, the route watch and the policy watcher when the context is invalidated', async () => {
     const added = vi.spyOn(window, 'addEventListener');
     const removed = vi.spyOn(window, 'removeEventListener');

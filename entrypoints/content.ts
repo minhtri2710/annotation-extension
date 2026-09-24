@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
-import { ANNOTATION_EDIT_EVENT, createAnnotationList } from '../lib/annotation-list/annotation-list';
+import { ANNOTATION_EDIT_EVENT, ANNOTATION_START_EVENT, createAnnotationList } from '../lib/annotation-list/annotation-list';
 import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../lib/notes/note-panel';
 import { createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
@@ -175,6 +175,10 @@ export default defineContentScript({
         shell.panel.addEventListener(ANNOTATION_EDIT_EVENT, (event) => {
           const annotation = (event as CustomEvent<Annotation>).detail;
           showNotePanel(resolveLiveElementContext(document, annotation) ?? annotation.elementContext, panelOpener);
+        });
+        shell.panel.addEventListener(ANNOTATION_START_EVENT, () => {
+          closePanel();
+          controller?.activate();
         });
         shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, () => {
           if (panelMode === 'note') closePanel();

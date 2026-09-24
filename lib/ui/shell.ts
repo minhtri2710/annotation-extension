@@ -146,6 +146,54 @@ export function buildOverlayShell(
   return { root, toolbar, panel };
 }
 
+export interface InlineConfirmOptions {
+  trigger: HTMLButtonElement;
+  question: string;
+  confirmLabel: string;
+  ariaLabel: string;
+  onConfirm(): void;
+  dataPrefix: string;
+}
+
+// Clicking the trigger swaps it for an inline prompt; only the prompt's confirm button acts.
+// Returns the dismiss function, which swaps the trigger back and focuses it.
+export function createInlineConfirm(document: Document, options: InlineConfirmOptions): () => void {
+  const { trigger, dataPrefix } = options;
+  const prompt = document.createElement('div');
+  prompt.setAttribute(`data-${dataPrefix}-prompt`, '');
+  prompt.setAttribute('role', 'group');
+  const question = document.createElement('p');
+  question.textContent = options.question;
+  const confirm = document.createElement('button');
+  confirm.type = 'button';
+  confirm.setAttribute(`data-${dataPrefix}-confirm`, '');
+  confirm.textContent = options.confirmLabel;
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.setAttribute(`data-${dataPrefix}-cancel`, '');
+  cancel.textContent = 'Cancel';
+  prompt.setAttribute('aria-label', options.ariaLabel);
+  prompt.append(question, confirm, cancel);
+
+  const dismiss = () => {
+    prompt.replaceWith(trigger);
+    trigger.focus();
+  };
+  trigger.addEventListener('click', () => {
+    trigger.replaceWith(prompt);
+    cancel.focus();
+  });
+  confirm.addEventListener('click', () => options.onConfirm());
+  cancel.addEventListener('click', dismiss);
+  prompt.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    // Escape here dismisses the prompt only; it must not also close the panel.
+    event.stopPropagation();
+    dismiss();
+  });
+  return dismiss;
+}
+
 // Call before a panel re-render; the returned function refocuses the equivalent control
 // (same data-annotation-* attributes, same annotation) or the panel heading, so focus never
 // drops to <body>. It does nothing when focus was outside the panel.

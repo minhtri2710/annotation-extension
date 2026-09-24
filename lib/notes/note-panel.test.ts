@@ -692,6 +692,7 @@ describe('note panel', () => {
     });
 
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
 
     expect(sendAnnotationWrite).toHaveBeenCalledWith({
@@ -782,6 +783,24 @@ describe('note panel close, focus, editor and live status', () => {
     expect(document.activeElement).not.toBe(note);
   });
 
+  it('asks inline before deleting, and only Delete sends annotation.delete', async () => {
+    const panel = mounted();
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    await render(panel, [annotation('To delete')], { sendAnnotationWrite });
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    await Promise.resolve();
+
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    const prompt = panel.querySelector('[data-annotation-delete-prompt]');
+    expect([prompt?.getAttribute('role'), prompt?.getAttribute('aria-label')]).toEqual(['group', 'Confirm delete annotation']);
+    expect(prompt?.querySelector('p')?.textContent).toBe('Delete this annotation? This cannot be undone.');
+    expect(document.activeElement).toBe(prompt?.querySelector('[data-annotation-delete-cancel]'));
+
+    prompt?.querySelector<HTMLButtonElement>('[data-annotation-delete-confirm]')!.click();
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.delete', pageUrl, id: 'annotation-1' });
+  });
+
   it('moves focus to the heading when the focused control is gone after a re-render', async () => {
     const panel = mounted();
     const listAnnotations = vi.fn().mockResolvedValueOnce([annotation('Delete me')]).mockResolvedValue([]);
@@ -789,6 +808,7 @@ describe('note panel close, focus, editor and live status', () => {
     const remove = panel.querySelector('[data-annotation-delete]') as HTMLButtonElement;
     remove.focus();
     remove.click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(panel.querySelector('[data-annotation-delete]')).toBeNull());
     expect(document.activeElement).toBe(panel.querySelector('h2'));
     expect(document.activeElement).not.toBe(document.body);
@@ -1078,6 +1098,7 @@ describe('note panel across tabs', () => {
     await render(panel, [annotation('Stale')], { sendAnnotationWrite: vi.fn().mockResolvedValue(false) });
 
     (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(status(panel)).toBe(DELETED));
   });

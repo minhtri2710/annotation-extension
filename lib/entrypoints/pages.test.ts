@@ -47,6 +47,16 @@ describe('popup page', () => {
     expect(byId('status').textContent).toBe('');
   });
 
+  it('names the popup exports and import by format and scope', () => {
+    loadPage('popup');
+    expect([...document.querySelectorAll('.annotation-page__actions button')].map((button) => button.textContent)).toEqual([
+      'Toggle capture mode',
+      'Export JSON (all pages)',
+      'Export Markdown (all pages)',
+      'Import JSON',
+    ]);
+  });
+
   it('reports that annotations are unavailable when the tab cannot be reached', async () => {
     loadPage('popup');
     vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 11 }] as never);
