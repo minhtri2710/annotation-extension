@@ -11,7 +11,7 @@ import { readPolicy, writePolicy } from '../options/storage';
 
 /** Loads an entrypoint's own index.html body (without its module script) into the happy-dom document. */
 function loadPage(entry: 'popup' | 'options' | 'devtools-panel') {
-  const html = readFileSync(join(process.cwd(), 'entrypoints', entry, 'index.html'), 'utf8');
+  const html = readFileSync(join(import.meta.dirname, '..', '..', 'entrypoints', entry, 'index.html'), 'utf8');
   const page = new DOMParser().parseFromString(html, 'text/html');
   page.querySelectorAll('script').forEach((script) => script.remove());
   document.head.replaceChildren();

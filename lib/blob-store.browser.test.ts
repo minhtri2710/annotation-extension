@@ -112,6 +112,7 @@ describe('blob keys', () => {
       'screenshots:a',
       'attachments:a',
       'Screenshot:a',
+      'Attachment:a',
       'screenshot',
       '',
       1,

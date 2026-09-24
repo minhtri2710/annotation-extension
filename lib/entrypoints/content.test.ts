@@ -6,6 +6,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import contentScript from '../../entrypoints/content';
 import { interceptPageEvents, releasePageEvents } from '../capture';
+import { CAPTURE_TOGGLE_MESSAGE } from '../capture/activation';
 import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
 
 // Spy: the content script's event bus is closure-private; the real bus runs, and each `on` records its unsubscriber.
@@ -221,6 +222,19 @@ describe('content script entrypoint', () => {
 
     expect(browser.runtime.onMessage.hasListener(messageListener!)).toBe(false);
     expect(selection.map(({ unsubscribe }) => unsubscribe.mock.calls)).toEqual([[[]]]);
+  });
+
+  it('toggles capture only for a capture-toggle runtime message', async () => {
+    await start();
+    const [host] = hosts();
+
+    await fakeBrowser.runtime.onMessage.trigger({ type: 'capture.start' }, {}, () => {});
+    expect(host!.hasAttribute('data-annotation-active')).toBe(false);
+    expect(button('Annotate').getAttribute('aria-pressed')).toBe('false');
+
+    await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+    expect(host!.hasAttribute('data-annotation-active')).toBe(true);
+    expect(button('Stop annotating').getAttribute('aria-pressed')).toBe('true');
   });
 
   it('releases the capture-state subscription when the context is invalidated', async () => {
