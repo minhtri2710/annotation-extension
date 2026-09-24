@@ -358,6 +358,72 @@ describe('live-state lint rules through the real engine', () => {
     });
   });
 
+  it('skips screen-reader-only text for text-overflow', async () => {
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = 'A long direct text run';
+    document.body.append(label);
+    stubRect(label, { left: 0, top: 0, width: 100, height: 24 });
+    stubMetric(label, 'clientWidth', 100);
+    stubMetric(label, 'scrollWidth', 116);
+    const overflow = async () => (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
+      (finding) => finding.ruleId === 'text-overflow',
+    );
+    const positive = await overflow();
+    expect(positive).toHaveLength(1);
+    expect(first(positive)).toMatchObject({ ruleId: 'text-overflow', detail: 'div.label overflows its box by 16px' });
+
+    label.setAttribute('style', 'clip-path: inset(50%)');
+    expect(await overflow()).toHaveLength(0);
+  });
+
+  it('skips screen-reader-only text for text-occlusion', async () => {
+    const headline = document.createElement('div');
+    headline.className = 'headline';
+    headline.textContent = 'Readable headline';
+    const cover = document.createElement('div');
+    cover.className = 'cover';
+    cover.setAttribute('style', 'background: rgb(255, 255, 255)');
+    document.body.append(headline, cover);
+    stubRect(headline, { left: 100, top: 100, width: 240, height: 28 });
+    stubRect(cover, { left: 100, top: 100, width: 240, height: 28 });
+    Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: (): Element[] => [cover, headline] });
+    const occlusion = async () => (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
+      (finding) => finding.ruleId === 'text-occlusion',
+    );
+    const positive = await occlusion();
+    expect(positive).toHaveLength(1);
+    expect(first(positive)).toMatchObject({
+      ruleId: 'text-occlusion',
+      detail: 'div.headline "Readable headline" is 100% covered by an opaque element (div.cover)',
+    });
+
+    headline.setAttribute('style', 'clip-path: inset(50%)');
+    expect(await occlusion()).toHaveLength(0);
+  });
+
+  it('does not count screen-reader-only pointer-events:none text as unchecked for occlusion', async () => {
+    const labels = ['one', 'two'].map((name, i) => {
+      const label = document.createElement('div');
+      label.className = name;
+      label.textContent = `Floating label ${name}`;
+      label.setAttribute('style', 'pointer-events: none');
+      document.body.append(label);
+      stubRect(label, { left: 100, top: 100 + i * 40, width: 240, height: 28 });
+      return label;
+    });
+    const unchecked = async () => (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
+      (finding) => finding.ruleId === 'text-occlusion-unchecked',
+    );
+    expect((await unchecked()).map((finding) => finding.detail)).toEqual(['2 text elements with pointer-events:none were not checked for occlusion']);
+
+    first(labels).setAttribute('style', 'pointer-events: none; clip-path: inset(50%)');
+    expect((await unchecked()).map((finding) => finding.detail)).toEqual(['1 text element with pointer-events:none was not checked for occlusion']);
+
+    labels[1]!.setAttribute('style', 'pointer-events: none; clip-path: inset(50%)');
+    expect(await unchecked()).toEqual([]);
+  });
+
   it('skips icon-classified slots when collecting repeated container text', async () => {
     document.body.innerHTML = '<div class="card" style="background-color: rgb(255, 255, 255); border-top: 1px solid rgb(0, 0, 0); border-right: 1px solid rgb(0, 0, 0); border-bottom: 1px solid rgb(0, 0, 0); border-radius: 8px"><div class="iconic-slot-one">Active</div><div class="iconic-slot-two">Active</div><div class="iconic-slot-three">Active</div></div>';
     expect((await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter(
