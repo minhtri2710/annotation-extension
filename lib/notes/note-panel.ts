@@ -46,7 +46,7 @@ export function createNotePanel(
   let shownVersion = '';
   let pendingWrites = 0;
   const previewUrls = new Set<string>();
-  // Unsaved note text, kept in memory across re-renders and reopening: new notes by page URL and selector, edits by id.
+  // Unsaved text, kept in memory across re-renders and reopening: new notes by page URL and selector, edit fields by id and field.
   const drafts = new Map<string, string>();
   let restoredDraft = false;
   // CSS and repro groups the user left open or closed against their content default, kept in memory by annotation id and group.
@@ -202,17 +202,37 @@ export function createNotePanel(
     });
   }
 
-  function restoreDraft(field: HTMLTextAreaElement, key: string): void {
+  function restoreDraft(field: HTMLTextAreaElement, key: string): boolean {
     const draft = drafts.get(key);
-    if (draft === undefined) return;
+    if (draft === undefined) return false;
     field.value = draft;
     restoredDraft = true;
+    return true;
+  }
+
+  // A field typed back to its stored value has no draft.
+  function keepDraft(field: HTMLTextAreaElement, key: string): boolean {
+    field.addEventListener('input', () => {
+      if (field.value === field.defaultValue) drafts.delete(key);
+      else drafts.set(key, field.value);
+    });
+    return restoreDraft(field, key);
   }
 
   function dropDraft(message: AnnotationWriteMessage): void {
-    if (message.type === 'annotation.add') drafts.delete(newNoteDraftKey(message.pageUrl, message.input.selector));
-    else if (message.type === 'annotation.delete') drafts.delete(editDraftKey(message.id));
-    else if (message.type === 'annotation.update' && message.changes.note !== undefined) drafts.delete(editDraftKey(message.id));
+    if (message.type === 'annotation.add') {
+      drafts.delete(newNoteDraftKey(message.pageUrl, message.input.selector));
+      return;
+    }
+    if (message.type === 'annotation.clear') return;
+    const dropped: EditDraftField[] = message.type === 'annotation.delete'
+      ? ['note', 'css', ...REPRO_DRAFT_FIELDS]
+      : [
+        ...(message.changes.note !== undefined ? ['note' as const] : []),
+        ...(message.changes.cssEdits !== undefined ? ['css' as const] : []),
+        ...(message.changes.repro !== undefined ? REPRO_DRAFT_FIELDS : []),
+      ];
+    for (const field of dropped) drafts.delete(editDraftKey(message.id, field));
   }
 
   async function whileWriting(operation: () => Promise<void>): Promise<void> {
@@ -305,8 +325,8 @@ export function createNotePanel(
     item.append(
       ...noteSection(document, annotation, position, context),
       ...images.controls,
-      group(document, annotation.id, 'css', 'CSS tweaks', hasCss, [...css.controls, ...css.readout]),
-      group(document, annotation.id, 'repro', 'Reproduction steps', annotation.repro !== undefined, [
+      group(document, annotation.id, 'css', 'CSS tweaks', hasCss, css.restored, [...css.controls, ...css.readout]),
+      group(document, annotation.id, 'repro', 'Reproduction steps', annotation.repro !== undefined, repro.restored, [
         ...repro.controls,
         ...repro.readout,
       ]),
@@ -315,7 +335,7 @@ export function createNotePanel(
     return item;
   }
 
-  // A group starts open when it has content, unless the user left it the other way. The initial toggle event
+  // A group starts open when it holds a restored draft, else when it has content unless the user left it the other way. The initial toggle event
   // arrives after the listener in real browsers, so a state that matches the content default is not stored.
   function group(
     document: Document,
@@ -323,12 +343,13 @@ export function createNotePanel(
     name: 'css' | 'repro',
     title: string,
     hasContent: boolean,
+    restored: boolean,
     children: HTMLElement[],
   ): HTMLDetailsElement {
     const details = document.createElement('details');
     details.dataset[name === 'css' ? 'annotationCssGroup' : 'annotationReproGroup'] = '';
     const key = `${id} ${name}`;
-    details.open = groupStates.get(key) ?? hasContent;
+    details.open = restored || (groupStates.get(key) ?? hasContent);
     details.addEventListener('toggle', () => {
       if (details.open === hasContent) groupStates.delete(key);
       else groupStates.set(key, details.open);
@@ -350,7 +371,7 @@ export function createNotePanel(
     note.maxLength = MAX_TEXT_LENGTH;
     note.defaultValue = annotation.note;
     note.setAttribute('aria-label', `Edit note, annotation ${position}`);
-    const draftKey = editDraftKey(annotation.id);
+    const draftKey = editDraftKey(annotation.id, 'note');
     restoreDraft(note, draftKey);
     const unsaved = document.createElement('p');
     unsaved.dataset.annotationUnsaved = '';
@@ -521,7 +542,7 @@ export function createNotePanel(
     position: number,
     context: ElementContext,
     reportReadError: (error: unknown) => void,
-  ): { controls: HTMLElement[]; readout: HTMLElement[] } {
+  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean } {
     const { field: cssDecls, label: cssDeclsLabel } = labelledField(
       document,
       position,
@@ -529,6 +550,7 @@ export function createNotePanel(
       annotation.cssEdits?.map(({ property, value }) => `${property}: ${value}`).join('\n') ?? '',
     );
     cssDecls.dataset.annotationCssDecls = '';
+    const restored = keepDraft(cssDecls, editDraftKey(annotation.id, 'css'));
     const saveCss = document.createElement('button');
     saveCss.type = 'button';
     saveCss.dataset.annotationCssSave = '';
@@ -552,7 +574,7 @@ export function createNotePanel(
       );
     });
     if (!annotation.cssEdits || annotation.cssEdits.length === 0) {
-      return { controls: [cssDeclsLabel, saveCss], readout: [] };
+      return { controls: [cssDeclsLabel, saveCss], readout: [], restored };
     }
     const clearCss = document.createElement('button');
     clearCss.type = 'button';
@@ -577,7 +599,7 @@ export function createNotePanel(
       entry.textContent = `${property}: ${original} -> ${value}`;
       readout.append(entry);
     }
-    return { controls: [cssDeclsLabel, saveCss], readout: [clearCss, readout] };
+    return { controls: [cssDeclsLabel, saveCss], readout: [clearCss, readout], restored };
   }
 
   function reproSection(
@@ -585,7 +607,7 @@ export function createNotePanel(
     annotation: Annotation,
     position: number,
     context: ElementContext,
-  ): { controls: HTMLElement[]; readout: HTMLElement[] } {
+  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean } {
     const { field: reproSteps, label: reproStepsLabel } = labelledField(
       document,
       position,
@@ -608,6 +630,12 @@ export function createNotePanel(
     );
     reproActual.dataset.annotationReproActual = '';
     for (const field of [reproSteps, reproExpected, reproActual]) field.maxLength = MAX_TEXT_LENGTH;
+    const restoredFields = [
+      keepDraft(reproSteps, editDraftKey(annotation.id, 'steps')),
+      keepDraft(reproExpected, editDraftKey(annotation.id, 'expected')),
+      keepDraft(reproActual, editDraftKey(annotation.id, 'actual')),
+    ];
+    const restored = restoredFields.includes(true);
     const saveRepro = document.createElement('button');
     saveRepro.type = 'button';
     saveRepro.dataset.annotationReproSave = '';
@@ -631,7 +659,7 @@ export function createNotePanel(
       );
     });
     const controls = [reproStepsLabel, reproExpectedLabel, reproActualLabel, saveRepro];
-    if (!annotation.repro) return { controls, readout: [] };
+    if (!annotation.repro) return { controls, readout: [], restored };
     const readout = document.createElement('div');
     readout.dataset.annotationRepro = '';
     const stepsList = document.createElement('ol');
@@ -645,7 +673,7 @@ export function createNotePanel(
     const actual = document.createElement('p');
     actual.textContent = `Actual: ${annotation.repro.actual}`;
     readout.append(stepsList, expected, actual);
-    return { controls, readout: [readout] };
+    return { controls, readout: [readout], restored };
   }
 
   function appendPreview(
@@ -690,8 +718,11 @@ function newNoteDraftKey(url: string, selector: string): string {
   return `new ${url} ${selector}`;
 }
 
-function editDraftKey(id: string): string {
-  return `edit ${id}`;
+type EditDraftField = 'note' | 'css' | 'steps' | 'expected' | 'actual';
+const REPRO_DRAFT_FIELDS: EditDraftField[] = ['steps', 'expected', 'actual'];
+
+function editDraftKey(id: string, field: EditDraftField): string {
+  return `edit ${id} ${field}`;
 }
 
 function versionOf(pageAnnotations: Annotation[], selector: string): string {

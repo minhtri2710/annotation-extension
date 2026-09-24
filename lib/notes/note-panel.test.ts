@@ -1338,6 +1338,119 @@ describe('note panel drafts', () => {
       input: { note: 'Low contrast: 2.1:1', selector: context.selector, elementContext: context },
     });
   });
+  const cssDecls = (panel: HTMLElement) => panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement;
+  const reproField = (panel: HTMLElement, name: string) => panel.querySelector(`[data-annotation-repro-${name}]`) as HTMLTextAreaElement;
+  const reproFields = ['steps', 'expected', 'actual'];
+  const statusText = (panel: HTMLElement) => panel.querySelector('[data-annotation-status]')?.textContent;
+  const reopen = async (panel: HTMLElement, notePanel: { clear(): void; render(context: ElementContext): Promise<void> }) => {
+    notePanel.clear();
+    await notePanel.render(context);
+    return panel;
+  };
+
+  it('keeps CSS declarations text across close and reopen, says the draft was restored and opens the CSS group', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    type(cssDecls(panel), 'color: red');
+    await reopen(panel, notePanel);
+    expect(cssDecls(panel).value).toBe('color: red');
+    expect(cssDecls(panel).defaultValue).toBe('');
+    expect(statusText(panel)).toBe('Draft restored.');
+    expect((panel.querySelector('[data-annotation-css-group]') as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it.each(reproFields)('keeps repro %s text across close and reopen, says the draft was restored and opens the repro group', async (name) => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    type(reproField(panel, name), 'Typed repro');
+    await reopen(panel, notePanel);
+    expect(reproField(panel, name).value).toBe('Typed repro');
+    expect(reproField(panel, name).defaultValue).toBe('');
+    expect(statusText(panel)).toBe('Draft restored.');
+    expect((panel.querySelector('[data-annotation-repro-group]') as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it('keeps repro text when this panel saves CSS on the same note', async () => {
+    const panel = document.createElement('div');
+    const { listAnnotations } = await render(panel, [annotation('Existing')], {
+      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: 'red', original: 'blue' }]),
+    });
+    type(reproField(panel, 'steps'), 'Open the menu');
+    type(cssDecls(panel), 'color: red');
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(reproField(panel, 'steps').value).toBe('Open the menu');
+    expect((panel.querySelector('[data-annotation-repro-group]') as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it('drops the CSS draft once Save CSS succeeds', async () => {
+    const panel = document.createElement('div');
+    const { notePanel, listAnnotations, sendAnnotationWrite } = await render(panel, [annotation('Existing')], {
+      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: 'red', original: 'blue' }]),
+    });
+    type(cssDecls(panel), 'color: red');
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+    await reopen(panel, notePanel);
+    expect(cssDecls(panel).value).toBe('');
+    expect(statusText(panel)).toBeUndefined();
+  });
+
+  it('keeps the CSS draft when Save CSS finds the note deleted elsewhere', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(null);
+    const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], {
+      sendAnnotationWrite,
+      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: 'red', original: 'blue' }]),
+    });
+    type(cssDecls(panel), 'color: red');
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+    await reopen(panel, notePanel);
+    expect(cssDecls(panel).value).toBe('color: red');
+    expect(statusText(panel)).toBe('Draft restored.');
+  });
+
+  it('drops the three repro drafts once Save repro succeeds', async () => {
+    const panel = document.createElement('div');
+    const { notePanel, listAnnotations, sendAnnotationWrite } = await render(panel, [annotation('Existing')]);
+    for (const name of reproFields) type(reproField(panel, name), `Typed ${name}`);
+    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+    await reopen(panel, notePanel);
+    for (const name of reproFields) expect(reproField(panel, name).value).toBe('');
+    expect(statusText(panel)).toBeUndefined();
+  });
+
+  it('drops the CSS and repro drafts once the note is deleted', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(true);
+    const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], { sendAnnotationWrite });
+    type(cssDecls(panel), 'color: red');
+    for (const name of reproFields) type(reproField(panel, name), `Typed ${name}`);
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    await reopen(panel, notePanel);
+    expect(cssDecls(panel).value).toBe('');
+    for (const name of reproFields) expect(reproField(panel, name).value).toBe('');
+    expect(statusText(panel)).toBeUndefined();
+  });
+
+  it('drops a CSS or repro draft typed back to its stored value', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    type(cssDecls(panel), 'color: red');
+    type(cssDecls(panel), '');
+    type(reproField(panel, 'expected'), 'Typed');
+    type(reproField(panel, 'expected'), '');
+    await reopen(panel, notePanel);
+    expect(statusText(panel)).toBeUndefined();
+  });
+
 });
 
 describe('note panel layout', () => {
