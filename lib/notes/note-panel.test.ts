@@ -1372,6 +1372,43 @@ describe('note panel drafts', () => {
       input: { note: 'Low contrast: 2.1:1', selector: context.selector, elementContext: context },
     });
   });
+
+  it('drops an untouched seed when the element reopens without a seed', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel);
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(newNote(panel).value).toBe('');
+    expect(panel.querySelector('[data-annotation-status]')).toBeNull();
+  });
+
+  it('keeps an edited seed as a draft and says the draft was restored', async () => {
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel);
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    type(newNote(panel), 'Low contrast: 2.1:1 on the CTA');
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(newNote(panel).value).toBe('Low contrast: 2.1:1 on the CTA');
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Draft restored.');
+  });
+
+  it('applies a new seed over an untouched earlier seed and focuses the new-note field', async () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    const { notePanel } = await render(panel);
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    notePanel.clear();
+    await notePanel.render(context, 'Missing alt text');
+    expect(newNote(panel).value).toBe('Missing alt text');
+    expect(panel.querySelector('[data-annotation-status]')).toBeNull();
+    expect(document.activeElement).toBe(newNote(panel));
+    panel.remove();
+  });
   const cssDecls = (panel: HTMLElement) => panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement;
   const reproField = (panel: HTMLElement, name: string) => panel.querySelector(`[data-annotation-repro-${name}]`) as HTMLTextAreaElement;
   const reproFields = ['steps', 'expected', 'actual'];

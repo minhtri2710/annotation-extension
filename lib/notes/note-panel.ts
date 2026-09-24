@@ -48,17 +48,23 @@ export function createNotePanel(
   const previewUrls = new Set<string>();
   // Unsaved text, kept in memory across re-renders and reopening: new notes by page URL and selector, edit fields by id and field.
   const drafts = new Map<string, string>();
+  // New-note draft keys whose draft is a seed the user has not edited.
+  const untouchedSeeds = new Set<string>();
   let restoredDraft = false;
   // CSS and repro groups the user left open or closed against their content default, kept in memory by annotation id and group.
   const groupStates = new Map<string, boolean>();
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
   // Opening moves focus into the panel: the new-note field when a seed was applied, else the first note of the element, else the new-note field.
-  // A seed is kept as the new-note draft, so it survives re-renders until saved, cleared or replaced.
+  // A seed is kept as the new-note draft for this open, so it survives re-renders; an untouched seed is dropped on the next open, and typing makes it a real draft.
   async function render(context: ElementContext, seed?: string): Promise<void> {
     const draftKey = newNoteDraftKey(context.url, context.selector);
+    if (untouchedSeeds.delete(draftKey)) drafts.delete(draftKey);
     const seeded = seed !== undefined && !drafts.has(draftKey);
-    if (seeded) drafts.set(draftKey, seed);
+    if (seeded) {
+      drafts.set(draftKey, seed);
+      untouchedSeeds.add(draftKey);
+    }
     await refresh(context);
     if (selectedContext !== context) return;
     if (restoredDraft && !seeded && !statusMessage) {
@@ -140,6 +146,7 @@ export function createNotePanel(
     const draftKey = newNoteDraftKey(context.url, context.selector);
     restoreDraft(note, draftKey);
     note.addEventListener('input', () => {
+      untouchedSeeds.delete(draftKey);
       if (note.value.trim()) drafts.set(draftKey, note.value);
       else drafts.delete(draftKey);
     });
@@ -221,7 +228,9 @@ export function createNotePanel(
 
   function dropDraft(message: AnnotationWriteMessage): void {
     if (message.type === 'annotation.add') {
-      drafts.delete(newNoteDraftKey(message.pageUrl, message.input.selector));
+      const key = newNoteDraftKey(message.pageUrl, message.input.selector);
+      drafts.delete(key);
+      untouchedSeeds.delete(key);
       return;
     }
     if (message.type === 'annotation.clear') return;
@@ -710,6 +719,7 @@ export function createNotePanel(
 
   function teardown(): void {
     drafts.clear();
+    untouchedSeeds.clear();
     revokePreviewUrls();
     persistence.revertAllCssEdits();
   }
