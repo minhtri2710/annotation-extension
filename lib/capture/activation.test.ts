@@ -1,5 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE, isCaptureStateMessage, isCaptureToggleMessage } from './activation';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { browser } from 'wxt/browser';
+import {
+  CAPTURE_SHORTCUT_MESSAGE,
+  CAPTURE_STATE_MESSAGE,
+  CAPTURE_TOGGLE_MESSAGE,
+  isCaptureShortcutMessage,
+  isCaptureStateMessage,
+  isCaptureToggleMessage,
+  readCaptureShortcut,
+} from './activation';
 
 describe('isCaptureToggleMessage', () => {
   it('accepts the toggle message, with or without extra fields', () => {
@@ -36,6 +45,49 @@ describe('isCaptureStateMessage', () => {
     expect(isCaptureStateMessage(Object.assign(['capture.state'], { type: 'capture.state' }))).toBe(false);
     for (const value of [null, undefined, 'capture.state', 0]) {
       expect(isCaptureStateMessage(value)).toBe(false);
+    }
+  });
+});
+
+describe('isCaptureShortcutMessage', () => {
+  it('accepts the shortcut message', () => {
+    expect(CAPTURE_SHORTCUT_MESSAGE).toBe('capture.shortcut');
+    expect(isCaptureShortcutMessage({ type: 'capture.shortcut' })).toBe(true);
+  });
+
+  it('rejects the other capture messages, another type and non-records', () => {
+    expect(isCaptureShortcutMessage({ type: CAPTURE_TOGGLE_MESSAGE })).toBe(false);
+    expect(isCaptureShortcutMessage({ type: CAPTURE_STATE_MESSAGE })).toBe(false);
+    expect(isCaptureShortcutMessage({ type: 'Capture.Shortcut' })).toBe(false);
+    expect(isCaptureShortcutMessage({})).toBe(false);
+    expect(isCaptureShortcutMessage(Object.assign(['capture.shortcut'], { type: 'capture.shortcut' }))).toBe(false);
+    for (const value of [null, undefined, 'capture.shortcut', 0]) {
+      expect(isCaptureShortcutMessage(value)).toBe(false);
+    }
+  });
+});
+
+describe('readCaptureShortcut', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends the shortcut message and resolves the reply shortcut, the empty string included', async () => {
+    const sendMessage = vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ shortcut: 'Alt+Q' } as never);
+    await expect(readCaptureShortcut()).resolves.toBe('Alt+Q');
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'capture.shortcut' });
+
+    sendMessage.mockResolvedValue({ shortcut: '' } as never);
+    await expect(readCaptureShortcut()).resolves.toBe('');
+  });
+
+  it('rejects an error response and a reply without a string shortcut', async () => {
+    const sendMessage = vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'no commands' } as never);
+    await expect(readCaptureShortcut()).rejects.toThrow('no commands');
+
+    for (const response of [{}, { shortcut: 1 }, undefined]) {
+      sendMessage.mockResolvedValue(response as never);
+      await expect(readCaptureShortcut()).rejects.toThrow('Invalid capture shortcut response');
     }
   });
 });

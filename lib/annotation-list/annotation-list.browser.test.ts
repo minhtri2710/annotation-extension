@@ -38,6 +38,7 @@ describe('annotation list in a real browser', () => {
       listAnnotations: async () => [annotation('a1', '#far-target'), annotation('a2', '#gone')],
       sendAnnotationWrite: vi.fn(), readBlob: vi.fn(),
       readOnboardingOpen: async () => false, writeOnboardingOpen: async () => undefined,
+      readCaptureShortcut: async () => 'Alt+Q',
     });
     shell.root.append(list.live);
     await list.render();
@@ -69,6 +70,7 @@ describe('annotation list in a real browser', () => {
       listAnnotations: async () => [annotation('a1', '#gone'), annotation('a2', '#near-target')],
       sendAnnotationWrite: vi.fn(), readBlob: vi.fn(),
       readOnboardingOpen: async () => false, writeOnboardingOpen: async () => undefined,
+      readCaptureShortcut: async () => 'Alt+Q',
     });
     shell.root.append(list.live);
     await list.render();
@@ -78,6 +80,26 @@ describe('annotation list in a real browser', () => {
     expect(list.live).toBe(live);
     expect(live.textContent).toBe('Annotation 2 located.');
     expect(shell.root.querySelectorAll('[role="status"]')).toHaveLength(1);
+    list.clear();
+  });
+
+  it('names the stub capture shortcut in the first How it works step', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const container = document.createElement('div');
+    host.attachShadow({ mode: 'open' }).append(container);
+    const shell = buildOverlayShell(container);
+    const list = createAnnotationList(shell.panel, pageUrl, {
+      listAnnotations: async () => [],
+      sendAnnotationWrite: vi.fn(), readBlob: vi.fn(),
+      readOnboardingOpen: async () => true, writeOnboardingOpen: async () => undefined,
+      readCaptureShortcut: async () => 'Alt+Q',
+    });
+    await list.render();
+
+    const first = shell.panel.querySelector<HTMLElement>('[data-annotation-onboarding] li');
+    expect(first?.textContent).toBe('Click Annotate or press Alt+Q, then click any element to leave a note.');
+    expect(first?.getBoundingClientRect().height).toBeGreaterThan(0);
     list.clear();
   });
 });

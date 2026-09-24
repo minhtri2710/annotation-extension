@@ -10,6 +10,7 @@ import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-
 import { sendBlobRead } from '../screenshot/messages';
 import { readOnboardingOpen, writeOnboardingOpen } from '../ui/ui-prefs';
 import { resolveSelector } from '../capture/selector';
+import { readCaptureShortcut } from '../capture/activation';
 import { createLocateHighlight } from '../ui/locate-highlight';
 import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/shell';
 
@@ -18,6 +19,7 @@ export interface AnnotationListPersistence {
   sendAnnotationWrite(message: AnnotationWriteMessage): Promise<unknown>;
   readBlob(key: string): Promise<Blob>;
   readOnboardingOpen(): Promise<boolean>;
+  readCaptureShortcut(): Promise<string>;
   writeOnboardingOpen(open: boolean): Promise<void>;
 }
 
@@ -42,11 +44,21 @@ const productionPersistence: AnnotationListPersistence = {
   sendAnnotationWrite,
   readBlob: sendBlobRead,
   readOnboardingOpen,
+  readCaptureShortcut,
   writeOnboardingOpen,
 };
 
-const ONBOARDING_STEPS = [
-  'Click Annotate (default shortcut Ctrl+Shift+. ; Control+Shift+. on Mac), then click any element to leave a note.',
+// undefined means the shortcut could not be read.
+function onboardingSteps(shortcut: string | undefined): string[] {
+  const first = shortcut === undefined
+    ? "Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in your browser's extension shortcut settings."
+    : shortcut === ''
+      ? "Click Annotate, then click any element to leave a note. No keyboard shortcut is set; you can add one in your browser's extension shortcut settings."
+      : `Click Annotate or press ${shortcut}, then click any element to leave a note.`;
+  return [first, ...LATER_ONBOARDING_STEPS];
+}
+
+const LATER_ONBOARDING_STEPS = [
   'Pins mark annotated elements. Click a pin to reopen its note.',
   "View all lists this page's notes. Export them here, or export every page from the extension popup.",
   'Scan checks the page against design rules. Locate jumps to each finding.',
@@ -75,7 +87,10 @@ export function createAnnotationList(
       if (version !== renderVersion) return;
       statusMessage = errorMessage(error);
     }
-    const onboardingOpen = await persistence.readOnboardingOpen().catch(() => true);
+    const [onboardingOpen, shortcut] = await Promise.all([
+      persistence.readOnboardingOpen().catch(() => true),
+      persistence.readCaptureShortcut().catch(() => undefined),
+    ]);
     if (version !== renderVersion) return;
 
     const document = panel.ownerDocument;
@@ -85,7 +100,7 @@ export function createAnnotationList(
     const heading = document.createElement('h2');
     heading.textContent = 'All annotations';
     heading.tabIndex = -1;
-    panel.append(heading, createOnboarding(document, onboardingOpen));
+    panel.append(heading, createOnboarding(document, onboardingOpen, shortcut));
     announce(statusMessage ?? '');
     if (statusMessage) {
       const status = document.createElement('p');
@@ -170,14 +185,14 @@ export function createAnnotationList(
     return fragment;
   }
 
-  function createOnboarding(document: Document, open: boolean): HTMLElement {
+  function createOnboarding(document: Document, open: boolean, shortcut: string | undefined): HTMLElement {
     const details = document.createElement('details');
     details.dataset.annotationOnboarding = '';
     details.open = open;
     const summary = document.createElement('summary');
     summary.textContent = 'How it works';
     const steps = document.createElement('ol');
-    for (const step of ONBOARDING_STEPS) {
+    for (const step of onboardingSteps(shortcut)) {
       const item = document.createElement('li');
       item.textContent = step;
       steps.append(item);

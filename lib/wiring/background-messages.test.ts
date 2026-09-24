@@ -527,4 +527,33 @@ describe('background message routing', () => {
       expect((sendResponse.mock.calls[0]?.[0] as { failure: unknown }).failure).toEqual({ kind: 'needs-grant' });
     });
   });
+
+  describe('capture shortcut request', () => {
+    it('replies with the capture.toggle shortcut when other commands come first', async () => {
+      start(new MemoryBlobStore());
+      vi.spyOn(browser.commands, 'getAll').mockResolvedValue([
+        { name: '_execute_action', shortcut: 'Alt+Shift+P' },
+        { name: 'other.command', shortcut: 'Alt+Shift+O' },
+        { name: 'capture.toggle', description: 'Toggle annotation capture mode', shortcut: 'Alt+Q' },
+      ] as never);
+      const sendResponse = vi.fn();
+
+      await fakeBrowser.runtime.onMessage.trigger({ type: 'capture.shortcut' }, {}, sendResponse);
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ shortcut: 'Alt+Q' }));
+    });
+
+    it('replies with the empty string when the command has no shortcut', async () => {
+      start(new MemoryBlobStore());
+      vi.spyOn(browser.commands, 'getAll').mockResolvedValue([
+        { name: 'other.command', shortcut: 'Alt+Shift+O' },
+        { name: 'capture.toggle', description: 'Toggle annotation capture mode' },
+      ] as never);
+      const sendResponse = vi.fn();
+
+      await fakeBrowser.runtime.onMessage.trigger({ type: 'capture.shortcut' }, {}, sendResponse);
+
+      await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ shortcut: '' }));
+    });
+  });
 });

@@ -32,6 +32,7 @@ function persistence(annotations: Annotation[]): AnnotationListPersistence {
     sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
     readBlob: vi.fn().mockResolvedValue(new Blob(['abc'], { type: 'image/webp' })),
     readOnboardingOpen: vi.fn().mockResolvedValue(true),
+    readCaptureShortcut: vi.fn().mockResolvedValue('Alt+Q'),
     writeOnboardingOpen: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -320,7 +321,7 @@ describe('annotation list', () => {
     expect(onboarding!.open).toBe(true);
     expect(onboarding!.querySelector('summary')?.textContent).toBe('How it works');
     expect(Array.from(onboarding!.querySelectorAll('ol > li'), (item) => item.textContent)).toEqual([
-      'Click Annotate (default shortcut Ctrl+Shift+. ; Control+Shift+. on Mac), then click any element to leave a note.',
+      'Click Annotate or press Alt+Q, then click any element to leave a note.',
       'Pins mark annotated elements. Click a pin to reopen its note.',
       "View all lists this page's notes. Export them here, or export every page from the extension popup.",
       'Scan checks the page against design rules. Locate jumps to each finding.',
@@ -354,6 +355,47 @@ describe('annotation list', () => {
     expect(panel.querySelector<HTMLDetailsElement>('[data-annotation-onboarding]')?.open).toBe(true);
     expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(1);
     expect(panel.querySelector('[data-annotation-status=""]')).toBeNull();
+  });
+
+  describe('first How it works step names the capture shortcut', () => {
+    const SET = 'Click Annotate or press Alt+Q, then click any element to leave a note.';
+    const UNSET = "Click Annotate, then click any element to leave a note. No keyboard shortcut is set; you can add one in your browser's extension shortcut settings.";
+    const FAILED = "Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in your browser's extension shortcut settings.";
+    const KEY_TOKEN = /\b(Ctrl|Control|Alt|Shift|Cmd|Command|MacCtrl)\b|⌘|⇧/;
+
+    async function firstStep(shortcut: Promise<string>): Promise<string> {
+      const panel = document.createElement('div');
+      const store = persistence([]);
+      vi.mocked(store.readCaptureShortcut).mockReturnValue(shortcut);
+      await createAnnotationList(panel, pageUrl, store).render();
+      return panel.querySelector('[data-annotation-onboarding] ol > li')?.textContent ?? '';
+    }
+
+    function expectNoDefault(step: string): void {
+      for (const banned of ['Ctrl+Shift', 'Control+Shift', 'Period', 'default shortcut']) {
+        expect(step).not.toContain(banned);
+      }
+    }
+
+    it('names the set shortcut', async () => {
+      expect(await firstStep(Promise.resolve('Alt+Q'))).toBe(SET);
+    });
+
+    it('says no shortcut is set when the shortcut is empty', async () => {
+      expect(await firstStep(Promise.resolve(''))).toBe(UNSET);
+    });
+
+    it('names no key when the shortcut read fails', async () => {
+      expect(await firstStep(Promise.reject(new Error('no background')))).toBe(FAILED);
+    });
+
+    it('carries no hard-coded default shortcut in any state', async () => {
+      expectNoDefault(await firstStep(Promise.resolve('Alt+Q')));
+      for (const step of [await firstStep(Promise.resolve('')), await firstStep(Promise.reject(new Error('down')))]) {
+        expectNoDefault(step);
+        expect(step).not.toMatch(KEY_TOKEN);
+      }
+    });
   });
 });
 

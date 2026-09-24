@@ -330,6 +330,7 @@ describe('long unbroken text wraps inside panels at 320 px (real browser)', () =
       sendAnnotationWrite: vi.fn(async () => undefined),
       readBlob: vi.fn(),
       readOnboardingOpen: async () => false,
+      readCaptureShortcut: async () => 'Alt+Q',
       writeOnboardingOpen: async () => undefined,
     });
     cleanups.push(() => list.clear());
