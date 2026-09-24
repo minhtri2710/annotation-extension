@@ -1315,6 +1315,40 @@ describe('note panel drafts', () => {
     expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Draft restored.');
   });
 
+  it('focuses the new-note field holding an applied seed on an element that has a note', async () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    expect(document.activeElement).toBe(newNote(panel));
+    expect(newNote(panel).value).toBe('Low contrast: 2.1:1');
+    panel.remove();
+  });
+
+  it('focuses the first note field when the seed loses to an existing new-note draft', async () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    type(newNote(panel), 'My draft');
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    expect(document.activeElement).toBe(editNote(panel));
+    expect(newNote(panel).value).toBe('My draft');
+    panel.remove();
+  });
+
+  it('focuses the new-note field holding an applied seed on an element without notes', async () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    const { notePanel } = await render(panel);
+    notePanel.clear();
+    await notePanel.render(context, 'Low contrast: 2.1:1');
+    expect(document.activeElement).toBe(newNote(panel));
+    expect(newNote(panel).value).toBe('Low contrast: 2.1:1');
+    panel.remove();
+  });
+
   it('keeps the seed across a re-render', async () => {
     const panel = document.createElement('div');
     const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')]);

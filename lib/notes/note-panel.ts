@@ -53,7 +53,7 @@ export function createNotePanel(
   const groupStates = new Map<string, boolean>();
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
-  // Opening moves focus into the panel: the first note of the element, else the new-note field.
+  // Opening moves focus into the panel: the new-note field when a seed was applied, else the first note of the element, else the new-note field.
   // A seed is kept as the new-note draft, so it survives re-renders until saved, cleared or replaced.
   async function render(context: ElementContext, seed?: string): Promise<void> {
     const draftKey = newNoteDraftKey(context.url, context.selector);
@@ -66,7 +66,7 @@ export function createNotePanel(
       showCurrentStatus();
     }
     panel
-      .querySelector<HTMLTextAreaElement>('[data-annotation-edit-note], [data-annotation-new-note]')
+      .querySelector<HTMLTextAreaElement>(seeded ? '[data-annotation-new-note]' : '[data-annotation-edit-note], [data-annotation-new-note]')
       ?.focus();
   }
 
