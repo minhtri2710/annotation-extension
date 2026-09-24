@@ -23,6 +23,7 @@ const status = document.querySelector<HTMLParagraphElement>('#status');
 const pageCount = document.querySelector<HTMLParagraphElement>('#page-count');
 
 const blobStore = createBlobStore();
+const UNAVAILABLE_STATUS = 'Annotations are not available on this page. If it was open before the extension loaded, reload it.';
 
 void showTabState();
 
@@ -75,30 +76,34 @@ importFile?.addEventListener('change', async () => {
 });
 
 async function showTabState(): Promise<void> {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  const url = tab?.url;
-  if (tab?.id === undefined || !url || !['http:', 'https:', 'file:'].includes(new URL(url).protocol)) {
-    setStatus("Annotations can't run on this page.");
-    return;
-  }
-  void showPageCount(url);
-  if (!isEnabledForUrl(url, await readPolicy())) {
-    setStatus('Annotations are turned off for this site in Options.');
-    return;
-  }
-  let reply: unknown;
   try {
-    reply = await browser.tabs.sendMessage(tab.id, { type: CAPTURE_STATE_MESSAGE });
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    const url = tab?.url;
+    if (tab?.id === undefined || !url || !['http:', 'https:', 'file:'].includes(new URL(url).protocol)) {
+      setStatus("Annotations can't run on this page.");
+      return;
+    }
+    void showPageCount(url);
+    if (!isEnabledForUrl(url, await readPolicy())) {
+      setStatus('Annotations are turned off for this site in Options.');
+      return;
+    }
+    let reply: unknown;
+    try {
+      reply = await browser.tabs.sendMessage(tab.id, { type: CAPTURE_STATE_MESSAGE });
+    } catch {
+      reply = undefined;
+    }
+    if (!isRecord(reply) || typeof reply.active !== 'boolean') {
+      setStatus(UNAVAILABLE_STATUS);
+      return;
+    }
+    if (!toggleButton) return;
+    toggleButton.textContent = reply.active ? 'Stop annotating' : 'Start annotating';
+    toggleButton.disabled = false;
   } catch {
-    reply = undefined;
+    setStatus(UNAVAILABLE_STATUS);
   }
-  if (!isRecord(reply) || typeof reply.active !== 'boolean') {
-    setStatus('Annotations are not available on this page. If it was open before the extension loaded, reload it.');
-    return;
-  }
-  if (!toggleButton) return;
-  toggleButton.textContent = reply.active ? 'Stop annotating' : 'Start annotating';
-  toggleButton.disabled = false;
 }
 
 async function showPageCount(url: string): Promise<void> {

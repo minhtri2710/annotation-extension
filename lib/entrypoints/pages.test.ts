@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { addAnnotation } from '../annotation-storage';
 import { buildInspectExpression } from '../devtools/devtools';
-import { readPolicy, writePolicy } from '../options/storage';
+import { readPolicy, SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
 
 /** Loads an entrypoint's own index.html body (without its module script) into the happy-dom document. */
 function loadPage(entry: 'popup' | 'options' | 'devtools-panel') {
@@ -162,6 +162,72 @@ describe('popup page', () => {
     ['a malformed state reply', () => Promise.resolve({ active: 'yes' })],
   ])('asks for a reload after %s', async (_name, reply) => {
     stubTab(PAGE, reply);
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe(RELOAD));
+    expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
+  });
+
+  it.each([
+    ['no id', { url: PAGE }],
+    ['no url', { id: 11 }],
+  ])('disables the toggle for an active tab with %s, without messaging it', async (_name, tab) => {
+    vi.spyOn(browser.tabs, 'query').mockResolvedValue([tab] as never);
+    const sendMessage = vi.spyOn(browser.tabs, 'sendMessage').mockResolvedValue({ active: false } as never);
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe("Annotations can't run on this page."));
+    expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('offers Start annotating and the count on a file page', async () => {
+    const FILE = 'file:///Users/me/page.html';
+    await addAnnotation(FILE, input(FILE, '#n0'));
+    stubTab(FILE, async () => ({ active: false }));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId<HTMLButtonElement>('toggle').disabled).toBe(false));
+    expect(byId('toggle').textContent).toBe('Start annotating');
+    await vi.waitFor(() => expect(byId('page-count').textContent).toBe('1 annotation on this page.'));
+  });
+
+  it('shows the count on a tab whose state message rejects', async () => {
+    await addAnnotation(PAGE, input(PAGE, '#n0'));
+    stubTab(PAGE, () => Promise.reject(new Error('Receiving end does not exist.')));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe(RELOAD));
+    await vi.waitFor(() => expect(byId('page-count').textContent).toBe('1 annotation on this page.'));
+    expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
+  });
+
+  it('leaves the count empty when annotation storage fails and still enables the toggle', async () => {
+    const get = browser.storage.local.get.bind(browser.storage.local);
+    // Stub: only the annotation read fails; the policy read goes to fakeBrowser storage.
+    const storageGet = vi.spyOn(browser.storage.local, 'get').mockImplementation(((keys: string | null) =>
+      keys === SITE_POLICY_STORAGE_KEY ? get(keys) : Promise.reject(new Error('Storage failed'))) as never);
+    stubTab(PAGE, async () => ({ active: false }));
+    await openPopup();
+
+    await vi.waitFor(() => expect(byId<HTMLButtonElement>('toggle').disabled).toBe(false));
+    await vi.waitFor(() => expect(storageGet.mock.calls.some(([keys]) => keys !== SITE_POLICY_STORAGE_KEY)).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(byId('page-count').textContent).toBe('');
+    expect(byId('toggle').textContent).toBe('Start annotating');
+    expect(byId('status').textContent).toBe('');
+  });
+
+  it.each([
+    ['tabs.query', () => vi.spyOn(browser.tabs, 'query').mockRejectedValue(new Error('No window'))],
+    ['readPolicy', () => {
+      stubTab(PAGE, async () => ({ active: false }));
+      const get = browser.storage.local.get.bind(browser.storage.local);
+      vi.spyOn(browser.storage.local, 'get').mockImplementation(((keys: string | null) =>
+        keys === SITE_POLICY_STORAGE_KEY ? Promise.reject(new Error('Storage failed')) : get(keys)) as never);
+    }],
+  ])('reports the page unavailable when %s rejects', async (_name, stub) => {
+    stub();
     await openPopup();
 
     await vi.waitFor(() => expect(byId('status').textContent).toBe(RELOAD));
