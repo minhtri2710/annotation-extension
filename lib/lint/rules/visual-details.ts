@@ -508,11 +508,6 @@ async function gridBackgroundTest(ctx: ScanContext, checkpoint: Checkpoint): Pro
   return [];
 }
 
-function primaryFontOrSample(el: Element): string {
-  const text = String(el.textContent ?? '');
-  return text.trim().replace(/\s+/g, ' ').slice(0, 40);
-}
-
 const sideTabRule: ElementRule = {
   id: 'side-tab',
   category: 'slop',

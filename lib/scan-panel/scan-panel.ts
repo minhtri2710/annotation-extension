@@ -1,6 +1,7 @@
 import { collectFindings, createScanContext, type Finding, type Rule, type Severity } from '../lint/engine';
 import { ALL_RULES, DEEP_SCAN_RULES } from '../lint/rules';
 import { revealSweep } from './reveal-sweep';
+import { errorMessage } from '../guards';
 import { createLocateHighlight } from '../ui/locate-highlight';
 
 export interface ScanPanelOptions {
@@ -104,7 +105,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     } catch (error) {
       if (version !== renderVersion) return;
       stopScan = undefined;
-      setStatus(status, `Scan failed: ${error instanceof Error ? error.message : String(error)}`);
+      setStatus(status, `Scan failed: ${errorMessage(error)}`);
       return;
     }
 
@@ -172,7 +173,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
         panel.replaceChildren(heading, status, createDeepScanButton(document));
         restoreFocus();
       } else {
-        setStatus(status, `Scan failed: ${error instanceof Error ? error.message : String(error)}`);
+        setStatus(status, `Scan failed: ${errorMessage(error)}`);
         panel.replaceChildren(heading, status);
       }
       options.onUpdate();

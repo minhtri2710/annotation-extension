@@ -513,7 +513,7 @@ function resolvedLength(ctx: ScanContext, el: Element, property: string): number
   return 0;
 }
 
-function textDescendantsFlushSides(ctx: ScanContext, el: Element, box: Box): boolean[] {
+function textDescendantsFlushSides(el: Element, box: Box): boolean[] {
   const flush = [false, false, false, false];
   for (const node of Array.from(el.querySelectorAll([...TEXT_EDGE_TAGS].join(',')))) {
     if (!hasDirectTextLongerThan(node, 4)) continue;
@@ -612,7 +612,7 @@ function crampedPaddingHit(el: Element, ctx: ScanContext): RuleHit[] {
     }
   }
 
-  const textFlush = textDescendantsFlushSides(ctx, el, box);
+  const textFlush = textDescendantsFlushSides(el, box);
   const fullBleedBackground = ctx.innerWidth > 0 && box.width >= ctx.innerWidth * 0.94 && hasBackground && !outlineVisible;
   const sideNames = ['top', 'right', 'bottom', 'left'];
   const flushSides: string[] = [];

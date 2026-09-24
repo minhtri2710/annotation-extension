@@ -5,11 +5,6 @@ export interface SourcePath {
   lineNumber?: number;
 }
 
-interface DebugSource {
-  fileName?: unknown;
-  lineNumber?: unknown;
-}
-
 export function resolveSourcePath(element: Element): SourcePath | null {
   for (const key of Object.getOwnPropertyNames(element)) {
     if (!key.startsWith('__reactFiber$') && !key.startsWith('__reactInternalInstance$')) continue;

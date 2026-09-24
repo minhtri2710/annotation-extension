@@ -1,4 +1,5 @@
 import type { Annotation } from '../annotation';
+import { errorMessage } from '../guards';
 import { attachmentAssetFilename, format, screenshotAssetFilename } from '../export/format';
 import {
   productionExportDelivery,
@@ -327,8 +328,4 @@ export function createAnnotationList(
   }
 
   return { render, clear, live };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

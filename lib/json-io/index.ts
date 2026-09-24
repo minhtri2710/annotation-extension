@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { isRecord } from '../guards';
+import { errorMessage, isRecord } from '../guards';
 import { deleteAnnotation, restoreAnnotation } from '../annotation-storage';
 import {
   ID_PATTERN,
@@ -91,7 +91,7 @@ export async function exportJson({ collect, blobStore, download, copy }: JsonExp
     const status = missing > 0 ? `${summary}; ${plural(missing, 'missing file')} ${missing === 1 ? 'was' : 'were'} left out.` : `${summary}.`;
     return copyFailure ? `${status} ${copyFailure}` : status;
   } catch (error) {
-    return `Export failed: ${error instanceof Error ? error.message : String(error)}`;
+    return `Export failed: ${errorMessage(error)}`;
   }
 }
 

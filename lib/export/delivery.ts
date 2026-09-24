@@ -1,3 +1,5 @@
+import { errorMessage } from '../guards';
+
 export interface AnnotationExportDelivery {
   copy(markdown: string): Promise<void>;
   download(markdown: string, filename: string): void;
@@ -31,6 +33,6 @@ export async function clipboardFailure(copy: () => Promise<void>): Promise<strin
     await copy();
     return undefined;
   } catch (error) {
-    return `Downloaded; copy to clipboard failed: ${error instanceof Error ? error.message : String(error)}`;
+    return `Downloaded; copy to clipboard failed: ${errorMessage(error)}`;
   }
 }

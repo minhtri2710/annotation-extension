@@ -1,5 +1,6 @@
 import type { Annotation } from '../annotation';
 import { attachmentKey, screenshotKey } from '../blob-store';
+import { errorMessage } from '../guards';
 import { clipboardFailure, type AnnotationExportDelivery } from './delivery';
 import { attachmentAssetFilename, formatAllPages, screenshotAssetFilename } from './format';
 
@@ -46,7 +47,7 @@ export async function exportAllPages({ collect, readBlob, delivery }: AllPagesEx
     const status = skipped > 0 ? `${summary}; skipped ${plural(skipped, 'missing asset')}.` : `${summary}.`;
     return copyFailure ? `${status} ${copyFailure}` : status;
   } catch (error) {
-    return `Export failed: ${error instanceof Error ? error.message : String(error)}`;
+    return `Export failed: ${errorMessage(error)}`;
   }
 }
 

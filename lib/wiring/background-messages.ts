@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { errorMessage } from '../guards';
 import {
   addAnnotation,
   addAttachment,
@@ -195,10 +196,6 @@ async function readBlob(
 
 function cleanupFailure(error: unknown, cleanupError: unknown): Error {
   return new Error(`${errorMessage(error)}; cleanup failed: ${errorMessage(cleanupError)}`);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {

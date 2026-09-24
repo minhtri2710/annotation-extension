@@ -1,4 +1,5 @@
 import type { Annotation, CssDeclaration } from '../annotation';
+import { errorMessage } from '../guards';
 import { annotationWriteError, MAX_TEXT_LENGTH, type AnnotationWriteMessage } from '../annotation-messages';
 import {
   imageTypeOf,
@@ -565,10 +566,6 @@ function versionOf(pageAnnotations: Annotation[], selector: string): string {
   return pageAnnotations
     .flatMap(({ id, updatedAt, selector: shown }, index) => shown === selector ? [`${id}@${updatedAt}#${index + 1}`] : [])
     .join(' ');
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function screenshotFailureMessage(error: unknown): string {

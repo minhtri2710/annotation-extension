@@ -1,3 +1,4 @@
+import { errorMessage } from '../guards';
 import { allowlistEntryError, defaultPolicy, parseAllowlistEntry, type SitePolicy } from './policy';
 
 export interface OptionsPageElements {
@@ -83,7 +84,7 @@ export async function mountOptionsPage(elements: OptionsPageElements, storage: P
     try {
       await storage.write(policy);
     } catch (error) {
-      status.textContent = `Save failed: ${error instanceof Error ? error.message : String(error)}`;
+      status.textContent = `Save failed: ${errorMessage(error)}`;
       return;
     }
     saved = written;

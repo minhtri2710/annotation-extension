@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { isRecord } from './guards';
+import { errorMessage, isFiniteNumber, isRecord } from './guards';
 import { pageKey } from '../utils/page-key';
 import type { ElementContext } from './capture/context';
 import type {
@@ -15,7 +15,6 @@ import type {
 import {
   isSupportedImageMimeType,
   MAX_ATTACHMENT_NAME_LENGTH,
-  MAX_ATTACHMENTS,
   MAX_IMAGE_BYTES,
   validateAttachmentName,
 } from './attachments/validation';
@@ -43,7 +42,7 @@ export function isAnnotationErrorResponse(value: unknown): value is AnnotationEr
 }
 
 export function createAnnotationErrorResponse(error: unknown): AnnotationErrorResponse {
-  return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  return { ok: false, error: errorMessage(error) };
 }
 
 // One definition for the write guards and the JSON import: ids fit the minted UUIDs with room to spare; any other text field and any list is bounded.
@@ -200,10 +199,6 @@ export function isAttachmentMetadata(value: unknown): value is AttachmentMetadat
   return value.name.length <= MAX_ATTACHMENT_NAME_LENGTH;
 }
 
-export function isAttachmentMetadataList(value: unknown): value is AttachmentMetadata[] {
-  return Array.isArray(value) && value.length <= MAX_ATTACHMENTS && value.every(isAttachmentMetadata);
-}
-
 export function isElementContext(value: unknown): value is ElementContext {
   if (!isRecord(value)) return false;
   const boundingBox = value.boundingBox;
@@ -237,8 +232,4 @@ function isSourcePath(value: unknown): boolean {
     value.fileName.length > 0 &&
     (value.lineNumber === undefined || isFiniteNumber(value.lineNumber))
   );
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
 }

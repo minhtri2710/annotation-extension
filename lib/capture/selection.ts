@@ -50,7 +50,6 @@ const LABEL_STYLE = [
 ].join(';');
 // Upper bound for a committed gesture's trailing events (pointerup/mouseup/click) when no click ever arrives.
 const GESTURE_TIMEOUT_MS = 1000;
-const GESTURE_EVENTS = ['mousedown', 'pointerup', 'mouseup', 'click'] as const;
 const KEYBOARD_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter']);
 const NON_RENDERED_TAGS = new Set(['script', 'style', 'template', 'noscript', 'link', 'meta']);
 const FRAME_MESSAGE = "Content inside frames can't be annotated.";

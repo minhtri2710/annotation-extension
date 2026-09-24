@@ -6,7 +6,7 @@ import {
 } from '../annotation-messages';
 import type { BoundingBox } from '../capture/context';
 import type { ScreenshotMetadata } from '../annotation';
-import { isRecord } from '../guards';
+import { isFiniteNumber, isRecord } from '../guards';
 import { isBlobKey } from '../blob-store';
 
 export type ScreenshotCaptureMessage = {
@@ -105,10 +105,6 @@ function isBoundingBox(value: unknown): value is BoundingBox {
     isFiniteNumber(value.width) &&
     isFiniteNumber(value.height)
   );
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {

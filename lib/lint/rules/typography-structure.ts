@@ -149,10 +149,6 @@ function directText(el: Element): string {
     .join('');
 }
 
-function hasDirectText(el: Element): boolean {
-  return directText(el).trim().length > 0;
-}
-
 function textSample(el: Element, limit = 40): string {
   return collapseWhitespace(el.textContent ?? '').slice(0, limit);
 }
