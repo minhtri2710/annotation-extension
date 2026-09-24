@@ -281,7 +281,7 @@ ${ANNOTATION_DARK_TOKENS}
     const details = ruleBody('[data-annotation-shell] [data-annotation-onboarding] {');
     expect(details).toMatch(/var\(--annotation-color-/);
     expect(details).toContain('font-size: var(--annotation-font-size-caption)');
-    expect(ruleBody('[data-annotation-shell] [data-annotation-onboarding] summary {')).toMatch(/var\(--annotation-/);
+    expect(ruleBody('[data-annotation-shell] summary {')).toMatch(/var\(--annotation-/);
     expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toMatch(/data-annotation-(?:onboarding|toolbar-grip|toolbar-collapse|collapsed)/);
   });
 });

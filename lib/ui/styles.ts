@@ -107,12 +107,6 @@ ${ANNOTATION_DARK_TOKENS}
   font-size: var(--annotation-font-size-caption);
 }
 
-[data-annotation-shell] [data-annotation-onboarding] summary {
-  color: var(--annotation-color-text);
-  font-weight: var(--annotation-font-weight-medium);
-  cursor: pointer;
-}
-
 [data-annotation-shell] [data-annotation-onboarding] ol {
   margin: var(--annotation-space-2) 0 0;
   padding-left: var(--annotation-space-4);

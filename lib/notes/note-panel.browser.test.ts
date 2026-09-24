@@ -97,6 +97,31 @@ describe('note panel in a real browser', () => {
     expect(notePanel.live.textContent).not.toContain('permission is required');
   });
 
+  it('starts an emptied CSS group closed after the real initial toggle event of its content-opened render', async () => {
+    const { shell } = mountShadowPanel();
+    const annotation: Annotation = {
+      id: '3f2a9c1e-0000-4000-8000-000000000002', pageUrl, note: 'Styled', selector: context.selector,
+      elementContext: context, createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z',
+      status: 'open', cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
+    };
+    let stored = [annotation];
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => stored,
+      sendAnnotationWrite: vi.fn(),
+      captureScreenshot: vi.fn(), readBlob: vi.fn(), addAttachment: vi.fn(), deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    const cssGroup = () => shell.panel.querySelector<HTMLDetailsElement>('[data-annotation-css-group]')!;
+    await notePanel.render(context);
+    expect(cssGroup().open).toBe(true);
+    for (let frame = 0; frame < 3; frame += 1) await new Promise(requestAnimationFrame);
+
+    stored = [{ ...annotation, cssEdits: [] }];
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(cssGroup().open).toBe(false);
+  });
+
   it('sniffs a picked file by its bytes: a JPEG named .png attaches as image/jpeg, non-image bytes are refused', async () => {
     const { shell } = mountShadowPanel();
     const annotation: Annotation = {

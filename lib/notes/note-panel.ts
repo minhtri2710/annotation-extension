@@ -48,7 +48,7 @@ export function createNotePanel(
   // Unsaved note text, kept in memory across re-renders and reopening: new notes by page URL and selector, edits by id.
   const drafts = new Map<string, string>();
   let restoredDraft = false;
-  // Open or closed CSS and repro groups the user toggled, kept in memory by annotation id and group.
+  // CSS and repro groups the user left open or closed against their content default, kept in memory by annotation id and group.
   const groupStates = new Map<string, boolean>();
   const live = panel.ownerDocument.createElement('p');
   live.dataset.annotationLive = '';
@@ -316,7 +316,8 @@ export function createNotePanel(
     return item;
   }
 
-  // A group starts open when it has content, until the user toggles it.
+  // A group starts open when it has content, unless the user left it the other way. The initial toggle event
+  // arrives after the listener in real browsers, so a state that matches the content default is not stored.
   function group(
     document: Document,
     id: string,
@@ -329,7 +330,10 @@ export function createNotePanel(
     details.dataset[name === 'css' ? 'annotationCssGroup' : 'annotationReproGroup'] = '';
     const key = `${id} ${name}`;
     details.open = groupStates.get(key) ?? hasContent;
-    details.addEventListener('toggle', () => groupStates.set(key, details.open));
+    details.addEventListener('toggle', () => {
+      if (details.open === hasContent) groupStates.delete(key);
+      else groupStates.set(key, details.open);
+    });
     const summary = document.createElement('summary');
     summary.textContent = title;
     details.append(summary, ...children);

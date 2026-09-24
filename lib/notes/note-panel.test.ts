@@ -1407,6 +1407,19 @@ describe('note panel layout', () => {
     expect(reproGroup(panel).open).toBe(false);
   });
 
+  it('closes an emptied group after the late initial toggle event of its content-opened render', async () => {
+    const panel = document.createElement('div');
+    const withCss = { ...annotation('Styled'), cssEdits: [{ property: 'color', value: 'red', original: 'blue' }] };
+    const listAnnotations = vi.fn().mockResolvedValue([withCss]);
+    const { notePanel } = await render(panel, [], { listAnnotations });
+    expect(cssGroup(panel).open).toBe(true);
+    cssGroup(panel).dispatchEvent(new Event('toggle'));
+    listAnnotations.mockResolvedValue([{ ...withCss, cssEdits: [] }]);
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(cssGroup(panel).open).toBe(false);
+  });
+
   it('orders an item as note section, Unsaved changes, Attach image, CSS group, repro group, then previews', async () => {
     const panel = document.createElement('div');
     await render(panel, [{
