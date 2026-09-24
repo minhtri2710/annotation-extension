@@ -52,6 +52,7 @@ export default defineContentScript({
     let annotationToggle: HTMLButtonElement | undefined;
     let panelAnchor: PanelAnchor | undefined;
     let stopRouteWatch: (() => void) | undefined;
+    let clearAnnotationList: (() => void) | undefined;
     let stopColorScheme: (() => void) | undefined;
     let toolbarControls: ReturnType<typeof createToolbarControls> | undefined;
 
@@ -66,6 +67,7 @@ export default defineContentScript({
         const activeNotePanel = createNotePanel(shell.panel);
         notePanel = activeNotePanel;
         let annotationList = createAnnotationList(shell.panel, url);
+        clearAnnotationList = () => annotationList.clear();
         const activeScanPanel = createScanPanel(shell.panel, {
           scan: (signal) => scanPage(window, shadowHost, signal),
           deepScan: (signal, onProgress) => deepScanPage(window, shadowHost, signal, onProgress),
@@ -226,6 +228,8 @@ export default defineContentScript({
         }
         scanPanel?.clear();
         scanPanel = undefined;
+        clearAnnotationList?.();
+        clearAnnotationList = undefined;
         scanToggleButton?.remove();
         scanToggleButton = undefined;
         annotationListToggle?.remove();

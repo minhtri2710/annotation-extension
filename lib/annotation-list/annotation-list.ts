@@ -101,6 +101,7 @@ export function createAnnotationList(
     heading.textContent = 'All annotations';
     heading.tabIndex = -1;
     panel.append(heading, createOnboarding(document, onboardingOpen, shortcut));
+    document.addEventListener('visibilitychange', refreshShortcut);
     announce(statusMessage ?? '');
     if (statusMessage) {
       const status = document.createElement('p');
@@ -127,6 +128,17 @@ export function createAnnotationList(
       panel.append(createStatusFilter(document, annotations, rows), rows);
     }
     restoreFocus();
+  }
+
+  // Coming back from the browser's shortcut settings updates only the first step, so the rest of the list keeps its state.
+  function refreshShortcut(): void {
+    if (panel.ownerDocument.visibilityState !== 'visible') return;
+    const version = renderVersion;
+    void persistence.readCaptureShortcut().catch(() => undefined).then((shortcut) => {
+      if (version !== renderVersion) return;
+      const step = panel.querySelector('[data-annotation-onboarding] ol > li');
+      if (step) step.textContent = onboardingSteps(shortcut)[0]!;
+    });
   }
 
   // Clear all deletes nothing by itself; it swaps in an inline prompt, and only its Delete all clears.
@@ -365,6 +377,7 @@ export function createAnnotationList(
     renderVersion += 1;
     statusMessage = undefined;
     highlight.remove();
+    panel.ownerDocument.removeEventListener('visibilitychange', refreshShortcut);
     panel.replaceChildren();
     announce('');
   }

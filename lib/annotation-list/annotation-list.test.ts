@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { AnnotationWriteMessage } from '../annotation-messages';
 import { format } from '../export/format';
@@ -396,6 +396,110 @@ describe('annotation list', () => {
         expect(step).not.toMatch(KEY_TOKEN);
       }
     });
+  });
+});
+
+describe('re-reads the capture shortcut when the page becomes visible', () => {
+  const SET = 'Click Annotate or press Alt+Q, then click any element to leave a note.';
+  const FAILED = "Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).";
+  let visibility: DocumentVisibilityState;
+  const firstStep = (panel: HTMLElement) => panel.querySelector('[data-annotation-onboarding] ol > li')?.textContent;
+  const becomeVisible = () => {
+    visibility = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+
+  beforeEach(() => {
+    visibility = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  async function renderUnset(annotations: Annotation[] = []) {
+    const panel = document.createElement('div');
+    const store = persistence(annotations);
+    vi.mocked(store.readCaptureShortcut).mockResolvedValueOnce('');
+    const list = createAnnotationList(panel, pageUrl, store);
+    await list.render();
+    return { panel, store, list };
+  }
+
+  it('updates the first step to the set shortcut on a visible event', async () => {
+    const { panel, list } = await renderUnset();
+    expect(firstStep(panel)).not.toBe(SET);
+    becomeVisible();
+    await vi.waitFor(() => expect(firstStep(panel)).toBe(SET));
+    list.clear();
+  });
+
+  it('makes no read on a visibilitychange while hidden', async () => {
+    const { store, list } = await renderUnset();
+    visibility = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(store.readCaptureShortcut).toHaveBeenCalledTimes(1);
+    list.clear();
+  });
+
+  it('makes no read on a visible event after clear()', async () => {
+    const { store, list } = await renderUnset();
+    list.clear();
+    becomeVisible();
+    expect(store.readCaptureShortcut).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes exactly one read per visible event after render() twice', async () => {
+    const { store, list } = await renderUnset();
+    await list.render();
+    becomeVisible();
+    expect(store.readCaptureShortcut).toHaveBeenCalledTimes(3);
+    list.clear();
+  });
+
+  it('keeps the heading and details nodes, the pressed chip and the details open state', async () => {
+    const { panel, list } = await renderUnset([annotation('a', 'One'), { ...annotation('b', 'Two'), status: 'resolved' }]);
+    const heading = panel.querySelector('h2');
+    const details = panel.querySelector<HTMLDetailsElement>('[data-annotation-onboarding]')!;
+    panel.querySelector<HTMLButtonElement>('[data-annotation-filter-value="resolved"]')!.click();
+    details.open = false;
+    becomeVisible();
+    await vi.waitFor(() => expect(firstStep(panel)).toBe(SET));
+    expect(panel.querySelector('h2')).toBe(heading);
+    expect(panel.querySelector('[data-annotation-onboarding]')).toBe(details);
+    expect(details.open).toBe(false);
+    expect(panel.querySelector('[data-annotation-filter-value="resolved"]')?.getAttribute('aria-pressed')).toBe('true');
+    list.clear();
+  });
+
+  it('writes nothing when the read resolves after clear() or a newer render()', async () => {
+    const { panel, store, list } = await renderUnset();
+    let resolve!: (shortcut: string) => void;
+    vi.mocked(store.readCaptureShortcut).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    becomeVisible();
+    list.clear();
+    resolve('Alt+Q');
+    await new Promise((done) => setTimeout(done, 0));
+    expect(panel.childNodes).toHaveLength(0);
+
+    vi.mocked(store.readCaptureShortcut).mockResolvedValueOnce('');
+    await list.render();
+    const unset = firstStep(panel);
+    vi.mocked(store.readCaptureShortcut).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    becomeVisible();
+    vi.mocked(store.readCaptureShortcut).mockResolvedValueOnce('');
+    await list.render();
+    resolve('Alt+Q');
+    await new Promise((done) => setTimeout(done, 0));
+    expect(firstStep(panel)).toBe(unset);
+    list.clear();
+  });
+
+  it('shows the failed step text when the read rejects', async () => {
+    const { panel, store, list } = await renderUnset();
+    vi.mocked(store.readCaptureShortcut).mockRejectedValueOnce(new Error('no background'));
+    becomeVisible();
+    await vi.waitFor(() => expect(firstStep(panel)).toBe(FAILED));
+    list.clear();
   });
 });
 

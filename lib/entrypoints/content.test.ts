@@ -120,6 +120,22 @@ describe('content script entrypoint', () => {
     expect(hosts()[0]!.isConnected).toBe(true);
   });
 
+  it('stops re-reading the capture shortcut on a visible page once the site policy unmounts the open list', async () => {
+    const send = vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ shortcut: 'Alt+Q' } as never);
+    const shortcutReads = () => send.mock.calls.filter(([message]) => (message as { type?: unknown }).type === 'capture.shortcut');
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    await start();
+    button('View all').click();
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-onboarding]')).not.toBeNull());
+
+    await writePolicy({ enabled: false, allowlist: [] });
+    await vi.waitFor(() => expect(hosts()).toEqual([]));
+    const reads = shortcutReads().length;
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(shortcutReads()).toHaveLength(reads);
+  });
+
   it('does not mount again when a policy write keeps the page enabled', async () => {
     const raised: Element[] = [];
     (HTMLElement.prototype as { showPopover?: () => void }).showPopover = function showPopover(this: Element) {
