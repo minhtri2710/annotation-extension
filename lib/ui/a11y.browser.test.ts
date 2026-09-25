@@ -72,6 +72,57 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
     expect(ratio()).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('styles mount buttons at rest instead of the native control, keeps primary and danger text at 4.5:1 or more at rest and on hover, and shows the badge unit', async () => {
+    const { shell, buttons } = mountOverlay(theme);
+    const [scan, , annotate] = buttons;
+    annotate!.dataset.variant = 'primary';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.dataset.variant = 'danger';
+    remove.textContent = 'Delete';
+    shell.panel.append(remove);
+    const badge = document.createElement('span');
+    badge.dataset.annotationBadge = '';
+    const unit = document.createElement('span');
+    unit.dataset.annotationBadgeUnit = '';
+    unit.textContent = ' annotations';
+    badge.append('2', unit);
+    shell.toolbar.append(badge);
+    const grip = document.createElement('button');
+    grip.type = 'button';
+    grip.dataset.annotationToolbarGrip = '';
+    shell.toolbar.prepend(grip);
+
+    const token = (name: string) => getComputedStyle(shell.root).getPropertyValue(`--annotation-${name}`).trim();
+    const rest = getComputedStyle(scan!);
+    expect(rest.appearance).toBe('none');
+    expect(color(rest.backgroundColor)).toEqual(color(token('color-surface')));
+    expect(rest.borderTopLeftRadius).toBe(token('radius-md'));
+    expect(unit.getBoundingClientRect().width).toBeGreaterThan(1);
+    expect(getComputedStyle(grip).cursor).toBe('grab');
+
+    const accent = color(token('color-accent'));
+    const danger = color(token('color-danger'));
+    const look = (style: CSSStyleDeclaration) => [style.backgroundColor, style.borderTopColor].join(' ');
+    for (const [button, fill, text] of [[annotate!, accent, undefined], [remove, undefined, danger]] as const) {
+      let restLook = '';
+      for (const hover of [false, true]) {
+        if (hover) {
+          await userEvent.hover(button);
+          expect(button.matches(':hover')).toBe(true);
+        }
+        await vi.waitFor(() => {
+          const style = getComputedStyle(button);
+          if (fill) expect(color(style.backgroundColor), `${button.textContent} hover=${hover}`).toEqual(fill);
+          if (text) expect(color(style.color), `${button.textContent} hover=${hover}`).toEqual(text);
+          expect(contrastRatio(color(style.color), color(style.backgroundColor)), `${button.textContent} hover=${hover}`).toBeGreaterThanOrEqual(4.5);
+          if (hover) expect(look(style), `${button.textContent} shows its hover`).not.toBe(restLook);
+          else restLook = look(style);
+        });
+      }
+    }
+  });
+
   it.each(['#ffffff', '#000000'])('rings a focused pin at 3:1 or more on a %s page', async (page) => {
     const { shell, before } = mountOverlay(theme);
     document.body.style.background = page;

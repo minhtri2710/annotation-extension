@@ -169,6 +169,7 @@ export function createInlineConfirm(document: Document, options: InlineConfirmOp
   const confirm = document.createElement('button');
   confirm.type = 'button';
   confirm.setAttribute(`data-${dataPrefix}-confirm`, '');
+  confirm.dataset.variant = 'danger';
   confirm.textContent = options.confirmLabel;
   const cancel = document.createElement('button');
   cancel.type = 'button';

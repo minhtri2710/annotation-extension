@@ -100,6 +100,13 @@ describe('content script entrypoint', () => {
     expect(toolbarButtons().filter((text) => text !== '⠿').slice(0, 3)).toEqual(['Scan', 'View all', 'Annotate']);
   });
 
+  it('marks Annotate as the only primary toolbar button', async () => {
+    await start();
+
+    const primary = [...shadow().querySelectorAll('[role="toolbar"] button[data-variant="primary"]')];
+    expect(primary).toEqual([button('Annotate')]);
+  });
+
   it('does not mount the overlay when the site policy disallows the page', async () => {
     await writePolicy({ enabled: true, allowlist: ['other.example'] });
     await start();

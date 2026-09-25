@@ -597,6 +597,13 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     expect(store.sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.clear', pageUrl } satisfies AnnotationWriteMessage);
   });
 
+  it('marks row Delete and Clear all as danger', async () => {
+    const { panel } = mounted();
+    await createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'One')])).render();
+    expect(panel.querySelector<HTMLButtonElement>('[data-annotation-delete]')?.dataset.variant).toBe('danger');
+    expect(panel.querySelector<HTMLButtonElement>('[data-annotation-clear]')?.dataset.variant).toBe('danger');
+  });
+
   it('Cancel and Escape restore Clear all with focus, send nothing, and keep Escape inside the prompt', async () => {
     const { panel } = mounted();
     const store = persistence([annotation('annotation-1', 'One')]);

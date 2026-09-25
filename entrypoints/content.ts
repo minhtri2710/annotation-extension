@@ -118,6 +118,7 @@ export default defineContentScript({
         annotationToggle = annotateToggle;
         annotateToggle.type = 'button';
         annotateToggle.dataset.annotationToggle = '';
+        annotateToggle.dataset.variant = 'primary';
         annotateToggle.setAttribute('aria-pressed', 'false');
         annotateToggle.textContent = 'Annotate';
         annotateToggle.addEventListener('click', () => controller?.toggle());

@@ -457,6 +457,7 @@ export function createNotePanel(
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.dataset.annotationDelete = '';
+    remove.dataset.variant = 'danger';
     remove.textContent = 'Delete';
     const dismissDelete = createInlineConfirm(document, {
       trigger: remove,

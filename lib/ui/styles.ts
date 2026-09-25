@@ -189,10 +189,32 @@ ${ANNOTATION_DARK_TOKENS}
   50% { transform: translate(-50%, -50%) scale(1.18); }
 }
 
-[data-annotation-shell] [data-annotation-mount] button,
-[data-annotation-shell] [data-annotation-mount] input,
+:where([data-annotation-shell] [data-annotation-mount]) button {
+  max-width: 100%;
+  min-height: 32px;
+  padding: var(--annotation-space-1) var(--annotation-space-2);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-md);
+  background: var(--annotation-color-surface);
+  color: var(--annotation-color-text);
+  font: inherit;
+  cursor: pointer;
+  appearance: none;
+}
+
+[data-annotation-shell] [data-annotation-mount] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 [data-annotation-shell] [data-annotation-mount] textarea,
 [data-annotation-shell] [data-annotation-mount] select {
+  max-width: 100%;
+  padding: var(--annotation-space-1) var(--annotation-space-2);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-md);
+  background: var(--annotation-color-surface);
+  color: var(--annotation-color-text);
+  font: inherit;
+}
+
+[data-annotation-shell] [data-annotation-mount] input {
   max-width: 100%;
 }
 
@@ -200,6 +222,27 @@ ${ANNOTATION_DARK_TOKENS}
   border-color: var(--annotation-color-accent);
   background: var(--annotation-color-surface-raised);
   color: var(--annotation-color-text);
+}
+
+[data-annotation-shell] [data-annotation-mount] button[data-variant="primary"],
+[data-annotation-shell] [data-annotation-mount] button[data-variant="primary"]:active {
+  border-color: var(--annotation-color-accent);
+  background: var(--annotation-color-accent);
+  color: var(--annotation-color-surface);
+  font-weight: var(--annotation-font-weight-medium);
+}
+
+[data-annotation-shell] [data-annotation-mount] button[data-variant="primary"]:hover {
+  border-color: var(--annotation-color-text);
+  background: var(--annotation-color-accent);
+  color: var(--annotation-color-surface);
+}
+
+[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"],
+[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"]:hover,
+[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"]:active {
+  border-color: var(--annotation-color-danger);
+  color: var(--annotation-color-danger);
 }
 
 [data-annotation-shell] [data-annotation-mount] input:focus-visible,
@@ -285,18 +328,6 @@ ${ANNOTATION_DARK_TOKENS}
 }
 
 [data-annotation-shell] [data-annotation-live] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-[data-annotation-shell] [data-annotation-badge-unit] {
   position: absolute;
   width: 1px;
   height: 1px;

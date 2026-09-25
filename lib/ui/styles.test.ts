@@ -64,11 +64,16 @@ ${ANNOTATION_DARK_TOKENS}
   box-shadow: 0 12px 32px rgba(23, 32, 51, 0.24);
   pointer-events: auto;
 }`;
-    const formControlRule = `[data-annotation-shell] [data-annotation-mount] button,
-[data-annotation-shell] [data-annotation-mount] input,
+    const formControlRule = `[data-annotation-shell] [data-annotation-mount] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 [data-annotation-shell] [data-annotation-mount] textarea,
 [data-annotation-shell] [data-annotation-mount] select {
   max-width: 100%;
+  padding: var(--annotation-space-1) var(--annotation-space-2);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-md);
+  background: var(--annotation-color-surface);
+  color: var(--annotation-color-text);
+  font: inherit;
 }`;
 
     expect(OVERLAY_STYLES).toContain(rootRule);
@@ -311,16 +316,6 @@ ${ANNOTATION_DARK_TOKENS}
 describe('overlay live region and panel chrome styles', () => {
   it('hides the live status nodes visually without removing them from the accessibility tree', () => {
     const body = ruleBody('[data-annotation-shell] [data-annotation-live] {');
-    expect(body).toContain('position: absolute');
-    expect(body).toContain('width: 1px');
-    expect(body).toContain('height: 1px');
-    expect(body).toContain('overflow: hidden');
-    expect(body).toContain('clip-path: inset(50%)');
-    expect(body).not.toMatch(/display: none|visibility: hidden/);
-  });
-
-  it('hides the badge unit visually without removing it from the accessibility tree', () => {
-    const body = ruleBody('[data-annotation-shell] [data-annotation-badge-unit] {');
     expect(body).toContain('position: absolute');
     expect(body).toContain('width: 1px');
     expect(body).toContain('height: 1px');

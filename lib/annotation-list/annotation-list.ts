@@ -147,6 +147,7 @@ export function createAnnotationList(
     const clear = document.createElement('button');
     clear.type = 'button';
     clear.dataset.annotationClear = '';
+    clear.dataset.variant = 'danger';
     clear.textContent = 'Clear all';
     createInlineConfirm(document, {
       trigger: clear,
@@ -304,6 +305,7 @@ export function createAnnotationList(
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.dataset.annotationDelete = '';
+    remove.dataset.variant = 'danger';
     remove.setAttribute('aria-label', `Delete annotation ${position}`);
     remove.textContent = 'Delete';
     const dismissDelete = createInlineConfirm(document, {

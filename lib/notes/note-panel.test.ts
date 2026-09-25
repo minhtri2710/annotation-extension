@@ -801,6 +801,16 @@ describe('note panel close, focus, editor and live status', () => {
     expect(sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.delete', pageUrl, id: 'annotation-1' });
   });
 
+  it('marks Delete and its inline confirm as danger', async () => {
+    const panel = mounted();
+    await render(panel, [annotation('To delete')]);
+    const remove = panel.querySelector<HTMLButtonElement>('[data-annotation-delete]')!;
+    expect(remove.dataset.variant).toBe('danger');
+    remove.click();
+    expect(panel.querySelector<HTMLButtonElement>('[data-annotation-delete-confirm]')?.dataset.variant).toBe('danger');
+    expect(panel.querySelector<HTMLButtonElement>('[data-annotation-delete-cancel]')?.dataset.variant).toBeUndefined();
+  });
+
   it('moves focus to the heading when the focused control is gone after a re-render', async () => {
     const panel = mounted();
     const listAnnotations = vi.fn().mockResolvedValueOnce([annotation('Delete me')]).mockResolvedValue([]);
