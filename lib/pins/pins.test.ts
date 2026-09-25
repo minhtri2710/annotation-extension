@@ -657,21 +657,6 @@ describe('fanOut', () => {
     ]);
   });
 
-  it('clamps a left-fanned group that crosses the left edge at half a pin', () => {
-    const half = 9;
-    const fanned = fanOut(Array.from({ length: 16 }, () => ({ x: 311, y: 60 })), viewport);
-    expect(fanned.map(({ x }) => x)).toEqual([
-      ...Array.from({ length: 14 }, (_, k) => 311 - k * step),
-      half,
-      half,
-    ]);
-    for (const { x, y } of fanned) {
-      expect(x).toBeGreaterThanOrEqual(half);
-      expect(x).toBeLessThanOrEqual(viewport.width - half);
-      expect(y).toBe(60);
-    }
-  });
-
   const size = 18;
   const intersects = (a: { x: number; y: number }, b: { x: number; y: number }, pin = size) =>
     Math.abs(a.x - b.x) < pin && Math.abs(a.y - b.y) < pin;
@@ -682,6 +667,60 @@ describe('fanOut', () => {
       }
     }
   };
+  const expectInside = (pins: { x: number; y: number }[], view: { width: number; height: number }, half: number) => {
+    for (const { x, y } of pins) {
+      expect(x).toBeGreaterThanOrEqual(half);
+      expect(x).toBeLessThanOrEqual(view.width - half);
+      expect(y).toBeGreaterThanOrEqual(half);
+      expect(y).toBeLessThanOrEqual(view.height - half);
+    }
+  };
+
+  it('moves pins that do not fit on a full row to the row below, centre first, then right, then left', () => {
+    const fanned = fanOut(Array.from({ length: 16 }, () => ({ x: 311, y: 60 })), viewport);
+    expect(fanned).toEqual([
+      ...Array.from({ length: 14 }, (_, k) => ({ x: 311 - k * step, y: 60 })),
+      { x: 311, y: 60 + step },
+      { x: 311 - step, y: 60 + step },
+    ]);
+    expectInside(fanned, viewport, 9);
+    expectApart(fanned);
+  });
+
+  it('moves an overflow pin to the row above when the row below is outside the viewport', () => {
+    const fanned = fanOut(Array.from({ length: 15 }, () => ({ x: 311, y: 471 })), viewport);
+    expect(fanned[14]).toEqual({ x: 311, y: 471 - step });
+    expectInside(fanned, viewport, 9);
+    expectApart(fanned);
+  });
+
+  it('puts an overflow pin half a pin from the left edge of its own row only when every row is full', () => {
+    const tiny = { width: 50, height: 40 };
+    const centers = Array.from({ length: 6 }, () => ({ x: 9, y: 9 }));
+    const expected = [
+      { x: 9, y: 9 },
+      { x: 31, y: 9 },
+      { x: 9, y: 31 },
+      { x: 31, y: 31 },
+      { x: 9, y: 9 },
+      { x: 9, y: 9 },
+    ];
+    expect(fanOut(centers, tiny)).toEqual(expected);
+    expect(fanOut(centers, tiny)).toEqual(expected);
+  });
+
+  it('keeps 200 pins on one centre of a 360x600 viewport inside it, apart while a free slot is left', () => {
+    const narrow = { width: 360, height: 600 };
+    const centers = Array.from({ length: 200 }, () => ({ x: 180, y: 300 }));
+    const one = fanOut(centers, narrow);
+    expectInside(one, narrow, 9);
+    expectApart(one);
+    // At zoom 2 the slot grid holds 7 pins per row (180 +- 3 * 44) on 13 rows (300 +- 6 * 44): 91 slots.
+    const two = fanOut(centers, narrow, 2);
+    expectInside(two, narrow, 18);
+    expectApart(two.slice(0, 91), 2 * size);
+    expect(two.slice(91)).toEqual(Array.from({ length: 109 }, () => ({ x: 18, y: 300 })));
+  });
 
   it('separates a chain of centres less than a pin apart, keeping the first centre and every y', () => {
     const fanned = fanOut([{ x: 40, y: 60 }, { x: 50, y: 60 }, { x: 60, y: 60 }], viewport);
@@ -757,7 +796,8 @@ describe('fanOut', () => {
     expectApart(above);
   });
 
-  // P9's all-pairs search, verbatim, as the reference the banded search must match.
+  // An all-pairs search over every candidate, own row first, then the rows below and above one step further
+  // out each time, as the reference the banded search must match.
   const PIN_SIZE = 18;
   const FAN_GAP = 4;
   function referenceFanOut(
@@ -773,10 +813,19 @@ describe('fanOut', () => {
     const free = (x: number, y: number) => placed.every((pin) => Math.abs(pin.x - x) >= size || Math.abs(pin.y - y) >= size);
     return centers.map((center) => {
       if (!onScreen(center)) return center;
-      const candidates = [center.x];
-      for (let k = 1; center.x + k * step <= viewport.width - half; k++) candidates.push(center.x + k * step);
-      for (let k = 1; center.x - k * step >= half; k++) candidates.push(center.x - k * step);
-      const pin = { x: candidates.find((x) => free(x, center.y)) ?? half, y: center.y };
+      const rows = [center.y];
+      for (let m = 1; m * step <= viewport.height; m++) {
+        for (const y of [center.y + m * step, center.y - m * step]) {
+          if (y >= half && y <= viewport.height - half) rows.push(y);
+        }
+      }
+      const candidates: { x: number; y: number }[] = [];
+      for (const y of rows) {
+        candidates.push({ x: center.x, y });
+        for (let k = 1; center.x + k * step <= viewport.width - half; k++) candidates.push({ x: center.x + k * step, y });
+        for (let k = 1; center.x - k * step >= half; k++) candidates.push({ x: center.x - k * step, y });
+      }
+      const pin = candidates.find(({ x, y }) => free(x, y)) ?? { x: half, y: center.y };
       placed.push(pin);
       return pin;
     });
@@ -815,6 +864,9 @@ describe('fanOut', () => {
       ['top-left corner', { x: 0, y: 0 }, screen, 200],
       ['top-right corner', { x: screen.width - 1, y: 0 }, screen, 200],
       ['right edge of a 320 viewport', { x: 311, y: 60 }, viewport, 16],
+      ['mid-row of a 360x600 viewport', { x: 180, y: 300 }, { width: 360, height: 600 }, 200],
+      ['bottom-left corner', { x: 0, y: screen.height - 1 }, screen, 200],
+      ['top-right corner of a 360x600 viewport', { x: 359, y: 0 }, { width: 360, height: 600 }, 200],
     ];
     for (const [name, center, view, count] of stacks) {
       const centers = Array.from({ length: count }, () => ({ ...center }));

@@ -82,8 +82,10 @@ export function pinCenter(
 // On-screen pins are placed in list order so no two PIN_SIZE * zoom squares overlap: each keeps its
 // centre when that is free, else takes the first free slot k * (PIN_SIZE + FAN_GAP) * zoom to the right
 // that stays inside the viewport, then the first free one to the left, keeping its y. A row with no free
-// slot left puts the pin at half a pin from the left edge. A centre outside the viewport (an off-screen
-// element) stays where it is and blocks nothing.
+// slot left sends the pin to the nearest row with one, (PIN_SIZE + FAN_GAP) * zoom below, then above, then
+// twice that, and so on, skipping rows outside the viewport and trying the same slots in the same order.
+// Only when every row is full does the pin sit half a pin from the left edge of its own row. A centre
+// outside the viewport (an off-screen element) stays where it is and blocks nothing.
 export function fanOut(
   centers: { x: number; y: number }[],
   viewport: Viewport,
@@ -95,10 +97,11 @@ export function fanOut(
   // Placed pins in cells of one pin size, indexed [row band + 1][column + 1] so a neighbour index is never
   // negative: a pin overlapping a slot lies in one of the nine cells around it.
   const cells: { x: number; y: number }[][][] = [];
-  // Per centre y then x, the slot after the one its last pin took (0 centre, k > 0 right, k < 0 left), or
-  // FULL. Pins only accumulate, so every slot before it in the order is still taken for that centre.
+  // Per centre y then x, the row (0 own, then 1 below, 2 above, 3 two below, ...) and the slot in it after
+  // the one its last pin took (0 centre, k > 0 right, k < 0 left), or row FULL. Pins only accumulate, so
+  // every slot before it in the order is still taken for that centre.
   const FULL = Infinity;
-  const resume = new Map<number, Map<number, number>>();
+  const resume = new Map<number, Map<number, { row: number; slot: number }>>();
   const taken = (slot: number, y: number, band: number) => {
     const column = Math.floor(slot / size) + 1;
     for (let b = band; b <= band + 2; b++) {
@@ -114,32 +117,48 @@ export function fanOut(
     }
     return false;
   };
+  // The first free slot from k on in the row at y, or FULL.
+  const freeSlot = (x: number, y: number, k: number) => {
+    const band = Math.floor(y / size);
+    if (k === 0) {
+      if (!taken(x, y, band)) return 0;
+      k = 1;
+    }
+    if (k > 0) {
+      while (x + k * step <= viewport.width - half && taken(x + k * step, y, band)) k++;
+      if (x + k * step <= viewport.width - half) return k;
+      k = -1;
+    }
+    while (x - -k * step >= half && taken(x - -k * step, y, band)) k--;
+    return x - -k * step >= half ? k : FULL;
+  };
   return centers.map((center) => {
     const { x, y } = center;
     if (!(x >= 0 && y >= 0 && x < viewport.width && y < viewport.height)) return center;
-    const band = Math.floor(y / size);
     let slots = resume.get(y);
     if (!slots) resume.set(y, (slots = new Map()));
-    let k = slots.get(x) ?? 0;
-    let placedX = half;
-    if (k === 0) {
-      if (taken(x, y, band)) k = 1;
-      else placedX = x;
+    let { row: r, slot } = slots.get(x) ?? { row: 0, slot: 0 };
+    let pin = { x: half, y };
+    while (r !== FULL) {
+      const offset = (r % 2 ? (r + 1) / 2 : -r / 2) * step;
+      if (r > 0 && Math.abs(offset) > y - half && Math.abs(offset) > viewport.height - half - y) {
+        r = FULL;
+        break;
+      }
+      const rowY = y + offset;
+      if (r === 0 || (rowY >= half && rowY <= viewport.height - half)) {
+        slot = freeSlot(x, rowY, slot);
+        if (slot !== FULL) {
+          pin = { x: x - -slot * step, y: rowY };
+          break;
+        }
+      }
+      r++;
+      slot = 0;
     }
-    if (k > 0 && k !== FULL) {
-      while (x + k * step <= viewport.width - half && taken(x + k * step, y, band)) k++;
-      if (x + k * step <= viewport.width - half) placedX = x + k * step;
-      else k = -1;
-    }
-    if (k < 0) {
-      while (x - -k * step >= half && taken(x - -k * step, y, band)) k--;
-      if (x - -k * step >= half) placedX = x - -k * step;
-      else k = FULL;
-    }
-    slots.set(x, k === FULL ? FULL : k < 0 ? k - 1 : k + 1);
-    const pin = { x: placedX, y };
-    const row = (cells[band + 1] ??= []);
-    const column = Math.floor(placedX / size) + 1;
+    slots.set(x, { row: r, slot: slot < 0 ? slot - 1 : slot + 1 });
+    const row = (cells[Math.floor(pin.y / size) + 1] ??= []);
+    const column = Math.floor(pin.x / size) + 1;
     const cell = row[column];
     if (cell) cell.push(pin);
     else row[column] = [pin];
