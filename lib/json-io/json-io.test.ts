@@ -516,6 +516,8 @@ describe('strict JSON import', () => {
       [rawEntry({ id: 'e', screenshot: { mimeType: 'image/png', base64: image('x', 'image/jpeg') } }), 'has an invalid screenshot: image bytes are not image/png'],
       [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.png', mimeType: 'image/png', base64: btoa('<svg onload=alert(1)>') }] }), 'has an invalid attachment: image bytes are not image/png'],
       [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.webp', mimeType: 'image/webp', base64: btoa('RIFF\0\0\0\0WAVE') }] }), 'has an invalid attachment: image bytes are not image/webp'],
+      [rawEntry({ id: 'e', screenshot: { mimeType: 'image/png', base64: '***' } }), 'has screenshot data that is not valid base64'],
+      [rawEntry({ id: 'e', attachments: [{ id: 'z', name: 'x.png', mimeType: 'image/png', base64: '***' }] }), 'has attachment data that is not valid base64'],
     ];
     for (const [entry, reason] of cases) {
       await expect(importJson(JSON.stringify([valid, entry]), new MemoryBlobStore(), dimensions), reason).resolves.toBe(

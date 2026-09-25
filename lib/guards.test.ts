@@ -30,6 +30,14 @@ describe('errorMessage', () => {
     expect(errorMessage('plain')).toBe('plain');
     expect(errorMessage({ message: 'not an error' })).toBe('[object Object]');
   });
+
+  it('gives null and undefined their names and an Error subclass its own message', () => {
+    class StorageError extends Error {}
+    expect(errorMessage(null)).toBe('null');
+    expect(errorMessage(undefined)).toBe('undefined');
+    expect(errorMessage(new TypeError('bad type'))).toBe('bad type');
+    expect(errorMessage(new StorageError('quota'))).toBe('quota');
+  });
 });
 
 describe('isFiniteNumber', () => {

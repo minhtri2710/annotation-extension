@@ -391,6 +391,20 @@ describe('background message routing', () => {
     expect((await listAnnotations(pageUrl))[0]?.attachments).toBeUndefined();
   });
 
+  it('refuses attachment base64 that does not decode and stores nothing', async () => {
+    const store = new MemoryBlobStore();
+    start(store);
+    const createdResponse = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger({ type: 'annotation.add', pageUrl, input: { note: 'created', selector: '#target', elementContext } }, {}, createdResponse);
+    await vi.waitFor(() => expect(createdResponse).toHaveBeenCalledTimes(1));
+    const created = createdResponse.mock.calls[0]?.[0] as { id: string };
+    const response = vi.fn();
+    await fakeBrowser.runtime.onMessage.trigger({ type: 'attachment.add', pageUrl, annotationId: created.id, name: 'shot.png', mimeType: 'image/png', base64: '***' }, {}, response);
+    await vi.waitFor(() => expect(response).toHaveBeenCalledWith({ ok: false, error: 'Image base64 data is invalid.' }));
+    expect(store.blobs.size).toBe(0);
+    expect((await listAnnotations(pageUrl))[0]?.attachments).toBeUndefined();
+  });
+
   it('refuses a processed screenshot whose bytes are not its type and stores nothing', async () => {
     const store = new MemoryBlobStore();
     start(store, vi.fn().mockResolvedValue({ blob: new Blob(['not webp'], { type: 'image/webp' }), width: 800, height: 400 }));
