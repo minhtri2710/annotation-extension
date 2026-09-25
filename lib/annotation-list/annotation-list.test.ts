@@ -501,6 +501,46 @@ describe('re-reads the capture shortcut when the page becomes visible', () => {
     await vi.waitFor(() => expect(firstStep(panel)).toBe(FAILED));
     list.clear();
   });
+
+  it('updates the first step to the set shortcut on a window focus while visible', async () => {
+    const { panel, list } = await renderUnset();
+    expect(firstStep(panel)).not.toBe(SET);
+    window.dispatchEvent(new FocusEvent('focus'));
+    await vi.waitFor(() => expect(firstStep(panel)).toBe(SET));
+    list.clear();
+  });
+
+  it('makes no read on a window focus after clear()', async () => {
+    const { store, list } = await renderUnset();
+    list.clear();
+    window.dispatchEvent(new FocusEvent('focus'));
+    expect(store.readCaptureShortcut).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes no read on a window focus while hidden', async () => {
+    const { store, list } = await renderUnset();
+    visibility = 'hidden';
+    window.dispatchEvent(new FocusEvent('focus'));
+    expect(store.readCaptureShortcut).toHaveBeenCalledTimes(1);
+    list.clear();
+  });
+
+  it('makes exactly one read per window focus after render() twice', async () => {
+    const { store, list } = await renderUnset();
+    await list.render();
+    window.dispatchEvent(new FocusEvent('focus'));
+    expect(store.readCaptureShortcut).toHaveBeenCalledTimes(3);
+    list.clear();
+  });
+
+  it('makes no read on a focus event inside the document', async () => {
+    const { panel, store, list } = await renderUnset();
+    document.body.append(panel);
+    panel.querySelector('h2')!.dispatchEvent(new FocusEvent('focus'));
+    expect(store.readCaptureShortcut).toHaveBeenCalledTimes(1);
+    list.clear();
+    panel.remove();
+  });
 });
 
 describe('annotation list confirmation, row actions, focus and live status', () => {

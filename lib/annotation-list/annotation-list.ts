@@ -102,6 +102,7 @@ export function createAnnotationList(
     heading.tabIndex = -1;
     panel.append(heading, createOnboarding(document, onboardingOpen, shortcut));
     document.addEventListener('visibilitychange', refreshShortcut);
+    document.defaultView?.addEventListener('focus', refreshShortcut);
     announce(statusMessage ?? '');
     if (statusMessage) {
       const status = document.createElement('p');
@@ -130,7 +131,7 @@ export function createAnnotationList(
     restoreFocus();
   }
 
-  // Coming back from the browser's shortcut settings updates only the first step, so the rest of the list keeps its state.
+  // Coming back from the browser's shortcut settings (the tab becoming visible or its window regaining focus) updates only the first step, so the rest of the list keeps its state.
   function refreshShortcut(): void {
     if (panel.ownerDocument.visibilityState !== 'visible') return;
     const version = renderVersion;
@@ -378,6 +379,7 @@ export function createAnnotationList(
     statusMessage = undefined;
     highlight.remove();
     panel.ownerDocument.removeEventListener('visibilitychange', refreshShortcut);
+    panel.ownerDocument.defaultView?.removeEventListener('focus', refreshShortcut);
     panel.replaceChildren();
     announce('');
   }
