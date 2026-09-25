@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { page, server, userEvent } from 'vitest/browser';
+import { afterEach, describe, expect, inject, it, vi } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { createCaptureController } from '../capture/selection';
@@ -9,6 +9,12 @@ import { createPinsController } from '../pins/pins';
 import { createLocateHighlight } from './locate-highlight';
 import { buildOverlayShell, createPanelAnchor, raiseOverlay } from './shell';
 import { createToolbarControls } from './toolbar-controls';
+
+declare module 'vitest' {
+  export interface ProvidedContext {
+    classicScrollbars?: boolean;
+  }
+}
 
 const pageUrl = 'https://example.com/article';
 const cleanups: (() => void)[] = [];
@@ -346,13 +352,16 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
   const TOLERANCE = 0.5;
 
   // Classic scrollbars take room that 100vw and innerWidth still count; the visible viewport is clientWidth.
-  // Headless browsers hide scrollbars, so the gap is logged, not required: these run as non-regression checks.
+  // Playwright hides scrollbars, so only the instance that provides classicScrollbars requires a real gap;
+  // the other instances run these as non-regression checks.
   async function classicScrollbars() {
     await page.viewport(360, 600);
     addPageStyle('html { overflow: scroll; } ::-webkit-scrollbar { width: 15px; height: 15px; }');
     await nextFrame();
-    const gap = window.innerWidth - document.documentElement.clientWidth;
-    console.log(`${server.browser} classic scrollbar gap: ${gap}px`);
+    if (inject('classicScrollbars')) {
+      expect(window.innerWidth - document.documentElement.clientWidth).toBeGreaterThanOrEqual(10);
+      expect(window.innerHeight - document.documentElement.clientHeight).toBeGreaterThanOrEqual(10);
+    }
     return viewportSize();
   }
 
