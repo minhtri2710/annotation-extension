@@ -85,7 +85,8 @@ export function pinCenter(
 // slot left sends the pin to the nearest row with one, (PIN_SIZE + FAN_GAP) * zoom below, then above, then
 // twice that, and so on, skipping rows outside the viewport and trying the same slots in the same order.
 // Only when every row is full does the pin sit half a pin from the left edge of its own row. A centre
-// outside the viewport (an off-screen element) stays where it is and blocks nothing.
+// outside the viewport, or within half a pin of its left or top edge, which only an element that does
+// not intersect the viewport produces, is off-screen: it stays where it is and blocks nothing.
 export function fanOut(
   centers: { x: number; y: number }[],
   viewport: Viewport,
@@ -134,7 +135,7 @@ export function fanOut(
   };
   return centers.map((center) => {
     const { x, y } = center;
-    if (!(x >= 0 && y >= 0 && x < viewport.width && y < viewport.height)) return center;
+    if (!(x >= half && y >= half && x < viewport.width && y < viewport.height)) return center;
     let slots = resume.get(y);
     if (!slots) resume.set(y, (slots = new Map()));
     let { row: r, slot } = slots.get(x) ?? { row: 0, slot: 0 };

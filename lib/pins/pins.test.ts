@@ -645,6 +645,42 @@ describe('fanOut', () => {
     ]);
   });
 
+  it('leaves the (0, 0) centres of hidden elements unchanged and lets a real corner pin keep its centre', () => {
+    const hidden = pinCenter({ left: 0, top: 0, right: 0, bottom: 0 }, viewport);
+    expect(fanOut([hidden, hidden, hidden, { x: 9, y: 9 }], viewport)).toEqual([
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      { x: 9, y: 9 },
+    ]);
+  });
+
+  it('leaves centres of zero-width elements at the left edge and zero-height elements at the top edge unchanged', () => {
+    const left = pinCenter({ left: 0, top: 100, right: 0, bottom: 140 }, viewport);
+    const top = pinCenter({ left: 40, top: 0, right: 140, bottom: 0 }, viewport);
+    expect(fanOut([left, left, top, top], viewport)).toEqual([
+      { x: 0, y: 100 },
+      { x: 0, y: 100 },
+      { x: 40, y: 0 },
+      { x: 40, y: 0 },
+    ]);
+  });
+
+  it('fans centres half a pin from the corner and leaves centres just inside that strip unchanged', () => {
+    expect(fanOut([{ x: 9, y: 9 }, { x: 9, y: 9 }], viewport)).toEqual([
+      { x: 9, y: 9 },
+      { x: 31, y: 9 },
+    ]);
+    expect(fanOut([{ x: 18, y: 18 }, { x: 18, y: 18 }], viewport, 2)).toEqual([
+      { x: 18, y: 18 },
+      { x: 62, y: 18 },
+    ]);
+    expect(fanOut([{ x: 17.5, y: 18 }, { x: 17.5, y: 18 }], viewport, 2)).toEqual([
+      { x: 17.5, y: 18 },
+      { x: 17.5, y: 18 },
+    ]);
+  });
+
   it('fans two separate groups independently', () => {
     const a = { x: 40, y: 60 };
     const b = { x: 100, y: 200 };
@@ -768,7 +804,8 @@ describe('fanOut', () => {
       });
       const message = `seed ${seed}, layout ${layout}, zoom ${zoom}: `;
       const fanned = fanOut(centers, screen, zoom);
-      const onScreen = (i: number) => centers[i]!.x >= 0;
+      const onScreen = (i: number) =>
+        centers[i]!.x >= half && centers[i]!.y >= half && centers[i]!.x < screen.width && centers[i]!.y < screen.height;
       expectApart(fanned.filter((_, i) => onScreen(i)), pin, message);
       for (const [i, center] of centers.entries()) {
         const out = fanned[i]!;
@@ -808,7 +845,8 @@ describe('fanOut', () => {
     const size = PIN_SIZE * zoom;
     const half = size / 2;
     const step = (PIN_SIZE + FAN_GAP) * zoom;
-    const onScreen = ({ x, y }: { x: number; y: number }) => x >= 0 && y >= 0 && x < viewport.width && y < viewport.height;
+    const onScreen = ({ x, y }: { x: number; y: number }) =>
+      x >= half && y >= half && x < viewport.width && y < viewport.height;
     const placed: { x: number; y: number }[] = [];
     const free = (x: number, y: number) => placed.every((pin) => Math.abs(pin.x - x) >= size || Math.abs(pin.y - y) >= size);
     return centers.map((center) => {
