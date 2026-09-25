@@ -225,8 +225,11 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       if (rect && !pin.marker.hidden) {
         visible.push(pin);
         rects.push(rect);
-      } else if (pin === tooltipPin) {
-        hideTooltip();
+      } else {
+        // An engine need not fire mouseleave or blur on a marker that becomes hidden.
+        pin.hovered = false;
+        pin.focused = false;
+        if (pin === tooltipPin) hideTooltip();
       }
     }
     if (visible.length === 0) return;
@@ -250,7 +253,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     for (const pin of detached) {
       clearPulse(pin);
       pin.marker.remove();
-      if (tooltip && (pin.hovered || pin.focused)) hideTooltip();
+      if (pin === tooltipPin) hideTooltip();
     }
     trackedPins = trackedPins.filter((pin) => pin.element.isConnected);
     const pending = [...unresolved, ...detached].sort((a, b) => a.index - b.index);
@@ -456,7 +459,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   function updateTooltip(pin: TrackedPin): void {
     if (pin.hovered || pin.focused) {
       showTooltip(pin);
-    } else {
+    } else if (pin === tooltipPin) {
       hideTooltip();
     }
   }

@@ -306,6 +306,88 @@ describe('pins controller', () => {
     expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
   });
 
+  it('forgets the focus of a pin reanchor hid, so hovering it after it returns leaves no tooltip', () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    marker.focus();
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+
+    getBoundingClientRect.mockReturnValue(rectAt(-500, 100));
+    controller.reanchor();
+    expect(marker.hidden).toBe(true);
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+    getBoundingClientRect.mockReturnValue(rectAt(40, 60));
+    controller.reanchor();
+    expect(marker.hidden).toBe(false);
+
+    marker.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+    marker.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+  });
+
+  it('forgets the hover of a pin reanchor hid, so focusing and blurring it after it returns leaves no tooltip', () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    marker.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+
+    getBoundingClientRect.mockReturnValue(rectAt(-500, 100));
+    controller.reanchor();
+    expect(marker.hidden).toBe(true);
+    getBoundingClientRect.mockReturnValue(rectAt(40, 60));
+    controller.reanchor();
+    expect(marker.hidden).toBe(false);
+
+    marker.dispatchEvent(new Event('focus'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+    marker.dispatchEvent(new Event('blur'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+  });
+
+  it('keeps the tooltip of a hovered pin when another pin loses focus', () => {
+    const { toolbar, overlay } = setup();
+    const second = document.createElement('button');
+    second.id = 'second-target';
+    document.body.append(second);
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1'), annotation('annotation-2', '#second-target')]);
+    const markerOf = (id: string) => overlay.querySelector(`[data-annotation-id="${id}"]`) as HTMLButtonElement;
+
+    markerOf('annotation-1').dispatchEvent(new Event('focus'));
+    markerOf('annotation-2').dispatchEvent(new MouseEvent('mouseenter'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')?.textContent).toBe('Note annotation-2');
+    markerOf('annotation-1').dispatchEvent(new Event('blur'));
+
+    expect(overlay.querySelector('[data-annotation-tooltip]')?.textContent).toBe('Note annotation-2');
+  });
+
+  it('keeps a visible pin at its clamped centre when a hidden pin before it would take that slot', () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    const second = document.createElement('button');
+    second.id = 'second-target';
+    document.body.append(second);
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(0, 0, 0, 0));
+    vi.spyOn(second, 'getBoundingClientRect').mockReturnValue(rectAt(0, 0));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1'), annotation('annotation-2', '#second-target')]);
+    controller.reanchor();
+
+    const visible = overlay.querySelector('[data-annotation-id="annotation-2"]') as HTMLButtonElement;
+    expect((overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement).hidden).toBe(true);
+    expect(visible.hidden).toBe(false);
+    expect([visible.style.left, visible.style.top]).toEqual(['9px', '9px']);
+  });
+
   it('positions a pin for a shadow-deep annotation from the deep element rect', () => {
     const { toolbar, overlay } = setup();
     stubViewport();
@@ -472,6 +554,33 @@ describe('pins controller', () => {
       expect(marker.style.top).toBe('50px');
       controller.destroy();
       });
+
+    it('keeps the tooltip of a hovered pin when a focused pin detaches and re-resolves', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { toolbar, overlay, target } = setup();
+      stubViewport();
+      const second = document.createElement('button');
+      second.id = 'second-target';
+      document.body.append(second);
+      vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+      vi.spyOn(second, 'getBoundingClientRect').mockReturnValue(rectAt(200, 60));
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1'), annotation('annotation-2', '#second-target')]);
+      const markerOf = (id: string) => overlay.querySelector(`[data-annotation-id="${id}"]`) as HTMLButtonElement;
+      markerOf('annotation-1').dispatchEvent(new Event('focus'));
+      markerOf('annotation-2').dispatchEvent(new MouseEvent('mouseenter'));
+      expect(overlay.querySelector('[data-annotation-tooltip]')?.textContent).toBe('Note annotation-2');
+      // A throttled frame (a background tab) lets the re-resolve pass see the detached pin before reanchor hides it.
+      vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+
+      target.remove();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(RERESOLVE_DEBOUNCE_MS);
+
+      expect(overlay.querySelector('[data-annotation-id="annotation-1"]')).toBeNull();
+      expect(overlay.querySelector('[data-annotation-tooltip]')?.textContent).toBe('Note annotation-2');
+      controller.destroy();
+    });
 
     it('doubles the forced re-resolve wait after each pass that pins nothing, up to the cap', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
