@@ -118,6 +118,36 @@ describe('lookupCaptureShortcut', () => {
     vi.spyOn(browser.commands, 'getAll').mockRejectedValue(new Error('no commands'));
     await expect(lookupCaptureShortcut()).rejects.toThrow('no commands');
   });
+
+  const lookupFor = async (shortcut: string): Promise<string> => {
+    vi.spyOn(browser.commands, 'getAll').mockResolvedValue([{ name: 'capture.toggle', shortcut }] as never);
+    return lookupCaptureShortcut();
+  };
+
+  it('spells out Period in the Firefox default shortcut', async () => {
+    await expect(lookupFor('Ctrl+Shift+Period')).resolves.toBe('Ctrl+Shift+.');
+  });
+
+  it('spells out MacCtrl as Control', async () => {
+    await expect(lookupFor('MacCtrl+Shift+Period')).resolves.toBe('Control+Shift+.');
+  });
+
+  it('spells out Comma, PageDown and PageUp', async () => {
+    await expect(lookupFor('Alt+Comma')).resolves.toBe('Alt+,');
+    await expect(lookupFor('Ctrl+PageDown')).resolves.toBe('Ctrl+Page Down');
+    await expect(lookupFor('Ctrl+PageUp')).resolves.toBe('Ctrl+Page Up');
+  });
+
+  it('passes Chrome display strings and ordinary keys through unchanged', async () => {
+    await expect(lookupFor('Ctrl+Shift+.')).resolves.toBe('Ctrl+Shift+.');
+    await expect(lookupFor('⇧⌘.')).resolves.toBe('⇧⌘.');
+    await expect(lookupFor('Command+Shift+Y')).resolves.toBe('Command+Shift+Y');
+  });
+
+  it('maps whole tokens only, leaving a token that merely contains a table key unchanged', async () => {
+    await expect(lookupFor('Alt+MediaPlayPause')).resolves.toBe('Alt+MediaPlayPause');
+    await expect(lookupFor('Ctrl+Shift+Periods')).resolves.toBe('Ctrl+Shift+Periods');
+  });
 });
 
 describe('captureShortcutHint', () => {

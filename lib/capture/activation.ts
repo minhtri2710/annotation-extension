@@ -42,10 +42,22 @@ export async function readCaptureShortcut(): Promise<string> {
   return response.shortcut;
 }
 
-/** Reads the capture command's shortcut straight from the commands API; the empty string means none is set. */
+const READABLE_SHORTCUT_KEYS: Readonly<Record<string, string>> = {
+  Period: '.',
+  Comma: ',',
+  MacCtrl: 'Control',
+  PageUp: 'Page Up',
+  PageDown: 'Page Down',
+};
+
+/** Reads the capture command's shortcut from the commands API in readable form (manifest key names spelled out); the empty string means none is set. */
 export async function lookupCaptureShortcut(): Promise<string> {
   const commands = await browser.commands.getAll();
-  return commands.find((command) => command.name === CAPTURE_TOGGLE_MESSAGE)?.shortcut ?? '';
+  const shortcut = commands.find((command) => command.name === CAPTURE_TOGGLE_MESSAGE)?.shortcut ?? '';
+  return shortcut
+    .split('+')
+    .map((token) => (Object.hasOwn(READABLE_SHORTCUT_KEYS, token) ? READABLE_SHORTCUT_KEYS[token] : token))
+    .join('+');
 }
 
 export const SHORTCUT_SETTINGS = "your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager)";
