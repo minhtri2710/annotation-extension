@@ -269,14 +269,45 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     }
   });
 
-  it('leaves the pin of an element outside the viewport off-screen', () => {
+  it('hides the pin of an element outside the viewport', () => {
     const { shell } = mountShell();
     placeTarget('left: -500px; top: 100px');
     controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
     controller.setAnnotations([annotation(0, '#edge-target')]);
     controller.reanchor();
 
-    expect(shell.root.querySelector<HTMLElement>('.annotation-pin')!.getBoundingClientRect().right).toBeLessThanOrEqual(0);
+    const marker = shell.root.querySelector<HTMLButtonElement>('.annotation-pin')!;
+    expect(marker.hidden).toBe(true);
+    expect(marker.checkVisibility()).toBe(false);
+    expect(marker.getBoundingClientRect().width).toBe(0);
+  });
+
+  it('hides the pin of a display: none element and shows it once the element is displayed', () => {
+    const { shadow, shell } = mountShell();
+    const target = placeTarget('left: 200px; top: 200px; display: none');
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller.setAnnotations([annotation(0, '#edge-target')]);
+    controller.reanchor();
+
+    const marker = shell.root.querySelector<HTMLButtonElement>('.annotation-pin')!;
+    expect(marker.hidden).toBe(true);
+    expect(getComputedStyle(marker).display).toBe('none');
+    expect(marker.checkVisibility()).toBe(false);
+    expect(marker.getBoundingClientRect().width).toBe(0);
+    const before = document.activeElement;
+    marker.focus();
+    expect(document.activeElement).toBe(before);
+    expect(shadow.activeElement).toBeNull();
+    expect(browserPage.getByRole('button', { name: 'Annotation 1' }).query()).toBeNull();
+
+    target.style.display = 'block';
+    controller.reanchor();
+    expect(marker.hidden).toBe(false);
+    expect(marker.checkVisibility()).toBe(true);
+    expect(browserPage.getByRole('button', { name: 'Annotation 1' }).query()).toBe(marker);
+    const pin = marker.getBoundingClientRect();
+    expect(pin.left + pin.width / 2).toBeCloseTo(200);
+    expect(pin.top + pin.height / 2).toBeCloseTo(200);
   });
 
   it('dismisses the tooltip with Escape without moving focus or hover', async () => {

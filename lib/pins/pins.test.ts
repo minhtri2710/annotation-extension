@@ -7,6 +7,7 @@ import { buildSelector } from '../capture/selector';
 import {
   createPinsController as createController,
   fanOut,
+  intersectsViewport,
   type PinsController,
   type PinsControllerOptions,
   pinCenter,
@@ -48,6 +49,18 @@ function setup() {
   const toolbar = document.querySelector('#toolbar') as HTMLDivElement;
   const overlay = document.querySelector('#overlay') as HTMLDivElement;
   return { toolbar, overlay, target: document.querySelector('#target') as HTMLElement };
+}
+
+// happy-dom lays nothing out, so its viewport reads 0 x 0 and no element intersects it.
+function stubViewport() {
+  vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1280);
+  vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(720);
+}
+
+function rectAt(left: number, top: number, width = 56, height = 78): DOMRect {
+  return {
+    x: left, y: top, left, top, right: left + width, bottom: top + height, width, height, toJSON: () => ({}),
+  };
 }
 
 // The resolve slicer reads performance.now(); a still clock keeps every pass in one slice regardless of load.
@@ -205,6 +218,7 @@ describe('pins controller', () => {
 
   it('re-anchors tracked markers against their current element rect', () => {
     const { toolbar, overlay, target } = setup();
+    stubViewport();
     const getBoundingClientRect = vi
       .spyOn(target, 'getBoundingClientRect')
       .mockReturnValue({
@@ -253,8 +267,48 @@ describe('pins controller', () => {
     expect([left('annotation-1'), left('annotation-2')]).toEqual(['100px', '122px']);
   });
 
+  it('hides the pin of an element outside the viewport and shows it at its clamped centre once the element is in view', () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(0, 0, 0, 0));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    expect(marker.hidden).toBe(true);
+
+    getBoundingClientRect.mockReturnValue(rectAt(-20, 4));
+    controller.reanchor();
+    expect(marker.hidden).toBe(false);
+    expect([marker.style.left, marker.style.top]).toEqual(['9px', '9px']);
+
+    getBoundingClientRect.mockReturnValue(rectAt(40, 720));
+    controller.reanchor();
+    expect(marker.hidden).toBe(true);
+
+    getBoundingClientRect.mockReturnValue(rectAt(0, 100, 0, 40));
+    controller.reanchor();
+    expect(marker.hidden).toBe(true);
+  });
+
+  it('removes the tooltip when reanchor hides its focused pin', () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    marker.dispatchEvent(new Event('focus'));
+    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+
+    getBoundingClientRect.mockReturnValue(rectAt(-500, 100));
+    controller.reanchor();
+    expect(marker.hidden).toBe(true);
+    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+  });
+
   it('positions a pin for a shadow-deep annotation from the deep element rect', () => {
     const { toolbar, overlay } = setup();
+    stubViewport();
     const host = document.createElement('x-card');
     document.body.append(host);
     const root = host.attachShadow({ mode: 'open' });
@@ -396,6 +450,7 @@ describe('pins controller', () => {
     it('re-resolves a pin whose element a framework replaced', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const { toolbar, overlay, target } = setup();
+      stubViewport();
       const controller = createPinsController({ document, container: overlay, toolbar });
       controller.setAnnotations([annotation('annotation-1')]);
 
@@ -589,9 +644,24 @@ describe('pin and tooltip placement', () => {
     expect(pinCenter({ left: 316, top: 478, right: 400, bottom: 500 }, viewport)).toEqual({ x: 311, y: 471 });
   });
 
-  it('leaves the pin of an element outside the viewport where the element is', () => {
-    expect(pinCenter({ left: -500, top: 100, right: -400, bottom: 140 }, viewport)).toEqual({ x: -500, y: 100 });
-    expect(pinCenter({ left: 40, top: 900, right: 140, bottom: 940 }, viewport)).toEqual({ x: 40, y: 900 });
+  it('counts a rect as intersecting the viewport only when it overlaps it by more than 0 px', () => {
+    const outside = [
+      { left: 0, top: 0, right: 0, bottom: 0 },
+      { left: 0, top: 100, right: 0, bottom: 140 },
+      { left: 40, top: 0, right: 140, bottom: 0 },
+      { left: -100, top: 100, right: 0, bottom: 140 },
+      { left: 40, top: -40, right: 140, bottom: 0 },
+      { left: 320, top: 100, right: 420, bottom: 140 },
+      { left: 40, top: 480, right: 140, bottom: 520 },
+    ];
+    for (const rect of outside) expect(intersectsViewport(rect, viewport), JSON.stringify(rect)).toBe(false);
+    const straddling = [
+      { left: -99, top: 100, right: 1, bottom: 140 },
+      { left: 40, top: -39, right: 140, bottom: 1 },
+      { left: 319, top: 100, right: 419, bottom: 140 },
+      { left: 40, top: 479, right: 140, bottom: 519 },
+    ];
+    for (const rect of straddling) expect(intersectsViewport(rect, viewport), JSON.stringify(rect)).toBe(true);
   });
 
   it('places the tooltip right of the pin, flips it left at the right edge, and clamps it inside the viewport', () => {
@@ -636,37 +706,7 @@ describe('fanOut', () => {
     ]);
   });
 
-  it('leaves an off-screen centre unchanged', () => {
-    expect(fanOut([{ x: -500, y: 100 }, { x: -500, y: 100 }, { x: 40, y: 900 }, { x: 40, y: 900 }], viewport)).toEqual([
-      { x: -500, y: 100 },
-      { x: -500, y: 100 },
-      { x: 40, y: 900 },
-      { x: 40, y: 900 },
-    ]);
-  });
-
-  it('leaves the (0, 0) centres of hidden elements unchanged and lets a real corner pin keep its centre', () => {
-    const hidden = pinCenter({ left: 0, top: 0, right: 0, bottom: 0 }, viewport);
-    expect(fanOut([hidden, hidden, hidden, { x: 9, y: 9 }], viewport)).toEqual([
-      { x: 0, y: 0 },
-      { x: 0, y: 0 },
-      { x: 0, y: 0 },
-      { x: 9, y: 9 },
-    ]);
-  });
-
-  it('leaves centres of zero-width elements at the left edge and zero-height elements at the top edge unchanged', () => {
-    const left = pinCenter({ left: 0, top: 100, right: 0, bottom: 140 }, viewport);
-    const top = pinCenter({ left: 40, top: 0, right: 140, bottom: 0 }, viewport);
-    expect(fanOut([left, left, top, top], viewport)).toEqual([
-      { x: 0, y: 100 },
-      { x: 0, y: 100 },
-      { x: 40, y: 0 },
-      { x: 40, y: 0 },
-    ]);
-  });
-
-  it('fans centres half a pin from the corner and leaves centres just inside that strip unchanged', () => {
+  it('fans centres half a pin from the corner', () => {
     expect(fanOut([{ x: 9, y: 9 }, { x: 9, y: 9 }], viewport)).toEqual([
       { x: 9, y: 9 },
       { x: 31, y: 9 },
@@ -674,10 +714,6 @@ describe('fanOut', () => {
     expect(fanOut([{ x: 18, y: 18 }, { x: 18, y: 18 }], viewport, 2)).toEqual([
       { x: 18, y: 18 },
       { x: 62, y: 18 },
-    ]);
-    expect(fanOut([{ x: 17.5, y: 18 }, { x: 17.5, y: 18 }], viewport, 2)).toEqual([
-      { x: 17.5, y: 18 },
-      { x: 17.5, y: 18 },
     ]);
   });
 
@@ -798,26 +834,19 @@ describe('fanOut', () => {
         y: between(half + 24, screen.height - half - 24),
       }));
       const centers = Array.from({ length: 2 + Math.floor(random() * 29) }, () => {
-        if (random() < 0.1) return { x: -between(1, 500), y: between(0, screen.height) };
         const cluster = clusters[Math.floor(random() * clusters.length)]!;
         return { x: cluster.x + between(-24, 24), y: cluster.y + between(-24, 24) };
       });
       const message = `seed ${seed}, layout ${layout}, zoom ${zoom}: `;
       const fanned = fanOut(centers, screen, zoom);
-      const onScreen = (i: number) =>
-        centers[i]!.x >= half && centers[i]!.y >= half && centers[i]!.x < screen.width && centers[i]!.y < screen.height;
-      expectApart(fanned.filter((_, i) => onScreen(i)), pin, message);
+      expectApart(fanned, pin, message);
       for (const [i, center] of centers.entries()) {
         const out = fanned[i]!;
-        if (!onScreen(i)) {
-          expect(out, message).toEqual(center);
-          continue;
-        }
         expect(out.x, message).toBeGreaterThanOrEqual(half);
         expect(out.x, message).toBeLessThanOrEqual(screen.width - half);
-        expect(out.y, message).toBe(center.y);
-        const earlier = fanned.slice(0, i).filter((_, j) => onScreen(j));
-        if (earlier.every((other) => !intersects(center, other, pin))) expect(out, message).toEqual(center);
+        expect(out.y, message).toBeGreaterThanOrEqual(half);
+        expect(out.y, message).toBeLessThanOrEqual(screen.height - half);
+        if (fanned.slice(0, i).every((other) => !intersects(center, other, pin))) expect(out, message).toEqual(center);
       }
     }
   });
@@ -845,12 +874,9 @@ describe('fanOut', () => {
     const size = PIN_SIZE * zoom;
     const half = size / 2;
     const step = (PIN_SIZE + FAN_GAP) * zoom;
-    const onScreen = ({ x, y }: { x: number; y: number }) =>
-      x >= half && y >= half && x < viewport.width && y < viewport.height;
     const placed: { x: number; y: number }[] = [];
     const free = (x: number, y: number) => placed.every((pin) => Math.abs(pin.x - x) >= size || Math.abs(pin.y - y) >= size);
     return centers.map((center) => {
-      if (!onScreen(center)) return center;
       const rows = [center.y];
       for (let m = 1; m * step <= viewport.height; m++) {
         for (const y of [center.y + m * step, center.y - m * step]) {
@@ -889,7 +915,6 @@ describe('fanOut', () => {
         y: between(half + 24, screen.height - half - 24),
       }));
       const centers = Array.from({ length: 2 + Math.floor(random() * 29) }, () => {
-        if (random() < 0.1) return { x: -between(1, 500), y: between(0, screen.height) };
         const cluster = clusters[Math.floor(random() * clusters.length)]!;
         return { x: cluster.x + between(-24, 24), y: cluster.y + between(-24, 24) };
       });
@@ -906,9 +931,15 @@ describe('fanOut', () => {
       ['bottom-left corner', { x: 0, y: screen.height - 1 }, screen, 200],
       ['top-right corner of a 360x600 viewport', { x: 359, y: 0 }, { width: 360, height: 600 }, 200],
     ];
-    for (const [name, center, view, count] of stacks) {
-      const centers = Array.from({ length: count }, () => ({ ...center }));
+    for (const [name, corner, view, count] of stacks) {
       for (const zoom of [1, 2]) {
+        // A corner outside [half, width - half] x [half, height - half] is clamped, as pinCenter does.
+        const half = (size * zoom) / 2;
+        const center = {
+          x: Math.min(Math.max(corner.x, half), view.width - half),
+          y: Math.min(Math.max(corner.y, half), view.height - half),
+        };
+        const centers = Array.from({ length: count }, () => ({ ...center }));
         expect(fanOut(centers, view, zoom), `${name}, zoom ${zoom}`).toEqual(referenceFanOut(centers, view, zoom));
       }
     }

@@ -65,16 +65,22 @@ interface Viewport {
   height: number;
 }
 
-// The pin is centred on the element's top-left corner, pulled fully inside the viewport while the
-// element intersects it; an element outside the viewport keeps its pin off-screen with it. A pin under
-// page zoom measures PIN_SIZE * zoom.
+// An element that does not intersect the viewport, including a display: none one with an all-zero rect,
+// shows no pin.
+export function intersectsViewport(
+  rect: { left: number; top: number; right: number; bottom: number },
+  viewport: Viewport,
+): boolean {
+  return rect.right > 0 && rect.bottom > 0 && rect.left < viewport.width && rect.top < viewport.height;
+}
+
+// For a rect that intersects the viewport, the pin is centred on its top-left corner, pulled fully inside
+// the viewport. A pin under page zoom measures PIN_SIZE * zoom.
 export function pinCenter(
   rect: { left: number; top: number; right: number; bottom: number },
   viewport: Viewport,
   zoom = 1,
 ): { x: number; y: number } {
-  const intersects = rect.right > 0 && rect.bottom > 0 && rect.left < viewport.width && rect.top < viewport.height;
-  if (!intersects) return { x: rect.left, y: rect.top };
   const half = (PIN_SIZE * zoom) / 2;
   return { x: clamp(rect.left, half, viewport.width - half), y: clamp(rect.top, half, viewport.height - half) };
 }
@@ -84,9 +90,8 @@ export function pinCenter(
 // that stays inside the viewport, then the first free one to the left, keeping its y. A row with no free
 // slot left sends the pin to the nearest row with one, (PIN_SIZE + FAN_GAP) * zoom below, then above, then
 // twice that, and so on, skipping rows outside the viewport and trying the same slots in the same order.
-// Only when every row is full does the pin sit half a pin from the left edge of its own row. A centre
-// outside the viewport, or within half a pin of its left or top edge, which only an element that does
-// not intersect the viewport produces, is off-screen: it stays where it is and blocks nothing.
+// Only when every row is full does the pin sit half a pin from the left edge of its own row. Every centre
+// lies inside [half, width - half] x [half, height - half], as pinCenter returns it.
 export function fanOut(
   centers: { x: number; y: number }[],
   viewport: Viewport,
@@ -135,7 +140,6 @@ export function fanOut(
   };
   return centers.map((center) => {
     const { x, y } = center;
-    if (!(x >= half && y >= half && x < viewport.width && y < viewport.height)) return center;
     let slots = resume.get(y);
     if (!slots) resume.set(y, (slots = new Map()));
     let { row: r, slot } = slots.get(x) ?? { row: 0, slot: 0 };
@@ -212,17 +216,24 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   const reanchor = () => {
     if (destroyed) return;
 
+    const size = viewport();
     const visible: TrackedPin[] = [];
+    const rects: DOMRect[] = [];
     for (const pin of trackedPins) {
-      pin.marker.hidden = !pin.element.isConnected;
-      if (!pin.marker.hidden) visible.push(pin);
+      const rect = pin.element.isConnected ? pin.element.getBoundingClientRect() : undefined;
+      pin.marker.hidden = !rect || !intersectsViewport(rect, size);
+      if (rect && !pin.marker.hidden) {
+        visible.push(pin);
+        rects.push(rect);
+      } else if (pin === tooltipPin) {
+        hideTooltip();
+      }
     }
     if (visible.length === 0) return;
 
     // Every marker lives in the same container, so they share one zoom.
     const zoom = cssZoom(visible[0]!.marker);
-    const size = viewport();
-    const centers = visible.map((pin) => pinCenter(pin.element.getBoundingClientRect(), size, zoom));
+    const centers = rects.map((rect) => pinCenter(rect, size, zoom));
     fanOut(centers, size, zoom).forEach(({ x, y }, i) => placeFixed(visible[i]!.marker, { left: x, top: y }));
   };
 

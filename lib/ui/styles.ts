@@ -137,6 +137,10 @@ ${ANNOTATION_DARK_TOKENS}
   font-weight: var(--annotation-font-weight-bold);
 }
 
+[data-annotation-shell] .annotation-pin[hidden] {
+  display: none;
+}
+
 [data-annotation-shell] .annotation-pin:hover {
   opacity: 1;
   outline: 2px solid var(--annotation-color-accent);
