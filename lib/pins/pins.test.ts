@@ -306,6 +306,116 @@ describe('pins controller', () => {
     expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
   });
 
+  describe('tooltip follows its pin on reanchor', () => {
+    // happy-dom lays nothing out, so a marker's rect is read back from the centre reanchor placed it at.
+    function stubMarkerRect(marker: HTMLButtonElement) {
+      vi.spyOn(marker, 'getBoundingClientRect').mockImplementation(() =>
+        rectAt(parseFloat(marker.style.left) - 9, parseFloat(marker.style.top) - 9, 18, 18));
+    }
+
+    function expectedPlacement(marker: HTMLButtonElement, tooltip: HTMLElement) {
+      const { width, height } = tooltip.getBoundingClientRect();
+      return placeTooltip(marker.getBoundingClientRect(), { width, height }, { width: 1280, height: 720 });
+    }
+
+    for (const [trigger, event] of [['focused', 'focus'], ['hovered', 'mouseenter']] as const) {
+      it(`re-places the tooltip of a ${trigger} pin beside the pin's new rect, keeping the same tooltip`, () => {
+        const { toolbar, overlay, target } = setup();
+        stubViewport();
+        const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+        const controller = createPinsController({ document, container: overlay, toolbar });
+        controller.setAnnotations([annotation('annotation-1')]);
+        const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+        stubMarkerRect(marker);
+        marker.dispatchEvent(new Event(event));
+        const tooltip = overlay.querySelector('[data-annotation-tooltip]') as HTMLElement;
+        const before = [tooltip.style.left, tooltip.style.top];
+        expect(before).toEqual([`${expectedPlacement(marker, tooltip).left}px`, `${expectedPlacement(marker, tooltip).top}px`]);
+
+        getBoundingClientRect.mockReturnValue(rectAt(300, 400));
+        controller.reanchor();
+
+        expect(overlay.querySelector('[data-annotation-tooltip]')).toBe(tooltip);
+        expect(tooltip.id).toBe('annotation-pin-tooltip-annotation-1');
+        expect(tooltip.textContent).toBe('Note annotation-1');
+        const { left, top } = expectedPlacement(marker, tooltip);
+        expect([tooltip.style.left, tooltip.style.top]).toEqual([`${left}px`, `${top}px`]);
+        expect([tooltip.style.left, tooltip.style.top]).not.toEqual(before);
+      });
+    }
+
+    it('creates no tooltip on reanchor when no pin is hovered or focused', () => {
+      const { toolbar, overlay, target } = setup();
+      stubViewport();
+      const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1')]);
+
+      getBoundingClientRect.mockReturnValue(rectAt(300, 400));
+      controller.reanchor();
+
+      expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+    });
+
+    it('schedules no further frame after a document mutation re-places a shown tooltip', async () => {
+      const { toolbar, overlay, target } = setup();
+      stubViewport();
+      const frames: FrameRequestCallback[] = [];
+      const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+      const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1')]);
+      const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+      stubMarkerRect(marker);
+      marker.dispatchEvent(new Event('focus'));
+      const tooltip = overlay.querySelector('[data-annotation-tooltip]') as HTMLElement;
+      const before = tooltip.style.top;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (const frame of frames.splice(0)) frame(0);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // A re-place that mutated the tree would already have queued another frame here.
+      expect(frames).toHaveLength(0);
+      requestAnimationFrame.mockClear();
+
+      getBoundingClientRect.mockReturnValue(rectAt(300, 400));
+      document.body.append(document.createElement('div'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(frames).toHaveLength(1);
+      frames.splice(0)[0]!(0);
+      expect(tooltip.style.top).not.toBe(before);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+      expect(frames).toHaveLength(0);
+    });
+
+    it('shows no tooltip for a focused pin reanchor hid, neither after that pass nor once it is back in view', () => {
+      const { toolbar, overlay, target } = setup();
+      stubViewport();
+      const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+      // A second pin stays in view, so each reanchor pass runs to its end.
+      const second = document.createElement('button');
+      second.id = 'second-target';
+      document.body.append(second);
+      vi.spyOn(second, 'getBoundingClientRect').mockReturnValue(rectAt(400, 300));
+      const controller = createPinsController({ document, container: overlay, toolbar });
+      controller.setAnnotations([annotation('annotation-1'), annotation('annotation-2', '#second-target')]);
+      const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+      marker.dispatchEvent(new Event('focus'));
+      expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
+
+      getBoundingClientRect.mockReturnValue(rectAt(-500, 100));
+      controller.reanchor();
+      expect(marker.hidden).toBe(true);
+      expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+
+      getBoundingClientRect.mockReturnValue(rectAt(40, 60));
+      controller.reanchor();
+      expect(marker.hidden).toBe(false);
+      expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
+    });
+  });
+
   it('forgets the focus of a pin reanchor hid, so hovering it after it returns leaves no tooltip', () => {
     const { toolbar, overlay, target } = setup();
     stubViewport();

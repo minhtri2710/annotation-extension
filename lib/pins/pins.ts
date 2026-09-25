@@ -261,6 +261,8 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     const zoom = cssZoom(visible[0]!.marker);
     const centers = rects.map((rect) => pinCenter(rect, size, zoom));
     fanOut(centers, size, options.toolbar.getBoundingClientRect(), zoom).forEach(({ x, y }, i) => placeFixed(visible[i]!.marker, { left: x, top: y }));
+    // A shown tooltip follows its pin; a pin hidden above has already cleared tooltipPin.
+    if (tooltip && tooltipPin) positionTooltip(tooltip, tooltipPin);
   };
 
   const scheduleReanchor = () => {
@@ -476,9 +478,14 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     tooltip.id = tooltipId(pin.annotation);
     tooltip.textContent = truncateNote(pin.annotation.note);
     tooltip.hidden = false;
-    const { width, height } = tooltip.getBoundingClientRect();
+    positionTooltip(tooltip, pin);
+  }
+
+  // Writes only the tooltip's inline position, so reanchor causes no childList mutation.
+  function positionTooltip(shown: HTMLDivElement, pin: TrackedPin): void {
+    const { width, height } = shown.getBoundingClientRect();
     const { left, top } = placeTooltip(pin.marker.getBoundingClientRect(), { width, height }, viewport());
-    placeFixed(tooltip, { left, top });
+    placeFixed(shown, { left, top });
   }
 
   function viewport(): Viewport {

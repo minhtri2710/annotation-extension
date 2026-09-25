@@ -5,7 +5,7 @@ import { buildSelector } from '../capture/selector';
 import { buildOverlayShell, type OverlayShell } from '../ui/shell';
 import { createToolbarControls, type ToolbarControls } from '../ui/toolbar-controls';
 import type { ToolbarPrefs } from '../ui/ui-prefs';
-import { createPinsController, type PinsController } from './pins';
+import { createPinsController, type PinsController, placeTooltip } from './pins';
 
 const PAGE_ELEMENTS = 50_000;
 const ANNOTATIONS = 200;
@@ -372,6 +372,39 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
       expectInside(shell.root.querySelector<HTMLElement>('[role="tooltip"]')!.getBoundingClientRect());
     });
   }
+
+  it('moves a focused pin\'s tooltip with the pin when the page scrolls', async () => {
+    const { shell } = mountShell();
+    const target = placeTarget('left: 200px; top: 300px');
+    target.style.position = 'absolute';
+    const spacer = document.createElement('div');
+    spacer.style.cssText = 'position: absolute; left: 0; top: 0; width: 1px; height: 3000px';
+    document.body.append(spacer);
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller.setAnnotations([annotation(0, '#edge-target')]);
+    controller.reanchor();
+    const marker = shell.root.querySelector<HTMLElement>('.annotation-pin')!;
+    marker.focus();
+    const tooltip = shell.root.querySelector<HTMLElement>('[role="tooltip"]')!;
+    const before = tooltip.getBoundingClientRect();
+    const pinBefore = marker.getBoundingClientRect();
+
+    try {
+      window.scrollTo(0, 150);
+      await vi.waitFor(() => expect(marker.getBoundingClientRect().top).toBeCloseTo(pinBefore.top - 150, 0));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+
+      const pin = marker.getBoundingClientRect();
+      const rect = tooltip.getBoundingClientRect();
+      const expected = placeTooltip(pin, { width: rect.width, height: rect.height }, viewport());
+      expect(shell.root.querySelector('[role="tooltip"]')).toBe(tooltip);
+      expect(Math.abs(rect.left - expected.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rect.top - expected.top)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rect.top - before.top)).toBeGreaterThan(100);
+    } finally {
+      window.scrollTo(0, 0);
+    }
+  });
 
   describe('when the toolbar moves or changes size', () => {
     let controls: ToolbarControls | undefined;
