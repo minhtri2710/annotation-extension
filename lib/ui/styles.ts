@@ -327,6 +327,64 @@ ${ANNOTATION_DARK_TOKENS}
   pointer-events: none;
 }
 
+[data-annotation-shell] [data-annotation-scan-outline] {
+  z-index: 2147483643;
+  outline: 2px solid var(--annotation-color-accent);
+  box-shadow: 0 0 0 4px var(--annotation-color-surface);
+  pointer-events: none;
+}
+
+[data-annotation-shell] [data-annotation-scan-outline="error"] {
+  outline-color: var(--annotation-color-danger);
+}
+
+[data-annotation-shell] [data-annotation-scan-outline="warning"] {
+  outline-color: var(--annotation-color-warning);
+}
+
+[data-annotation-shell] [data-annotation-scan-outline][data-annotation-emphasis] {
+  z-index: 2147483644;
+  outline-width: 4px;
+}
+
+[data-annotation-shell] [data-annotation-scan-outline-number] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: var(--annotation-space-4);
+  padding: 0 var(--annotation-space-1);
+  background: var(--annotation-color-accent);
+  color: var(--annotation-color-surface);
+  font-size: var(--annotation-font-size-caption);
+  font-weight: var(--annotation-font-weight-bold);
+  text-align: center;
+}
+
+[data-annotation-shell] [data-annotation-scan-outline="error"] [data-annotation-scan-outline-number] {
+  background: var(--annotation-color-danger);
+}
+
+[data-annotation-shell] [data-annotation-scan-outline="warning"] [data-annotation-scan-outline-number] {
+  background: var(--annotation-color-warning);
+}
+
+[data-annotation-shell] [data-annotation-scan-finding][data-annotation-scan-number]::before {
+  content: attr(data-annotation-scan-number);
+  display: inline-block;
+  min-width: var(--annotation-space-4);
+  margin-right: var(--annotation-space-1);
+  padding: 0 var(--annotation-space-1);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-sm);
+  font-weight: var(--annotation-font-weight-bold);
+  text-align: center;
+}
+
+[data-annotation-shell] [data-annotation-scan-page-level] {
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+}
+
 [data-annotation-shell] [data-annotation-live] {
   position: absolute;
   width: 1px;

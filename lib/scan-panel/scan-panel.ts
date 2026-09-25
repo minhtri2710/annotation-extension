@@ -2,7 +2,7 @@ import { collectFindings, createScanContext, type Finding, type Rule, type Sever
 import { ALL_RULES, DEEP_SCAN_RULES } from '../lint/rules';
 import { revealSweep } from './reveal-sweep';
 import { errorMessage } from '../guards';
-import { createLocateHighlight } from '../ui/locate-highlight';
+import { followFrames, scrollToElement } from '../ui/locate-highlight';
 import { createLiveRegion } from '../ui/shell';
 
 export interface ScanPanelOptions {
@@ -31,6 +31,13 @@ const MAX_ROWS = 10;
 const PROGRESS_TEXT_INTERVAL_MS = 1000;
 const PROGRESS_ANNOUNCE_STEPS = 4;
 
+interface Outline {
+  el: Element;
+  box: HTMLElement;
+  number: number;
+  group?: HTMLDetailsElement;
+}
+
 export async function scanPage(
   win: Window,
   host: Element,
@@ -54,7 +61,10 @@ export async function deepScanPage(
 
 export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): ScanPanel {
   let renderVersion = 0;
-  const highlight = createLocateHighlight();
+  let outlines: Outline[] = [];
+  let stopFollowing = () => {};
+  let emphasised: HTMLElement | undefined;
+  let located: HTMLElement | undefined;
   let stopScan: (() => void) | undefined;
   let deepScan: AbortController | undefined;
   let severityFilter: Severity | 'all' = 'all';
@@ -76,7 +86,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     const version = ++renderVersion;
     focusRescan = false;
     stopScan?.();
-    highlight.remove();
+    removeOutlines();
     const controller = new AbortController();
     stopScan = () => {
       stopScan = undefined;
@@ -235,6 +245,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
         group.element.hidden = value !== 'all' && group.severity !== value;
         if (group.severity === value) group.element.open = true;
       }
+      placeOutlines();
     };
     apply(options.some((option) => option.value === severityFilter) ? severityFilter : 'all');
     filter.append(...chips);
@@ -285,16 +296,72 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
         SEVERITY_ORDER.indexOf(a[0]!.severity) - SEVERITY_ORDER.indexOf(b[0]!.severity) ||
         a[0]!.name.localeCompare(b[0]!.name),
     );
-    const groupElements = ordered.map((group) => ({ severity: group[0]!.severity, element: createGroup(document, group) }));
+    // Element findings are numbered in display order, including rows "+N more" reveals later.
+    const outlineOf = new Map<Finding, Outline>();
+    for (const finding of ordered.flat()) {
+      if (finding.el?.isConnected) {
+        outlineOf.set(finding, { el: finding.el, box: createOutline(document, finding.severity, outlineOf.size + 1), number: outlineOf.size + 1 });
+      }
+    }
+    outlines = [...outlineOf.values()];
+    const groupElements = ordered.map((group) => ({ severity: group[0]!.severity, element: createGroup(document, group, outlineOf) }));
+    options.highlightRoot.append(...outlines.map((outline) => outline.box));
     panel.append(createFilter(document, findings, groupElements), ...groupElements.map((group) => group.element));
+    if (outlines.length > 0) stopFollowing = followFrames(document, placeOutlines);
   }
 
-  function createGroup(document: Document, group: Finding[]): HTMLDetailsElement {
+  function createOutline(document: Document, severity: Severity, number: number): HTMLElement {
+    const box = document.createElement('div');
+    box.dataset.annotationScanOutline = severity;
+    box.setAttribute('aria-hidden', 'true');
+    box.style.position = 'fixed';
+    const label = document.createElement('span');
+    label.dataset.annotationScanOutlineNumber = '';
+    label.textContent = String(number);
+    box.append(label);
+    return box;
+  }
+
+  // Reads every rect before writing any style, so one pass costs one layout.
+  function placeOutlines(): void {
+    const rects = outlines.map((outline) => outline.el.getBoundingClientRect());
+    outlines.forEach(({ box, group }, index) => {
+      const rect = rects[index]!;
+      box.hidden = group?.hidden === true || (rect.width === 0 && rect.height === 0);
+      Object.assign(box.style, {
+        top: `${rect.top}px`,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+      });
+    });
+  }
+
+  function emphasise(box: HTMLElement | undefined): void {
+    emphasised?.removeAttribute('data-annotation-emphasis');
+    emphasised = box;
+    box?.setAttribute('data-annotation-emphasis', '');
+  }
+
+  function removeOutlines(): void {
+    stopFollowing();
+    stopFollowing = () => {};
+    for (const outline of outlines) outline.box.remove();
+    outlines = [];
+    emphasised = undefined;
+    located = undefined;
+  }
+
+  function createGroup(document: Document, group: Finding[], outlineOf: Map<Finding, Outline>): HTMLDetailsElement {
     const first = group[0]!;
     const details = document.createElement('details');
     details.dataset.annotationScanGroup = '';
     details.dataset.ruleId = first.ruleId;
     details.open = first.severity !== 'advisory';
+    for (const finding of group) {
+      const outline = outlineOf.get(finding);
+      if (outline) outline.group = details;
+    }
 
     const heading = document.createElement('h3');
     heading.textContent = `${first.name} (${group.length})`;
@@ -307,7 +374,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     description.textContent = first.description;
 
     const list = document.createElement('ul');
-    group.slice(0, MAX_ROWS).forEach((finding, index) => list.append(createRow(document, finding, index)));
+    group.slice(0, MAX_ROWS).forEach((finding, index) => list.append(createRow(document, finding, index, outlineOf.get(finding))));
     if (group.length > MAX_ROWS) {
       const item = document.createElement('li');
       const more = document.createElement('button');
@@ -315,7 +382,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       more.dataset.annotationScanMore = '';
       more.textContent = `+${group.length - MAX_ROWS} more`;
       more.addEventListener('click', () => {
-        const rows = group.slice(MAX_ROWS).map((finding, index) => createRow(document, finding, MAX_ROWS + index));
+        const rows = group.slice(MAX_ROWS).map((finding, index) => createRow(document, finding, MAX_ROWS + index, outlineOf.get(finding)));
         item.replaceWith(...rows);
         rows[0]!.tabIndex = -1;
         rows[0]!.focus();
@@ -330,30 +397,50 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     return details;
   }
 
-  function createRow(document: Document, finding: Finding, index: number): HTMLElement {
+  function createRow(document: Document, finding: Finding, index: number, outline: Outline | undefined): HTMLElement {
     const row = document.createElement('li');
     row.dataset.annotationScanFinding = '';
     const detail = document.createElement('span');
     detail.textContent = finding.detail;
     row.append(detail);
-    const el = finding.el;
-    if (el?.isConnected) {
+    if (outline) {
+      const { el, box } = outline;
+      row.dataset.annotationScanNumber = String(outline.number);
+      // Hover or focus in another row drops a Locate emphasis; leaving a row falls back to it.
+      const enter = () => {
+        if (located !== box) located = undefined;
+        emphasise(box);
+      };
+      const leave = () => {
+        if (emphasised === box) emphasise(located);
+      };
+      row.addEventListener('mouseenter', enter);
+      row.addEventListener('mouseleave', leave);
+      row.addEventListener('focusin', enter);
+      row.addEventListener('focusout', leave);
       const locate = document.createElement('button');
       locate.type = 'button';
       locate.dataset.annotationScanLocate = '';
       locate.textContent = 'Locate';
       locate.setAttribute('aria-label', `Locate finding ${index + 1}: ${finding.name}`);
-      locate.addEventListener('click', () => highlight.show(options.highlightRoot, el));
+      // Set here too: Firefox does not focus a button on click.
+      locate.addEventListener('click', () => {
+        scrollToElement(el);
+        located = box;
+        emphasise(box);
+      });
       const annotate = document.createElement('button');
       annotate.type = 'button';
       annotate.dataset.annotationScanAnnotate = '';
       annotate.textContent = 'Annotate';
       annotate.setAttribute('aria-label', `Annotate finding ${index + 1}: ${finding.name}`);
-      annotate.addEventListener('click', () => {
-        highlight.remove();
-        options.onAnnotate(el, finding);
-      });
+      annotate.addEventListener('click', () => options.onAnnotate(el, finding));
       row.append(' ', locate, ' ', annotate);
+    } else {
+      const tag = document.createElement('span');
+      tag.dataset.annotationScanPageLevel = '';
+      tag.textContent = 'Page-level';
+      row.append(' ', tag);
     }
     return row;
   }
@@ -362,7 +449,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     renderVersion += 1;
     focusRescan = false;
     stopScan?.();
-    highlight.remove();
+    removeOutlines();
     panel.replaceChildren();
     announce('');
   }

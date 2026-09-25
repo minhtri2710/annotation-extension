@@ -15,6 +15,9 @@ function finding(ruleId: string, name: string, severity: Severity, detail: strin
 type DeepScan = (signal: AbortSignal) => Promise<Finding[]>;
 type Scan = (signal: AbortSignal) => Promise<Finding[]>;
 
+// Cleared after each test so no panel's outline listeners outlive it.
+const openPanels: { clear(): void }[] = [];
+
 function setup(scan: Scan, deepScan: ScanPanelOptions['deepScan'] = () => new Promise<Finding[]>(() => {})) {
   const panel = document.createElement('div');
   const highlightRoot = document.createElement('div');
@@ -23,6 +26,7 @@ function setup(scan: Scan, deepScan: ScanPanelOptions['deepScan'] = () => new Pr
   const onUpdate = vi.fn();
   const onAnnotate = vi.fn();
   const scanPanel = createScanPanel(panel, { scan, highlightRoot, deepScan: deepScanSpy, onUpdate, onAnnotate });
+  openPanels.push(scanPanel);
   return { panel, highlightRoot, scanPanel, deepScan: deepScanSpy, onUpdate, onAnnotate };
 }
 
@@ -51,6 +55,7 @@ async function renderNow(render: () => Promise<void>): Promise<void> {
 }
 
 afterEach(() => {
+  for (const scanPanel of openPanels.splice(0)) scanPanel.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
   document.body.replaceChildren();
@@ -255,7 +260,7 @@ describe('scan panel', () => {
     ]);
   });
 
-  it('locates: scrolls without smooth behavior, draws one fixed highlight, removes it after 1500ms', async () => {
+  it('locates: scrolls without smooth behavior, emphasises that finding\'s fixed outline, draws no second box and keeps it', async () => {
     vi.useFakeTimers();
     const a = document.createElement('p');
     const b = document.createElement('p');
@@ -269,23 +274,25 @@ describe('scan panel', () => {
     const { panel, highlightRoot, scanPanel } = setup(async () => [finding('r', 'R', 'error', 'a', a), finding('r', 'R', 'error', 'b', b)]);
     await renderNow(scanPanel.render);
     const [locateA, locateB] = [...panel.querySelectorAll<HTMLButtonElement>('[data-annotation-scan-locate]')];
+    const [outlineA, outlineB] = [...highlightRoot.querySelectorAll<HTMLElement>('[data-annotation-scan-outline]')];
+    const emphasised = () => [...highlightRoot.querySelectorAll('[data-annotation-emphasis]')];
 
     locateA?.click();
     expect(scrollA).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' });
-    const highlight = highlightRoot.querySelector<HTMLElement>('[data-annotation-scan-highlight]');
-    expect(highlight?.style.position).toBe('fixed');
-    expect([highlight?.style.top, highlight?.style.left, highlight?.style.width, highlight?.style.height]).toEqual(['20px', '10px', '30px', '40px']);
+    expect(outlineA?.style.position).toBe('fixed');
+    expect([outlineA?.style.top, outlineA?.style.left, outlineA?.style.width, outlineA?.style.height]).toEqual(['20px', '10px', '30px', '40px']);
+    expect(emphasised()).toEqual([outlineA]);
 
     locateB?.click();
     expect(scrollB).toHaveBeenCalledWith({ block: 'center', inline: 'nearest' });
-    const highlights = highlightRoot.querySelectorAll<HTMLElement>('[data-annotation-scan-highlight]');
-    expect(highlights).toHaveLength(1);
-    expect(highlights[0]?.style.top).toBe('2px');
-
-    vi.advanceTimersByTime(1499);
-    expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).not.toBeNull();
-    vi.advanceTimersByTime(1);
+    expect(highlightRoot.querySelectorAll('[data-annotation-scan-outline]')).toHaveLength(2);
     expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).toBeNull();
+    expect(outlineB?.style.top).toBe('2px');
+    expect(emphasised()).toEqual([outlineB]);
+
+    vi.advanceTimersByTime(60_000);
+    expect(emphasised()).toEqual([outlineB]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('renders Annotate after Locate on a finding with a connected element, named like Locate', async () => {
@@ -301,18 +308,19 @@ describe('scan panel', () => {
     expect(annotate?.previousElementSibling?.hasAttribute('data-annotation-scan-locate')).toBe(true);
   });
 
-  it('Annotate removes the locate highlight and calls onAnnotate once with the element and finding', async () => {
+  it('Annotate calls onAnnotate once with the element and finding, and the panel switch it causes removes the outlines', async () => {
     vi.useFakeTimers();
     const target = document.createElement('p');
     document.body.append(target);
     target.scrollIntoView = vi.fn();
     const hit = finding('r', 'R', 'error', 'a', target);
     const { panel, highlightRoot, scanPanel, onAnnotate } = setup(async () => [hit]);
+    onAnnotate.mockImplementation(() => scanPanel.clear());
     await renderNow(scanPanel.render);
     panel.querySelector<HTMLButtonElement>('[data-annotation-scan-locate]')?.click();
-    expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).not.toBeNull();
+    expect(highlightRoot.querySelector('[data-annotation-scan-outline]')).not.toBeNull();
     panel.querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]')?.click();
-    expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).toBeNull();
+    expect(highlightRoot.querySelector('[data-annotation-scan-outline]')).toBeNull();
     expect(onAnnotate).toHaveBeenCalledTimes(1);
     expect(onAnnotate).toHaveBeenCalledWith(target, hit);
   });
@@ -328,7 +336,7 @@ describe('scan panel', () => {
     expect(panel.querySelector('[data-annotation-scan-annotate]')).toBeNull();
   });
 
-  it('clear() removes the highlight and empties the panel', async () => {
+  it('clear() removes the outlines and empties the panel', async () => {
     vi.useFakeTimers();
     const a = document.createElement('p');
     document.body.append(a);
@@ -336,10 +344,174 @@ describe('scan panel', () => {
     const { panel, highlightRoot, scanPanel } = setup(async () => [finding('r', 'R', 'error', 'a', a)]);
     await renderNow(scanPanel.render);
     panel.querySelector<HTMLButtonElement>('[data-annotation-scan-locate]')?.click();
-    expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).not.toBeNull();
+    expect(highlightRoot.querySelector('[data-annotation-scan-outline]')).not.toBeNull();
     scanPanel.clear();
-    expect(highlightRoot.querySelector('[data-annotation-scan-highlight]')).toBeNull();
+    expect(highlightRoot.querySelector('[data-annotation-scan-outline]')).toBeNull();
     expect(panel.childElementCount).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('scan panel outlines', () => {
+  const outlinesIn = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('[data-annotation-scan-outline]')];
+  const emphasisedIn = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('[data-annotation-emphasis]')];
+  const connected = () => {
+    const el = document.createElement('p');
+    document.body.append(el);
+    el.scrollIntoView = vi.fn();
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 0, y: 0, width: 10, height: 10 }));
+    return el;
+  };
+  function captureFrames() {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame');
+    return { frames, cancel };
+  }
+
+  it('outlines only connected element findings, numbered 1..N in display order on the outline and its row', async () => {
+    vi.useFakeTimers();
+    const findings = [
+      finding('adv', 'Adv', 'advisory', 'a1', connected()),
+      finding('warn', 'Warn', 'warning', 'w1', connected()),
+      finding('gone', 'Detached', 'warning', 'd1', document.createElement('p')),
+      finding('page', 'Heading skip', 'error', 'p1'),
+      ...Array.from({ length: 12 }, (_, i) => finding('err', 'Error rule', 'error', `e${i}`, connected())),
+    ];
+    const { panel, highlightRoot, scanPanel } = setup(async () => findings);
+    await renderNow(scanPanel.render);
+
+    const outlines = outlinesIn(highlightRoot);
+    expect(outlines.map((box) => [box.dataset.annotationScanOutline, box.textContent, box.hidden])).toEqual([
+      ...Array.from({ length: 12 }, (_, i) => ['error', String(i + 1), false]),
+      ['warning', '13', false],
+      ['advisory', '14', false],
+    ]);
+    expect(outlines.every((box) => box.style.position === 'fixed' && box.getAttribute('aria-hidden') === 'true')).toBe(true);
+    panel.querySelector<HTMLButtonElement>('[data-annotation-scan-more]')!.click();
+    const rows = [...panel.querySelectorAll<HTMLElement>('[data-annotation-scan-finding]')];
+    expect(rows.map((row) => [row.firstChild?.textContent, row.dataset.annotationScanNumber])).toEqual([
+      ...Array.from({ length: 12 }, (_, i) => [`e${i}`, String(i + 1)]),
+      ['p1', undefined],
+      ['d1', undefined],
+      ['w1', '13'],
+      ['a1', '14'],
+    ]);
+  });
+
+  it('tags a row whose finding has no connected element as Page-level, where Locate would be', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => [
+      finding('r', 'R', 'error', 'a'),
+      finding('s', 'S', 'error', 'b', document.createElement('p')),
+      finding('t', 'T', 'error', 'c', connected()),
+    ]);
+    await renderNow(scanPanel.render);
+    const rows = [...panel.querySelectorAll<HTMLElement>('[data-annotation-scan-finding]')];
+    expect(rows.map((row) => [...row.children].map((child) => child.tagName + (child.textContent === 'Page-level' ? ':tag' : '')))).toEqual([
+      ['SPAN', 'SPAN:tag'],
+      ['SPAN', 'SPAN:tag'],
+      ['SPAN', 'BUTTON', 'BUTTON'],
+    ]);
+    expect(rows.map((row) => row.querySelector('[data-annotation-scan-page-level]')?.textContent)).toEqual(['Page-level', 'Page-level', undefined]);
+  });
+
+  it('emphasises exactly one outline for the hovered or focused row, clears it on leave, and Locate holds it until another row takes over', async () => {
+    vi.useFakeTimers();
+    const { panel, highlightRoot, scanPanel } = setup(async () => [
+      finding('r', 'R', 'error', 'a', connected()),
+      finding('r', 'R', 'error', 'b', connected()),
+    ]);
+    await renderNow(scanPanel.render);
+    const [rowA, rowB] = [...panel.querySelectorAll<HTMLElement>('[data-annotation-scan-finding]')];
+    const [boxA, boxB] = outlinesIn(highlightRoot);
+    expect(emphasisedIn(highlightRoot)).toEqual([]);
+
+    rowA!.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(emphasisedIn(highlightRoot)).toEqual([boxA]);
+    rowB!.querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]')!.focus();
+    expect(emphasisedIn(highlightRoot)).toEqual([boxB]);
+    rowB!.querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]')!.blur();
+    expect(emphasisedIn(highlightRoot)).toEqual([]);
+    rowA!.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(emphasisedIn(highlightRoot)).toEqual([]);
+
+    rowA!.querySelector<HTMLButtonElement>('[data-annotation-scan-locate]')!.click();
+    expect(emphasisedIn(highlightRoot)).toEqual([boxA]);
+    rowA!.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(emphasisedIn(highlightRoot)).toEqual([boxA]);
+    rowB!.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(emphasisedIn(highlightRoot)).toEqual([boxB]);
+    rowB!.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(emphasisedIn(highlightRoot)).toEqual([]);
+  });
+
+  it('hides the outlines of groups a severity filter hides, shows them on All, and keeps a collapsed group\'s outlines', async () => {
+    vi.useFakeTimers();
+    const { panel, highlightRoot, scanPanel } = setup(async () => [
+      finding('e', 'E', 'error', 'e1', connected()),
+      finding('a', 'A', 'advisory', 'a1', connected()),
+    ]);
+    await renderNow(scanPanel.render);
+    const shown = () => outlinesIn(highlightRoot).filter((box) => !box.hidden).map((box) => box.dataset.annotationScanOutline);
+    expect(panel.querySelector<HTMLDetailsElement>('[data-rule-id="a"]')?.open).toBe(false);
+    expect(shown()).toEqual(['error', 'advisory']);
+    panel.querySelector<HTMLButtonElement>('[data-annotation-filter-value="error"]')!.click();
+    expect(shown()).toEqual(['error']);
+    panel.querySelector<HTMLButtonElement>('[data-annotation-filter-value="all"]')!.click();
+    expect(shown()).toEqual(['error', 'advisory']);
+  });
+
+  it('follows a burst of scroll and resize events with one frame for the whole set, and hides a zero-size element until it has size again', async () => {
+    vi.useFakeTimers();
+    const a = connected();
+    const b = connected();
+    const rectA = vi.spyOn(a, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 1, y: 2, width: 3, height: 4 }));
+    vi.spyOn(b, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 5, y: 6, width: 7, height: 8 }));
+    const { highlightRoot, scanPanel } = setup(async () => [finding('r', 'R', 'error', 'a', a), finding('r', 'R', 'error', 'b', b)]);
+    await renderNow(scanPanel.render);
+    const { frames } = captureFrames();
+    const [boxA, boxB] = outlinesIn(highlightRoot);
+
+    rectA.mockReturnValue(DOMRect.fromRect({ x: 1, y: 50, width: 3, height: 4 }));
+    for (let i = 0; i < 5; i += 1) document.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('resize'));
+    expect(frames).toHaveLength(1);
+    expect(boxA?.style.top).toBe('2px');
+    frames[0]!(0);
+    expect([boxA?.style.top, boxB?.style.top]).toEqual(['50px', '6px']);
+
+    rectA.mockReturnValue(DOMRect.fromRect({ x: 0, y: 0, width: 0, height: 0 }));
+    document.dispatchEvent(new Event('scroll'));
+    frames[1]!(0);
+    expect([boxA?.hidden, boxB?.hidden]).toEqual([true, false]);
+    rectA.mockReturnValue(DOMRect.fromRect({ x: 1, y: 9, width: 3, height: 4 }));
+    document.dispatchEvent(new Event('scroll'));
+    frames[2]!(0);
+    expect([boxA?.hidden, boxA?.style.top]).toEqual([false, '9px']);
+  });
+
+  it.each([
+    ['clear()', async (scanPanel: ReturnType<typeof setup>['scanPanel']) => scanPanel.clear()],
+    ['Rescan', async (_scanPanel: ReturnType<typeof setup>['scanPanel'], panel: HTMLElement) => panel.querySelector<HTMLButtonElement>('[data-annotation-rescan]')!.click()],
+    ['Deep scan start', async (_scanPanel: ReturnType<typeof setup>['scanPanel'], panel: HTMLElement) => panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan]')!.click()],
+    ['a newer render()', async (scanPanel: ReturnType<typeof setup>['scanPanel']) => void scanPanel.render()],
+  ])('%s removes every outline, its listeners and the pending frame', async (_name, act) => {
+    vi.useFakeTimers();
+    const { panel, highlightRoot, scanPanel } = setup(async () => [finding('r', 'R', 'error', 'a', connected())], () => new Promise<Finding[]>(() => {}));
+    await renderNow(scanPanel.render);
+    const { frames, cancel } = captureFrames();
+    document.dispatchEvent(new Event('scroll'));
+    expect(frames).toHaveLength(1);
+
+    await act(scanPanel, panel);
+    expect(outlinesIn(highlightRoot)).toEqual([]);
+    expect(cancel).toHaveBeenCalledWith(1);
+    document.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('resize'));
+    expect(frames).toHaveLength(1);
+    scanPanel.clear();
+    await flush();
     expect(vi.getTimerCount()).toBe(0);
   });
 });
