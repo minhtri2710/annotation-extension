@@ -404,6 +404,105 @@ describe('pins controller', () => {
     expect([marker.style.left, marker.style.top]).toEqual(['150px', '60px']);
   });
 
+  it('re-places a pin off the toolbar on the frame after a toolbar style change, not before', async () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+    const toolbarRect = vi.spyOn(toolbar, 'getBoundingClientRect').mockReturnValue(rectAt(0, 0, 0, 0));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const frame of frames.splice(0)) frame(0);
+
+    toolbarRect.mockReturnValue(rectAt(20, 50, 100, 30));
+    toolbar.style.left = '20px';
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect([marker.style.left, marker.style.top]).toEqual(['40px', '60px']);
+    expect(frames).toHaveLength(1);
+
+    frames.splice(0)[0]!(0);
+    expect([marker.style.left, marker.style.top]).toEqual(['150px', '60px']);
+  });
+
+  it('runs one frame and one reanchor for several toolbar style changes within a frame', async () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    const frames: FrameRequestCallback[] = [];
+    const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    const targetRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+    const toolbarRect = vi.spyOn(toolbar, 'getBoundingClientRect').mockReturnValue(rectAt(0, 0, 0, 0));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const frame of frames.splice(0)) frame(0);
+    requestAnimationFrame.mockClear();
+
+    for (const x of [10, 15, 20]) {
+      toolbar.style.left = `${x}px`;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    targetRect.mockClear();
+    toolbarRect.mockClear();
+    toolbarRect.mockReturnValue(rectAt(20, 50, 100, 30));
+    for (const frame of frames.splice(0)) frame(0);
+
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    // Each reanchor pass reads the toolbar rect and each pinned element's rect once.
+    expect(toolbarRect).toHaveBeenCalledTimes(1);
+    expect(targetRect).toHaveBeenCalledTimes(1);
+    expect(marker.style.left).toBe('150px');
+  });
+
+  it('schedules no further frame after the reanchor a toolbar move triggers moves the pins', async () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    const frames: FrameRequestCallback[] = [];
+    const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+    const toolbarRect = vi.spyOn(toolbar, 'getBoundingClientRect').mockReturnValue(rectAt(0, 0, 0, 0));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const frame of frames.splice(0)) frame(0);
+
+    toolbarRect.mockReturnValue(rectAt(20, 50, 100, 30));
+    toolbar.style.left = '20px';
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    frames.splice(0)[0]!(0);
+    expect(marker.style.left).toBe('150px');
+    requestAnimationFrame.mockClear();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+  });
+
+  it('disconnects its toolbar observers on destroy and schedules no reanchor for a later toolbar style change', async () => {
+    const { toolbar, overlay } = setup();
+    const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame');
+    const mutationDisconnect = vi.spyOn(MutationObserver.prototype, 'disconnect');
+    const resizeDisconnect = vi.spyOn(ResizeObserver.prototype, 'disconnect');
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.destroy();
+    requestAnimationFrame.mockClear();
+
+    // The document observer and the toolbar style observer, then the toolbar size observer.
+    expect(mutationDisconnect).toHaveBeenCalledTimes(2);
+    expect(resizeDisconnect).toHaveBeenCalledTimes(1);
+
+    expect(() => {
+      toolbar.style.left = '20px';
+    }).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+  });
+
   it('positions a pin for a shadow-deep annotation from the deep element rect', () => {
     const { toolbar, overlay } = setup();
     stubViewport();

@@ -306,6 +306,11 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     scheduleReresolve();
   });
   observer.observe(options.document, { childList: true, subtree: true });
+  // The toolbar moves only through its inline left/top/right/bottom and changes size on collapse or content.
+  const toolbarMoves = new MutationObserver(scheduleReanchor);
+  toolbarMoves.observe(options.toolbar, { attributes: true, attributeFilter: ['style'] });
+  const toolbarResizes = new ResizeObserver(scheduleReanchor);
+  toolbarResizes.observe(options.toolbar);
   options.document.addEventListener('scroll', scheduleReanchor, true);
   view?.addEventListener('resize', scheduleReanchor, true);
   // WCAG 1.4.13: Escape dismisses the tooltip without moving focus or the pointer.
@@ -335,6 +340,8 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     if (destroyed) return;
     destroyed = true;
     observer.disconnect();
+    toolbarMoves.disconnect();
+    toolbarResizes.disconnect();
     options.document.removeEventListener('scroll', scheduleReanchor, true);
     view?.removeEventListener('resize', scheduleReanchor, true);
     options.document.removeEventListener('keydown', dismissTooltip, true);

@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { page as browserPage, userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import { buildSelector } from '../capture/selector';
-import { buildOverlayShell } from '../ui/shell';
+import { buildOverlayShell, type OverlayShell } from '../ui/shell';
+import { createToolbarControls, type ToolbarControls } from '../ui/toolbar-controls';
+import type { ToolbarPrefs } from '../ui/ui-prefs';
 import { createPinsController, type PinsController } from './pins';
 
 const PAGE_ELEMENTS = 50_000;
@@ -370,4 +372,124 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
       expectInside(shell.root.querySelector<HTMLElement>('[role="tooltip"]')!.getBoundingClientRect());
     });
   }
+
+  describe('when the toolbar moves or changes size', () => {
+    let controls: ToolbarControls | undefined;
+
+    // A run of these specs alone starts at the runner's default viewport, not the 1280 x 720 the edge tests restore.
+    beforeEach(async () => {
+      await browserPage.viewport(1280, 720);
+    });
+
+    afterEach(() => {
+      controls?.destroy();
+      controls = undefined;
+    });
+
+    // Mounted as in production: the pins controller first, then the toolbar buttons and controls.
+    function mountToolbar(stored: ToolbarPrefs = { position: null, collapsed: false }) {
+      const { shell } = mountShell();
+      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      for (const label of ['Scan page', 'List annotations', 'Annotate']) {
+        const button = document.createElement('button');
+        button.textContent = label;
+        shell.toolbar.append(button);
+      }
+      controls = createToolbarControls({
+        toolbar: shell.toolbar,
+        win: window,
+        // Storage answers after the page has rendered, as chrome.storage may.
+        prefs: { read: () => frames().then(() => stored), write: async () => undefined },
+        onCollapsedChange: () => undefined,
+        onPositionChange: () => undefined,
+      });
+      return shell;
+    }
+
+    function annotate(shell: OverlayShell): HTMLElement {
+      controller!.setAnnotations([annotation(0, '#edge-target')]);
+      return shell.root.querySelector<HTMLElement>('.annotation-pin')!;
+    }
+
+    // The badge count is part of the toolbar's width, so the target is placed relative to the toolbar
+    // measured after its annotation is set.
+    function annotateBeside(shell: OverlayShell, place: (bar: DOMRect) => { x: number; y: number }) {
+      const target = placeTarget('left: 0; top: 0');
+      const marker = annotate(shell);
+      const bar = shell.toolbar.getBoundingClientRect();
+      const own = place(bar);
+      target.style.left = `${own.x}px`;
+      target.style.top = `${own.y}px`;
+      controller!.reanchor();
+      return { marker, bar, own };
+    }
+
+    function overlaps(a: DOMRect, b: DOMRect): boolean {
+      return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    }
+
+    function center(rect: DOMRect): { x: number; y: number } {
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+
+    const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    it('moves a pin off the toolbar after an arrow key on the grip moves the toolbar over it', async () => {
+      const shell = mountToolbar();
+      await controls!.ready;
+      // The pin's own centre lies 30 px left of the toolbar, clear of it until the toolbar moves 64 px left.
+      const { marker, bar, own } = annotateBeside(shell, (bar) => ({ x: bar.left - 30, y: bar.top + bar.height / 2 }));
+      await frames();
+      expect(center(marker.getBoundingClientRect()).x).toBeCloseTo(own.x, 0);
+      expect(center(marker.getBoundingClientRect()).y).toBeCloseTo(own.y, 0);
+
+      shell.root.querySelector<HTMLElement>('[data-annotation-toolbar-grip]')!.focus();
+      await userEvent.keyboard('{Shift>}{ArrowLeft}{/Shift}');
+      const moved = shell.toolbar.getBoundingClientRect();
+      expect(moved.left).toBeCloseTo(bar.left - 64);
+      expect(own.x).toBeGreaterThan(moved.left);
+      await frames();
+
+      const pin = marker.getBoundingClientRect();
+      expect(overlaps(pin, moved), `${JSON.stringify(pin)} overlaps ${JSON.stringify(moved)}`).toBe(false);
+    });
+
+    it('moves a pin off the toolbar after the toolbar is collapsed and expanded over it', async () => {
+      const shell = mountToolbar();
+      await controls!.ready;
+      const { marker, bar: expanded, own } = annotateBeside(shell, (bar) => ({ x: bar.left + 20, y: bar.top + bar.height / 2 }));
+      await frames();
+      expect(overlaps(marker.getBoundingClientRect(), expanded)).toBe(false);
+
+      const collapse = shell.root.querySelector<HTMLElement>('[data-annotation-toolbar-collapse]')!;
+      await userEvent.click(collapse);
+      await frames();
+      // The collapsed toolbar leaves the pin's own centre free, so the pin returns to it.
+      expect(overlaps(marker.getBoundingClientRect(), shell.toolbar.getBoundingClientRect())).toBe(false);
+      expect(center(marker.getBoundingClientRect()).x).toBeCloseTo(own.x, 0);
+      expect(center(marker.getBoundingClientRect()).y).toBeCloseTo(own.y, 0);
+
+      await userEvent.click(collapse);
+      await frames();
+      const bar = shell.toolbar.getBoundingClientRect();
+      expect(bar.width).toBeCloseTo(expanded.width);
+      const pin = marker.getBoundingClientRect();
+      expect(overlaps(pin, bar), `${JSON.stringify(pin)} overlaps ${JSON.stringify(bar)}`).toBe(false);
+    });
+
+    it('moves a pin off the toolbar once a stored position that covers it is applied', async () => {
+      const shell = mountToolbar({ position: { x: 100, y: 100 }, collapsed: false });
+      placeTarget('left: 110px; top: 110px');
+      const marker = annotate(shell);
+      expect(center(marker.getBoundingClientRect())).toEqual({ x: 110, y: 110 });
+
+      await controls!.ready;
+      const bar = shell.toolbar.getBoundingClientRect();
+      expect([bar.left, bar.top]).toEqual([100, 100]);
+      await frames();
+
+      const pin = marker.getBoundingClientRect();
+      expect(overlaps(pin, bar), `${JSON.stringify(pin)} overlaps ${JSON.stringify(bar)}`).toBe(false);
+    });
+  });
 });
