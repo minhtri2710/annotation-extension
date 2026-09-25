@@ -354,7 +354,10 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
   // Classic scrollbars take room that 100vw and innerWidth still count; the visible viewport is clientWidth.
   // Playwright hides scrollbars, so only the instance that provides classicScrollbars requires a real gap;
   // the other instances run these as non-regression checks.
-  async function classicScrollbars() {
+  // The flag must match the instance name, so dropping or misplacing `provide` fails instead of skipping the gap check.
+  async function classicScrollbars(projectName: string | undefined) {
+    expect(inject('classicScrollbars') === true, `classicScrollbars on ${projectName}`)
+      .toBe(projectName === 'browser (chromium classic scrollbars)');
     await page.viewport(360, 600);
     addPageStyle('html { overflow: scroll; } ::-webkit-scrollbar { width: 15px; height: 15px; }');
     await nextFrame();
@@ -365,8 +368,8 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
     return viewportSize();
   }
 
-  it('(b1) keeps the note panel 16 px inside both sides of the visible viewport', async () => {
-    const { width } = await classicScrollbars();
+  it('(b1) keeps the note panel 16 px inside both sides of the visible viewport', async ({ task }) => {
+    const { width } = await classicScrollbars(task.file.projectName);
     const { shell } = mountOverlay();
     const notePanel = notePanelFor(shell.panel, [annotation('a1', 'First note')]);
     cleanups.push(() => notePanel.teardown());
@@ -378,8 +381,8 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
     expect(rect.right).toBeLessThanOrEqual(width - 16 + TOLERANCE);
   });
 
-  it('(b2) keeps a wrapped toolbar inside the visible viewport', async () => {
-    const { width } = await classicScrollbars();
+  it('(b2) keeps a wrapped toolbar inside the visible viewport', async ({ task }) => {
+    const { width } = await classicScrollbars(task.file.projectName);
     const { shell } = mountOverlay();
     for (const label of ['Export', 'Settings', 'Help']) {
       const button = document.createElement('button');
@@ -394,8 +397,8 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
     expect(rect.right).toBeLessThanOrEqual(width + TOLERANCE);
   });
 
-  it('(b3) keeps the wrapped capture hint 8 px inside both sides of the visible viewport', async () => {
-    const { width } = await classicScrollbars();
+  it('(b3) keeps the wrapped capture hint 8 px inside both sides of the visible viewport', async ({ task }) => {
+    const { width } = await classicScrollbars(task.file.projectName);
     const { host, shadow } = mountOverlay();
     const capture = createCaptureController({ document, shadowHost: host });
     cleanups.push(() => capture.destroy());
@@ -408,8 +411,8 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
     expect(rect.right).toBeLessThanOrEqual(width - 8 + TOLERANCE);
   });
 
-  it('(b4) clamps a toolbar dragged past the bottom-right corner inside the visible viewport', async () => {
-    const { width, height } = await classicScrollbars();
+  it('(b4) clamps a toolbar dragged past the bottom-right corner inside the visible viewport', async ({ task }) => {
+    const { width, height } = await classicScrollbars(task.file.projectName);
     const { shell } = mountOverlay();
     const controls = createToolbarControls({
       toolbar: shell.toolbar,
