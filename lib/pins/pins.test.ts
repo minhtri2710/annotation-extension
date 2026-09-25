@@ -388,6 +388,22 @@ describe('pins controller', () => {
     expect([visible.style.left, visible.style.top]).toEqual(['9px', '9px']);
   });
 
+  it('keeps a pin off the toolbar rect it reads on each reanchor', () => {
+    const { toolbar, overlay, target } = setup();
+    stubViewport();
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
+    const toolbarRect = vi.spyOn(toolbar, 'getBoundingClientRect').mockReturnValue(rectAt(0, 0, 0, 0));
+    const controller = createPinsController({ document, container: overlay, toolbar });
+    controller.setAnnotations([annotation('annotation-1')]);
+    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
+    expect([marker.style.left, marker.style.top]).toEqual(['40px', '60px']);
+
+    // The toolbar now spans x 20..120 over the pin's row; the first slot clear of it is 40 + 5 * 22.
+    toolbarRect.mockReturnValue(rectAt(20, 50, 100, 30));
+    controller.reanchor();
+    expect([marker.style.left, marker.style.top]).toEqual(['150px', '60px']);
+  });
+
   it('positions a pin for a shadow-deep annotation from the deep element rect', () => {
     const { toolbar, overlay } = setup();
     stubViewport();
@@ -785,15 +801,16 @@ describe('pin and tooltip placement', () => {
 describe('fanOut', () => {
   const viewport = { width: 320, height: 480 };
   const step = 22;
+  const noToolbar = { left: 0, top: 0, right: 0, bottom: 0 };
 
   it('returns a single pin and pins with distinct centres unchanged', () => {
-    expect(fanOut([{ x: 40, y: 60 }], viewport)).toEqual([{ x: 40, y: 60 }]);
+    expect(fanOut([{ x: 40, y: 60 }], viewport, noToolbar)).toEqual([{ x: 40, y: 60 }]);
     const distinct = [{ x: 40, y: 60 }, { x: 80, y: 60 }, { x: 40, y: 100 }];
-    expect(fanOut(distinct, viewport)).toEqual(distinct);
+    expect(fanOut(distinct, viewport, noToolbar)).toEqual(distinct);
   });
 
   it('fans identical centres right by step and twice the step in list order', () => {
-    expect(fanOut([{ x: 40, y: 60 }, { x: 40, y: 60 }, { x: 40, y: 60 }], viewport)).toEqual([
+    expect(fanOut([{ x: 40, y: 60 }, { x: 40, y: 60 }, { x: 40, y: 60 }], viewport, noToolbar)).toEqual([
       { x: 40, y: 60 },
       { x: 40 + step, y: 60 },
       { x: 40 + 2 * step, y: 60 },
@@ -801,7 +818,7 @@ describe('fanOut', () => {
   });
 
   it('fans an identical group left when its last pin would cross the right edge', () => {
-    expect(fanOut([{ x: 300, y: 60 }, { x: 300, y: 60 }, { x: 300, y: 60 }], viewport)).toEqual([
+    expect(fanOut([{ x: 300, y: 60 }, { x: 300, y: 60 }, { x: 300, y: 60 }], viewport, noToolbar)).toEqual([
       { x: 300, y: 60 },
       { x: 300 - step, y: 60 },
       { x: 300 - 2 * step, y: 60 },
@@ -809,18 +826,18 @@ describe('fanOut', () => {
   });
 
   it('doubles the step under zoom 2', () => {
-    expect(fanOut([{ x: 40, y: 60 }, { x: 40, y: 60 }], viewport, 2)).toEqual([
+    expect(fanOut([{ x: 40, y: 60 }, { x: 40, y: 60 }], viewport, noToolbar, 2)).toEqual([
       { x: 40, y: 60 },
       { x: 40 + 2 * step, y: 60 },
     ]);
   });
 
   it('fans centres half a pin from the corner', () => {
-    expect(fanOut([{ x: 9, y: 9 }, { x: 9, y: 9 }], viewport)).toEqual([
+    expect(fanOut([{ x: 9, y: 9 }, { x: 9, y: 9 }], viewport, noToolbar)).toEqual([
       { x: 9, y: 9 },
       { x: 31, y: 9 },
     ]);
-    expect(fanOut([{ x: 18, y: 18 }, { x: 18, y: 18 }], viewport, 2)).toEqual([
+    expect(fanOut([{ x: 18, y: 18 }, { x: 18, y: 18 }], viewport, noToolbar, 2)).toEqual([
       { x: 18, y: 18 },
       { x: 62, y: 18 },
     ]);
@@ -829,7 +846,7 @@ describe('fanOut', () => {
   it('fans two separate groups independently', () => {
     const a = { x: 40, y: 60 };
     const b = { x: 100, y: 200 };
-    expect(fanOut([a, b, a, b, b], viewport)).toEqual([
+    expect(fanOut([a, b, a, b, b], viewport, noToolbar)).toEqual([
       a,
       b,
       { x: 40 + step, y: 60 },
@@ -858,7 +875,7 @@ describe('fanOut', () => {
   };
 
   it('moves pins that do not fit on a full row to the row below, centre first, then right, then left', () => {
-    const fanned = fanOut(Array.from({ length: 16 }, () => ({ x: 311, y: 60 })), viewport);
+    const fanned = fanOut(Array.from({ length: 16 }, () => ({ x: 311, y: 60 })), viewport, noToolbar);
     expect(fanned).toEqual([
       ...Array.from({ length: 14 }, (_, k) => ({ x: 311 - k * step, y: 60 })),
       { x: 311, y: 60 + step },
@@ -869,57 +886,59 @@ describe('fanOut', () => {
   });
 
   it('moves an overflow pin to the row above when the row below is outside the viewport', () => {
-    const fanned = fanOut(Array.from({ length: 15 }, () => ({ x: 311, y: 471 })), viewport);
+    const fanned = fanOut(Array.from({ length: 15 }, () => ({ x: 311, y: 471 })), viewport, noToolbar);
     expect(fanned[14]).toEqual({ x: 311, y: 471 - step });
     expectInside(fanned, viewport, 9);
     expectApart(fanned);
   });
 
-  it('puts an overflow pin half a pin from the left edge of its own row only when every row is full', () => {
+  it('puts an overflow pin at its own x in its own row only when every row is full', () => {
     const tiny = { width: 50, height: 40 };
-    const centers = Array.from({ length: 6 }, () => ({ x: 9, y: 9 }));
+    const centers = Array.from({ length: 6 }, () => ({ x: 31, y: 9 }));
     const expected = [
-      { x: 9, y: 9 },
       { x: 31, y: 9 },
-      { x: 9, y: 31 },
+      { x: 9, y: 9 },
       { x: 31, y: 31 },
-      { x: 9, y: 9 },
-      { x: 9, y: 9 },
+      { x: 9, y: 31 },
+      { x: 31, y: 9 },
+      { x: 31, y: 9 },
     ];
-    expect(fanOut(centers, tiny)).toEqual(expected);
-    expect(fanOut(centers, tiny)).toEqual(expected);
+    expect(fanOut(centers, tiny, noToolbar)).toEqual(expected);
+    expect(fanOut(centers, tiny, noToolbar)).toEqual(expected);
   });
 
   it('keeps 200 pins on one centre of a 360x600 viewport inside it, apart while a free slot is left', () => {
     const narrow = { width: 360, height: 600 };
     const centers = Array.from({ length: 200 }, () => ({ x: 180, y: 300 }));
-    const one = fanOut(centers, narrow);
+    // The band holds 15 pins per row (180 +- 7 * 22) on 9 rows (300 +- 4 * 22): 135 slots.
+    const one = fanOut(centers, narrow, noToolbar);
     expectInside(one, narrow, 9);
-    expectApart(one);
-    // At zoom 2 the slot grid holds 7 pins per row (180 +- 3 * 44) on 13 rows (300 +- 6 * 44): 91 slots.
-    const two = fanOut(centers, narrow, 2);
+    expectApart(one.slice(0, 135));
+    expect(one.slice(135)).toEqual(Array.from({ length: 65 }, () => ({ x: 180, y: 300 })));
+    // At zoom 2 the band holds 7 pins per row (180 +- 3 * 44) on 9 rows (300 +- 4 * 44): 63 slots.
+    const two = fanOut(centers, narrow, noToolbar, 2);
     expectInside(two, narrow, 18);
-    expectApart(two.slice(0, 91), 2 * size);
-    expect(two.slice(91)).toEqual(Array.from({ length: 109 }, () => ({ x: 18, y: 300 })));
+    expectApart(two.slice(0, 63), 2 * size);
+    expect(two.slice(63)).toEqual(Array.from({ length: 137 }, () => ({ x: 180, y: 300 })));
   });
 
   it('separates a chain of centres less than a pin apart, keeping the first centre and every y', () => {
-    const fanned = fanOut([{ x: 40, y: 60 }, { x: 50, y: 60 }, { x: 60, y: 60 }], viewport);
+    const fanned = fanOut([{ x: 40, y: 60 }, { x: 50, y: 60 }, { x: 60, y: 60 }], viewport, noToolbar);
     expectApart(fanned);
     expect(fanned[0]).toEqual({ x: 40, y: 60 });
     expect(fanned.map(({ y }) => y)).toEqual([60, 60, 60]);
   });
 
   it('moves a partly overlapping pin and leaves pins exactly one pin apart unchanged', () => {
-    const partial = fanOut([{ x: 40, y: 60 }, { x: 50, y: 65 }], viewport);
+    const partial = fanOut([{ x: 40, y: 60 }, { x: 50, y: 65 }], viewport, noToolbar);
     expect(partial[0]).toEqual({ x: 40, y: 60 });
     expect(partial[1]).not.toEqual({ x: 50, y: 65 });
     expect(partial[1]!.y).toBe(65);
     expectApart(partial);
     const touching = [{ x: 40, y: 60 }, { x: 58, y: 60 }];
-    expect(fanOut(touching, viewport)).toEqual(touching);
+    expect(fanOut(touching, viewport, noToolbar)).toEqual(touching);
     const stacked = [{ x: 40, y: 60 }, { x: 40, y: 90 }];
-    expect(fanOut(stacked, viewport)).toEqual(stacked);
+    expect(fanOut(stacked, viewport, noToolbar)).toEqual(stacked);
   });
 
   it('keeps 500 seeded random layouts free of overlaps, inside the viewport, and moves pins only when they must', () => {
@@ -947,7 +966,7 @@ describe('fanOut', () => {
         return { x: cluster.x + between(-24, 24), y: cluster.y + between(-24, 24) };
       });
       const message = `seed ${seed}, layout ${layout}, zoom ${zoom}: `;
-      const fanned = fanOut(centers, screen, zoom);
+      const fanned = fanOut(centers, screen, noToolbar, zoom);
       expectApart(fanned, pin, message);
       for (const [i, center] of centers.entries()) {
         const out = fanned[i]!;
@@ -961,23 +980,78 @@ describe('fanOut', () => {
   });
 
   it('moves a pin that overlaps one in the row band below or above it', () => {
-    const below = fanOut([{ x: 40, y: 17 }, { x: 45, y: 34 }], viewport);
+    const below = fanOut([{ x: 40, y: 17 }, { x: 45, y: 34 }], viewport, noToolbar);
     expect(below[0]).toEqual({ x: 40, y: 17 });
     expect(below[1]).not.toEqual({ x: 45, y: 34 });
     expectApart(below);
-    const above = fanOut([{ x: 45, y: 34 }, { x: 40, y: 17 }], viewport);
+    const above = fanOut([{ x: 45, y: 34 }, { x: 40, y: 17 }], viewport, noToolbar);
     expect(above[0]).toEqual({ x: 45, y: 34 });
     expect(above[1]).not.toEqual({ x: 40, y: 17 });
     expectApart(above);
   });
 
-  // An all-pairs search over every candidate, own row first, then the rows below and above one step further
-  // out each time, as the reference the banded search must match.
+  it('counts a slot overlapping the toolbar as taken, own centre included, but not one touching its edge or a zero-size toolbar', () => {
+    const c = { x: 100, y: 100 };
+    for (const zoom of [1, 2]) {
+      const half = 9 * zoom;
+      const s = step * zoom;
+      const overCentreAndRight = { left: 95, top: 95, right: 100 + s, bottom: 105 };
+      expect(fanOut([c], viewport, overCentreAndRight, zoom), `zoom ${zoom}`).toEqual([{ x: 100 + 2 * s, y: 100 }]);
+      const overRight = { left: 100 + s - 1, top: 99, right: 100 + s + 1, bottom: 101 };
+      expect(fanOut([c, c], viewport, overRight, zoom), `zoom ${zoom}`).toEqual([c, { x: 100 + 2 * s, y: 100 }]);
+      const touching = [
+        { left: 50, top: 95, right: 100 - half, bottom: 105 },
+        { left: 100 + half, top: 95, right: 150, bottom: 105 },
+        { left: 95, top: 50, right: 105, bottom: 100 - half },
+        { left: 95, top: 100 + half, right: 105, bottom: 150 },
+      ];
+      for (const toolbar of touching) expect(fanOut([c], viewport, toolbar, zoom), `zoom ${zoom}`).toEqual([c]);
+      const zeroSize = [
+        { left: 100, top: 90, right: 100, bottom: 110 },
+        { left: 90, top: 100, right: 110, bottom: 100 },
+      ];
+      for (const toolbar of zeroSize) expect(fanOut([c, c], viewport, toolbar, zoom), `zoom ${zoom}`).toEqual([c, { x: 100 + s, y: 100 }]);
+    }
+  });
+
+  // At (160, 240) of the 320x480 viewport a row holds 13 slots (160 +- 6 * 22) and the band 9 rows (240 +- 4 * 22).
+  const bandCentre = { x: 160, y: 240 };
+  const bandSlots = 13 * 9;
+
+  it('never sends an overflow pin 5 or more row steps away, even when that row is free', () => {
+    const fanned = fanOut(Array.from({ length: bandSlots + 1 }, () => ({ ...bandCentre })), viewport, noToolbar);
+    expectApart(fanned.slice(0, bandSlots));
+    for (const { y } of fanned) expect(Math.abs(y - bandCentre.y)).toBeLessThanOrEqual(4 * step);
+    expect(fanned.some(({ y }) => y === bandCentre.y + 5 * step)).toBe(false);
+  });
+
+  it('puts a pin with its band full at its own x in its own row, or in the next band row when the toolbar covers that slot', () => {
+    const own = fanOut(Array.from({ length: bandSlots + 1 }, () => ({ ...bandCentre })), viewport, noToolbar);
+    expect(own[bandSlots]).toEqual(bandCentre);
+    const overOwnX = { left: 159, top: 239, right: 161, bottom: 241 };
+    const next = fanOut(Array.from({ length: bandSlots }, () => ({ ...bandCentre })), viewport, overOwnX);
+    expectApart(next.slice(0, bandSlots - 1));
+    expect(next[bandSlots - 1]).toEqual({ x: 160, y: 240 + step });
+  });
+
+  it('keeps the centre of a pin with its band full when the toolbar covers its own x on every band row', () => {
+    const strip = { left: 159, top: 240 - 4 * step - 10, right: 161, bottom: 240 + 4 * step + 10 };
+    const count = bandSlots - 9 + 1;
+    const fanned = fanOut(Array.from({ length: count }, () => ({ ...bandCentre })), viewport, strip);
+    expectApart(fanned.slice(0, count - 1));
+    expect(fanned[count - 1]).toEqual(bandCentre);
+  });
+
+  // An all-pairs search over every candidate off the toolbar, own row first, then the rows below and above one
+  // step further out each time up to 4 steps, as the reference the banded search must match. With every
+  // candidate taken, the pin sits at its own x in the first of those rows off the toolbar, else at its centre.
   const PIN_SIZE = 18;
   const FAN_GAP = 4;
+  type Rect = { left: number; top: number; right: number; bottom: number };
   function referenceFanOut(
     centers: { x: number; y: number }[],
     viewport: { width: number; height: number },
+    toolbar: Rect,
     zoom = 1,
   ): { x: number; y: number }[] {
     const size = PIN_SIZE * zoom;
@@ -985,9 +1059,13 @@ describe('fanOut', () => {
     const step = (PIN_SIZE + FAN_GAP) * zoom;
     const placed: { x: number; y: number }[] = [];
     const free = (x: number, y: number) => placed.every((pin) => Math.abs(pin.x - x) >= size || Math.abs(pin.y - y) >= size);
+    // The pin square and the toolbar share a positive area.
+    const offToolbar = (x: number, y: number) =>
+      Math.min(x + half, toolbar.right) <= Math.max(x - half, toolbar.left) ||
+      Math.min(y + half, toolbar.bottom) <= Math.max(y - half, toolbar.top);
     return centers.map((center) => {
       const rows = [center.y];
-      for (let m = 1; m * step <= viewport.height; m++) {
+      for (let m = 1; m <= 4; m++) {
         for (const y of [center.y + m * step, center.y - m * step]) {
           if (y >= half && y <= viewport.height - half) rows.push(y);
         }
@@ -998,13 +1076,16 @@ describe('fanOut', () => {
         for (let k = 1; center.x + k * step <= viewport.width - half; k++) candidates.push({ x: center.x + k * step, y });
         for (let k = 1; center.x - k * step >= half; k++) candidates.push({ x: center.x - k * step, y });
       }
-      const pin = candidates.find(({ x, y }) => free(x, y)) ?? { x: half, y: center.y };
+      const pin =
+        candidates.find(({ x, y }) => free(x, y) && offToolbar(x, y)) ??
+        rows.map((y) => ({ x: center.x, y })).find(({ x, y }) => offToolbar(x, y)) ??
+        { ...center };
       placed.push(pin);
       return pin;
     });
   }
 
-  it('places every seeded random layout and every stacked worst case exactly as the all-pairs search', () => {
+  it('places every seeded random layout and every stacked worst case, with and without a toolbar, exactly as the all-pairs search', () => {
     const seed = 0x9e3779b9;
     let state = seed;
     // mulberry32
@@ -1027,8 +1108,14 @@ describe('fanOut', () => {
         const cluster = clusters[Math.floor(random() * clusters.length)]!;
         return { x: cluster.x + between(-24, 24), y: cluster.y + between(-24, 24) };
       });
-      expect(fanOut(centers, screen, zoom), `seed ${seed}, layout ${layout}, zoom ${zoom}`).toEqual(
-        referenceFanOut(centers, screen, zoom),
+      // A quarter of the layouts have no toolbar; the rest one over the first cluster, zero-size along one side at times.
+      const left = clusters[0]!.x + between(-80, 20);
+      const top = clusters[0]!.y + between(-80, 20);
+      const toolbar = random() < 0.25
+        ? noToolbar
+        : { left, top, right: left + [0, between(1, 160)][Math.floor(random() * 2)]!, bottom: top + between(0, 80) };
+      expect(fanOut(centers, screen, toolbar, zoom), `seed ${seed}, layout ${layout}, zoom ${zoom}`).toEqual(
+        referenceFanOut(centers, screen, toolbar, zoom),
       );
     }
     const stacks: [string, { x: number; y: number }, { width: number; height: number }, number][] = [
@@ -1049,7 +1136,18 @@ describe('fanOut', () => {
           y: Math.min(Math.max(corner.y, half), view.height - half),
         };
         const centers = Array.from({ length: count }, () => ({ ...center }));
-        expect(fanOut(centers, view, zoom), `${name}, zoom ${zoom}`).toEqual(referenceFanOut(centers, view, zoom));
+        const s = step * zoom;
+        // None; one over the centre, its row and the row below; a full-height strip over the centre's x.
+        const toolbars: Rect[] = [
+          noToolbar,
+          { left: center.x - 3 * s, top: center.y - half, right: center.x + s, bottom: center.y + s + half },
+          { left: center.x - 1, top: 0, right: center.x + 1, bottom: view.height },
+        ];
+        for (const [t, toolbar] of toolbars.entries()) {
+          expect(fanOut(centers, view, toolbar, zoom), `${name}, zoom ${zoom}, toolbar ${t}`).toEqual(
+            referenceFanOut(centers, view, toolbar, zoom),
+          );
+        }
       }
     }
   });

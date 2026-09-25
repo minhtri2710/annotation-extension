@@ -36,6 +36,8 @@ const PULSE_CLASS = 'locate-pulse';
 const NOTE_PREVIEW_LENGTH = 120;
 const PIN_SIZE = 18;
 const FAN_GAP = 4;
+// Overflow rows are searched at most this many row steps below and above a pin's centre.
+const FAN_ROWS = 4;
 const TOOLTIP_GAP = 8;
 const TOOLTIP_MARGIN = 8;
 export const RERESOLVE_DEBOUNCE_MS = 250;
@@ -87,19 +89,29 @@ export function pinCenter(
 
 // On-screen pins are placed in list order so no two PIN_SIZE * zoom squares overlap: each keeps its
 // centre when that is free, else takes the first free slot k * (PIN_SIZE + FAN_GAP) * zoom to the right
-// that stays inside the viewport, then the first free one to the left, keeping its y. A row with no free
-// slot left sends the pin to the nearest row with one, (PIN_SIZE + FAN_GAP) * zoom below, then above, then
-// twice that, and so on, skipping rows outside the viewport and trying the same slots in the same order.
-// Only when every row is full does the pin sit half a pin from the left edge of its own row. Every centre
-// lies inside [half, width - half] x [half, height - half], as pinCenter returns it.
+// that stays inside the viewport, then the first free one to the left, keeping its y. A slot whose square
+// overlaps the toolbar rect counts as taken, own centre included; one only touching its edge is free, and a
+// toolbar rect with zero width or height excludes nothing. A row with no free slot left sends the pin to
+// the nearest row with one, (PIN_SIZE + FAN_GAP) * zoom below, then above, then twice that, and so on up to
+// FAN_ROWS steps, skipping rows outside the viewport and trying the same slots in the same order. When
+// every slot in that band is taken, the pin sits at its own x in the first band row in the same order
+// whose slot there is off the toolbar, overlapping other pins, or at its own centre when there is none.
+// Every centre lies inside [half, width - half] x [half, height - half], as pinCenter returns it.
 export function fanOut(
   centers: { x: number; y: number }[],
   viewport: Viewport,
+  toolbar: { left: number; top: number; right: number; bottom: number },
   zoom = 1,
 ): { x: number; y: number }[] {
   const size = PIN_SIZE * zoom;
   const half = size / 2;
   const step = (PIN_SIZE + FAN_GAP) * zoom;
+  const blocks = toolbar.right > toolbar.left && toolbar.bottom > toolbar.top;
+  const onToolbar = (x: number, y: number) =>
+    blocks && x - half < toolbar.right && x + half > toolbar.left && y - half < toolbar.bottom && y + half > toolbar.top;
+  // Row r: 0 own, then 1 below, 2 above, 3 two below, ...
+  const offset = (r: number) => (r % 2 ? (r + 1) / 2 : -r / 2) * step;
+  const inView = (r: number, rowY: number) => r === 0 || (rowY >= half && rowY <= viewport.height - half);
   // Placed pins in cells of one pin size, indexed [row band + 1][column + 1] so a neighbour index is never
   // negative: a pin overlapping a slot lies in one of the nine cells around it.
   const cells: { x: number; y: number }[][][] = [];
@@ -109,6 +121,7 @@ export function fanOut(
   const FULL = Infinity;
   const resume = new Map<number, Map<number, { row: number; slot: number }>>();
   const taken = (slot: number, y: number, band: number) => {
+    if (onToolbar(slot, y)) return true;
     const column = Math.floor(slot / size) + 1;
     for (let b = band; b <= band + 2; b++) {
       const row = cells[b];
@@ -143,15 +156,15 @@ export function fanOut(
     let slots = resume.get(y);
     if (!slots) resume.set(y, (slots = new Map()));
     let { row: r, slot } = slots.get(x) ?? { row: 0, slot: 0 };
-    let pin = { x: half, y };
+    let pin: { x: number; y: number } | undefined;
     while (r !== FULL) {
-      const offset = (r % 2 ? (r + 1) / 2 : -r / 2) * step;
-      if (r > 0 && Math.abs(offset) > y - half && Math.abs(offset) > viewport.height - half - y) {
+      const distance = Math.abs(offset(r));
+      if (r > 2 * FAN_ROWS || (r > 0 && distance > y - half && distance > viewport.height - half - y)) {
         r = FULL;
         break;
       }
-      const rowY = y + offset;
-      if (r === 0 || (rowY >= half && rowY <= viewport.height - half)) {
+      const rowY = y + offset(r);
+      if (inView(r, rowY)) {
         slot = freeSlot(x, rowY, slot);
         if (slot !== FULL) {
           pin = { x: x - -slot * step, y: rowY };
@@ -162,6 +175,16 @@ export function fanOut(
       slot = 0;
     }
     slots.set(x, { row: r, slot: slot < 0 ? slot - 1 : slot + 1 });
+    if (!pin) {
+      pin = { x, y };
+      for (let b = 0; b <= 2 * FAN_ROWS; b++) {
+        const rowY = y + offset(b);
+        if (inView(b, rowY) && !onToolbar(x, rowY)) {
+          pin = { x, y: rowY };
+          break;
+        }
+      }
+    }
     const row = (cells[Math.floor(pin.y / size) + 1] ??= []);
     const column = Math.floor(pin.x / size) + 1;
     const cell = row[column];
@@ -237,7 +260,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     // Every marker lives in the same container, so they share one zoom.
     const zoom = cssZoom(visible[0]!.marker);
     const centers = rects.map((rect) => pinCenter(rect, size, zoom));
-    fanOut(centers, size, zoom).forEach(({ x, y }, i) => placeFixed(visible[i]!.marker, { left: x, top: y }));
+    fanOut(centers, size, options.toolbar.getBoundingClientRect(), zoom).forEach(({ x, y }, i) => placeFixed(visible[i]!.marker, { left: x, top: y }));
   };
 
   const scheduleReanchor = () => {
