@@ -1525,6 +1525,73 @@ describe('note panel drafts', () => {
   const cssGroup = (panel: HTMLElement) => panel.querySelector('[data-annotation-css-group]') as HTMLDetailsElement;
   const withCss = () => ({ ...annotation('Styled'), cssEdits: [{ property: 'color', value: 'red', original: 'blue' }] });
 
+  it('drops the CSS draft once Clear tweaks succeeds', async () => {
+    const panel = document.createElement('div');
+    const listAnnotations = vi.fn().mockResolvedValueOnce([withCss()]).mockResolvedValue([{ ...withCss(), cssEdits: [] }]);
+    const { notePanel, sendAnnotationWrite } = await render(panel, [], { listAnnotations });
+    type(cssDecls(panel), 'color: green');
+    (panel.querySelector('[data-annotation-css-clear]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.update', pageUrl, id: 'annotation-1', changes: { cssEdits: [] },
+    } satisfies AnnotationWriteMessage);
+    expect(cssDecls(panel).value).toBe('');
+    expect(statusText(panel)).toBeUndefined();
+    await reopen(panel, notePanel);
+    expect(cssDecls(panel).value).toBe('');
+    expect(statusText(panel)).toBeUndefined();
+  });
+
+  it('keeps the CSS draft when Save CSS rejects, after the refresh and after a reopen', async () => {
+    const panel = document.createElement('div');
+    const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], {
+      sendAnnotationWrite: vi.fn().mockRejectedValue(new Error('write failed')),
+      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: 'red', original: 'blue' }]),
+    });
+    type(cssDecls(panel), 'color: red');
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(statusText(panel)).toBe('write failed');
+    expect(cssDecls(panel).value).toBe('color: red');
+    await reopen(panel, notePanel);
+    expect(cssDecls(panel).value).toBe('color: red');
+    expect(statusText(panel)).toBe('Draft restored.');
+  });
+
+  it('keeps the three repro drafts when Save repro rejects, after the refresh and after a reopen', async () => {
+    const panel = document.createElement('div');
+    const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], {
+      sendAnnotationWrite: vi.fn().mockRejectedValue(new Error('write failed')),
+    });
+    for (const name of reproFields) type(reproField(panel, name), `Typed ${name}`);
+    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    expect(statusText(panel)).toBe('write failed');
+    for (const name of reproFields) expect(reproField(panel, name).value).toBe(`Typed ${name}`);
+    await reopen(panel, notePanel);
+    for (const name of reproFields) expect(reproField(panel, name).value).toBe(`Typed ${name}`);
+    expect(statusText(panel)).toBe('Draft restored.');
+  });
+
+  it('keeps the CSS and repro drafts across a reopen when the write guard refuses the save, and sends nothing', async () => {
+    const panel = document.createElement('div');
+    const long = 'x'.repeat(MAX_TEXT_LENGTH + 1);
+    const { notePanel, sendAnnotationWrite } = await render(panel, [annotation('Existing')], {
+      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: long, original: 'blue' }]),
+    });
+    type(cssDecls(panel), 'color: red');
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    expect(statusText(panel)).toContain('The CSS edits are not valid');
+    for (const name of reproFields) type(reproField(panel, name), name === 'expected' ? long : `Typed ${name}`);
+    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    expect(statusText(panel)).toContain('The reproduction steps are not valid');
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    await reopen(panel, notePanel);
+    expect(cssDecls(panel).value).toBe('color: red');
+    for (const name of reproFields) expect(reproField(panel, name).value).toBe(name === 'expected' ? long : `Typed ${name}`);
+    expect(statusText(panel)).toBe('Draft restored.');
+  });
+
   it('closes a group force-opened by a restored draft once the draft is gone, despite its late initial toggle event', async () => {
     const panel = document.createElement('div');
     const { notePanel } = await render(panel, [annotation('Existing')]);
