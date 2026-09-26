@@ -5,17 +5,19 @@ import { createCaptureController, type CaptureController, type CaptureEvents } f
 import { createEventBus } from '../ui/event-bus';
 
 let host: HTMLElement;
+let root: ShadowRoot;
 let controller: CaptureController;
 let selected: ElementContext[];
 
-function key(name: string) {
-  const event = new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true });
-  document.body.dispatchEvent(event);
-  return event;
+let lastKeyPrevented = false;
+async function key(name: string) {
+  window.addEventListener('keydown', (event) => { lastKeyPrevented = event.defaultPrevented; }, { capture: true, once: true });
+  await userEvent.keyboard(name === ' ' ? ' ' : `{${name}}`);
+  return { get defaultPrevented() { return lastKeyPrevented; } };
 }
 
 function labelText() {
-  return host.shadowRoot!.querySelector('[data-annotation-highlight-label]')!.textContent!;
+  return root.querySelector('[data-annotation-highlight-label]')!.textContent!;
 }
 
 // The description part of the `<description> · <W>×<H>` label.
@@ -27,11 +29,11 @@ beforeEach(() => {
   document.body.style.margin = '0';
   document.body.replaceChildren();
   host = document.createElement('div');
-  host.attachShadow({ mode: 'open' });
+  root = host.attachShadow({ mode: 'closed' });
   selected = [];
   const bus = createEventBus<CaptureEvents>();
   bus.on('element:selected', (context) => selected.push(context));
-  controller = createCaptureController({ document, shadowHost: host, bus });
+  controller = createCaptureController({ document, shadowHost: host, shadowRoot: root, bus });
 });
 
 afterEach(() => {
@@ -41,21 +43,21 @@ afterEach(() => {
 });
 
 describe('keyboard capture (real browser)', () => {
-  it('starts at the element under the viewport centre, beneath the extension overlay', () => {
+  it('starts at the element under the viewport centre, beneath the extension overlay', async () => {
     const cover = document.createElement('div');
     cover.id = 'cover';
     cover.style.cssText = 'width: 100vw; height: 100vh';
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position: fixed; inset: 0';
-    host.shadowRoot!.append(overlay);
+    root.append(overlay);
     document.body.append(cover, host);
     controller.activate();
 
-    expect(key('ArrowUp').defaultPrevented).toBe(true);
+    expect((await key('ArrowUp')).defaultPrevented).toBe(true);
     expect(label()).toBe('div#cover');
   });
 
-  it('resolves the viewport centre into an open shadow root', () => {
+  it('resolves the viewport centre into an open shadow root', async () => {
     const card = document.createElement('x-card');
     card.attachShadow({ mode: 'open' }).setHTMLUnsafe(
       '<span id="inside" style="display: block; width: 100vw; height: 100vh">x</span>',
@@ -63,35 +65,37 @@ describe('keyboard capture (real browser)', () => {
     document.body.append(card, host);
     controller.activate();
 
-    key('Enter');
+    await key('Enter');
     expect(label()).toBe('span#inside');
     expect(selected).toEqual([]);
-    key('Enter');
+    await key('Enter');
     expect(selected.map((context) => context.id)).toEqual(['inside']);
   });
 
-  it('scrolls the element each keyboard move highlights into view', () => {
+  it('scrolls the element each keyboard move highlights into view', async () => {
     const first = document.createElement('div');
     first.id = 'first';
     first.style.cssText = 'height: 100vh';
+    first.tabIndex = 0;
     const far = document.createElement('div');
     far.id = 'far';
     far.style.cssText = 'height: 50px; margin-top: 3000px';
     document.body.append(first, far, host);
     controller.activate();
+    first.focus();
 
-    key('ArrowDown');
+    await key('ArrowDown');
     expect(label()).toBe('div#first');
     expect(far.getBoundingClientRect().top).toBeGreaterThan(window.innerHeight);
 
-    key('ArrowRight');
+    await key('ArrowRight');
     expect(label()).toBe('div#far');
     const rect = far.getBoundingClientRect();
     expect(rect.top).toBeGreaterThanOrEqual(0);
     expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
   });
 
-  it('walks past display:none and script siblings in a real layout', () => {
+  it('walks past display:none and script siblings in a real layout', async () => {
     document.body.insertAdjacentHTML(
       'beforeend',
       '<p id="a" style="height: 100vh">a</p><script></script><div id="gone" style="display: none">g</div><p id="b">b</p>',
@@ -99,9 +103,9 @@ describe('keyboard capture (real browser)', () => {
     document.body.append(host);
     controller.activate();
 
-    key('ArrowDown');
+    await key('ArrowDown');
     expect(label()).toBe('p#a');
-    key('ArrowRight');
+    await key('ArrowRight');
     expect(label()).toBe('p#b');
   });
 
@@ -116,8 +120,8 @@ describe('keyboard capture (real browser)', () => {
     scroller.append(item, spacer);
     document.body.append(scroller, host);
     controller.activate();
-    item.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, composed: true }));
-    const box = host.shadowRoot!.querySelector<HTMLElement>('[data-annotation-highlight]')!;
+    await userEvent.hover(item);
+    const box = root.querySelector<HTMLElement>('[data-annotation-highlight]')!;
     expect(box.style.top).toBe(`${item.getBoundingClientRect().top}px`);
 
     scroller.scrollTop = 80;
@@ -130,7 +134,7 @@ describe('keyboard capture (real browser)', () => {
 });
 
 describe('capture mode feedback (real browser)', () => {
-  it('labels the rounded size of the element and shows a crosshair cursor only while active', () => {
+  it('labels the rounded size of the element and shows a crosshair cursor only while active', async () => {
     const box = document.createElement('div');
     box.id = 'box';
     box.style.cssText = 'width: 320.4px; height: 47.6px';
@@ -138,7 +142,7 @@ describe('capture mode feedback (real browser)', () => {
     expect(getComputedStyle(document.body).cursor).not.toBe('crosshair');
 
     controller.activate();
-    box.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, composed: true }));
+    await userEvent.hover(box);
     expect(labelText()).toBe('div#box · 320×48');
     expect(getComputedStyle(document.body).cursor).toBe('crosshair');
 
@@ -173,7 +177,7 @@ describe('capture mode feedback (real browser)', () => {
       await page.viewport(width, height);
       document.body.append(host);
       controller.activate();
-      check(host.shadowRoot!.querySelector<HTMLElement>('[data-annotation-capture-hint]')!);
+      check(root.querySelector<HTMLElement>('[data-annotation-capture-hint]')!);
     } finally {
       await page.viewport(prior.width, prior.height);
     }
@@ -211,29 +215,28 @@ describe('capture across realms (real browser)', () => {
     card.id = 'card';
     card.attachShadow({ mode: 'open' }).setHTMLUnsafe('<span id="inner" style="display: block; height: 100vh">i</span>');
     const frameHost = frameDocument.createElement('div');
-    frameHost.attachShadow({ mode: 'open' });
+    const frameRoot = frameHost.attachShadow({ mode: 'closed' });
     frameDocument.body.append(card, frameHost);
+    frameDocument.body.tabIndex = -1;
+    frameDocument.body.focus();
     const frameSelected: ElementContext[] = [];
     const bus = createEventBus<CaptureEvents>();
     bus.on('element:selected', (context) => frameSelected.push(context));
-    const frameController = createCaptureController({ document: frameDocument, shadowHost: frameHost, bus });
-    const frameKey = (name: string) =>
-      frameDocument.body.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
-
+    const frameController = createCaptureController({ document: frameDocument, shadowHost: frameHost, shadowRoot: frameRoot, bus });
     frameController.activate();
-    frameKey('ArrowDown');
-    frameKey('Enter');
+    await userEvent.keyboard('{ArrowDown}');
+    await userEvent.keyboard('{Enter}');
     frameController.activate();
-    frameKey('ArrowDown');
-    frameKey('ArrowUp');
-    frameKey('Enter');
+    await userEvent.keyboard('{ArrowDown}');
+    await userEvent.keyboard('{ArrowUp}');
+    await userEvent.keyboard('{Enter}');
     frameController.destroy();
     frame.remove();
 
     expect(frameSelected.map((context) => context.id)).toEqual(['inner', 'card']);
   });
 
-  it('commits the composedPath target of a pointer event from an iframe realm', () => {
+  it('commits the composedPath target of a pointer event from an iframe realm', async () => {
     const frame = document.createElement('iframe');
     document.body.append(frame);
     const frameDocument = frame.contentDocument!;
@@ -244,18 +247,14 @@ describe('capture across realms (real browser)', () => {
     const target = frameDocument.createElement('button');
     target.id = 'target';
     const frameHost = frameDocument.createElement('div');
-    frameHost.attachShadow({ mode: 'open' });
+    const frameRoot = frameHost.attachShadow({ mode: 'closed' });
     frameDocument.body.append(spacer, target, frameHost);
     const frameSelected: ElementContext[] = [];
     const bus = createEventBus<CaptureEvents>();
     bus.on('element:selected', (context) => frameSelected.push(context));
-    const frameController = createCaptureController({ document: frameDocument, shadowHost: frameHost, bus });
-    const FramePointerEvent = (frame.contentWindow as Window & typeof globalThis).PointerEvent;
-
+    const frameController = createCaptureController({ document: frameDocument, shadowHost: frameHost, shadowRoot: frameRoot, bus });
     frameController.activate();
-    target.dispatchEvent(
-      new FramePointerEvent('pointerdown', { bubbles: true, composed: true, cancelable: true, button: 0, clientX: 1, clientY: 1 }),
-    );
+    await userEvent.click(page.frameLocator(page.elementLocator(frame)).getByRole('button'));
     frameController.destroy();
     frame.remove();
 

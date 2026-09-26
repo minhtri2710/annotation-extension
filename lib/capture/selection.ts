@@ -21,6 +21,7 @@ export interface CaptureController {
 export interface CaptureControllerOptions {
   document: Document;
   shadowHost: HTMLElement;
+  shadowRoot: ShadowRoot;
   bus?: EventBus<CaptureEvents>;
 }
 
@@ -80,6 +81,24 @@ const INTERCEPTED_EVENTS = ['pointermove', 'pointerdown', 'mousedown', 'pointeru
 
 type PageEventRoute = (event: Event) => void;
 const hubs = new WeakMap<Window, { routes: Set<PageEventRoute>; listener: (event: Event) => void }>();
+const redirectedClicks = new WeakSet<Event>();
+const OVERLAY_INPUT_EVENTS = [
+  'click', 'dblclick', 'auxclick', 'contextmenu', 'pointerdown', 'pointerup', 'pointermove',
+  'mousedown', 'mouseup', 'keydown', 'keyup', 'keypress', 'beforeinput', 'input', 'change',
+  'submit', 'paste', 'drop',
+] as const;
+
+export function guardUntrustedOverlayEvents(root: ShadowRoot): () => void {
+  const guard = (event: Event) => {
+    if (redirectedClicks.delete(event) || event.isTrusted === true) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  for (const type of OVERLAY_INPUT_EVENTS) root.addEventListener(type, guard, true);
+  return () => {
+    for (const type of OVERLAY_INPUT_EVENTS) root.removeEventListener(type, guard, true);
+  };
+}
 
 /**
  * Registers, once per window, the capture-phase listeners that must run before the page's own, so a page
@@ -92,7 +111,7 @@ export function interceptPageEvents(win: Window): Set<PageEventRoute> {
   if (existing) return existing.routes;
   const routes = new Set<PageEventRoute>();
   const listener = (event: Event) => {
-    if (routes.size === 0) return;
+    if (event.isTrusted !== true || routes.size === 0) return;
     for (const route of routes) route(event);
   };
   hubs.set(win, { routes, listener });
@@ -139,7 +158,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   hint.style.cssText = HINT_STYLE;
   hint.textContent = HINT_TEXT;
   hint.hidden = true;
-  options.shadowHost.shadowRoot?.append(highlight, label, hint);
+  options.shadowRoot.append(highlight, label, hint);
   const cursor = options.document.createElement('style');
   cursor.setAttribute(CURSOR_ATTRIBUTE, '');
   cursor.textContent = CURSOR_CSS;
@@ -170,7 +189,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     if (!active || event.button !== 0 || isExtensionEvent(event, options.shadowHost)) return;
     swallow(event);
     const element = resolveTarget(event, options.document);
-    if (!element || isExtensionElement(element, options.shadowHost)) return;
+    if (!element || isExtensionElement(element, options.shadowHost, options.shadowRoot)) return;
     // The rest of this gesture must not reach the page; commit's deactivate() leaves the swallower installed.
     startGestureSwallow();
     commit(element);
@@ -209,10 +228,12 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   // A page can stop a click at window capture before it reaches the overlay. The click is taken here and
   // re-sent inside the shadow root, uncomposed, so the page never sees it and the overlay control still acts.
   function redirectOverlayClick(event: MouseEvent) {
-    const target = event.composedPath()[0];
-    if (!isElement(target)) return;
+    const target = event.detail === 0
+      ? options.shadowRoot.activeElement
+      : options.shadowRoot.elementFromPoint(event.clientX, event.clientY);
+    if (target === null || !isElement(target) || !options.shadowRoot.contains(target)) return;
     swallow(event);
-    target.dispatchEvent(new MouseEvent('click', {
+    const redirected = new MouseEvent('click', {
       bubbles: true,
       cancelable: true,
       composed: false,
@@ -227,7 +248,9 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
       shiftKey: event.shiftKey,
       altKey: event.altKey,
       metaKey: event.metaKey,
-    }));
+    });
+    redirectedClicks.add(redirected);
+    target.dispatchEvent(redirected);
   }
 
   function syncRoute() {
@@ -321,7 +344,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     const view = options.document.defaultView;
     const x = (view?.innerWidth ?? 0) / 2;
     const y = (view?.innerHeight ?? 0) / 2;
-    let element = options.document.elementsFromPoint(x, y).find((hit) => !isExtensionElement(hit, options.shadowHost));
+    let element = options.document.elementsFromPoint(x, y).find((hit) => !isExtensionElement(hit, options.shadowHost, options.shadowRoot));
     while (element?.shadowRoot) {
       const inner = element.shadowRoot.elementFromPoint(x, y);
       if (!inner || inner === element) break;
@@ -353,7 +376,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
       element !== document.documentElement &&
       element !== document.head &&
       element !== document.body &&
-      !isExtensionElement(element, options.shadowHost)
+      !isExtensionElement(element, options.shadowHost, options.shadowRoot)
     );
   }
 
@@ -439,7 +462,7 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   }
 
   function setHoveredElement(element: Element | null) {
-    if (!element || isExtensionElement(element, options.shadowHost)) {
+    if (!element || isExtensionElement(element, options.shadowHost, options.shadowRoot)) {
       hoveredElement = null;
       highlight.hidden = true;
       label.hidden = true;
@@ -510,6 +533,6 @@ function isExtensionEvent(event: Event, shadowHost: HTMLElement): boolean {
   return event.composedPath().includes(shadowHost);
 }
 
-function isExtensionElement(element: Element, shadowHost: HTMLElement): boolean {
-  return element === shadowHost || shadowHost.shadowRoot?.contains(element) === true;
+function isExtensionElement(element: Element, shadowHost: HTMLElement, shadowRoot: ShadowRoot): boolean {
+  return element === shadowHost || shadowRoot.contains(element);
 }

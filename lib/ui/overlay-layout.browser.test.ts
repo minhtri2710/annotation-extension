@@ -148,7 +148,7 @@ describe('overlay layout on hostile pages (real browser)', () => {
       expect(Math.abs(pin.x - targetRect.left)).toBeLessThanOrEqual(1);
       expect(Math.abs(pin.y - targetRect.top)).toBeLessThanOrEqual(1);
 
-      const capture = createCaptureController({ document, shadowHost: host });
+      const capture = createCaptureController({ document, shadowHost: host, shadowRoot: shadow });
       cleanups.push(() => capture.destroy());
       capture.activate();
       await userEvent.hover(target);
@@ -400,7 +400,7 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
   it('(b3) keeps the wrapped capture hint 8 px inside both sides of the visible viewport', async ({ task }) => {
     const { width } = await classicScrollbars(task.file.projectName);
     const { host, shadow } = mountOverlay();
-    const capture = createCaptureController({ document, shadowHost: host });
+    const capture = createCaptureController({ document, shadowHost: host, shadowRoot: shadow });
     cleanups.push(() => capture.destroy());
     capture.activate();
     const hint = shadow.querySelector<HTMLElement>('[data-annotation-capture-hint]')!;

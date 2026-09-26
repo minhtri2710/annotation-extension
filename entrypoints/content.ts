@@ -19,6 +19,7 @@ import { isEnabledForUrl } from '../lib/options/policy';
 import { readPolicy, SITE_POLICY_STORAGE_KEY } from '../lib/options/storage';
 import {
   createCaptureController,
+  guardUntrustedOverlayEvents,
   interceptPageEvents,
   isCaptureStateMessage,
   isCaptureToggleMessage,
@@ -55,12 +56,15 @@ export default defineContentScript({
     let clearAnnotationList: (() => void) | undefined;
     let stopColorScheme: (() => void) | undefined;
     let toolbarControls: ReturnType<typeof createToolbarControls> | undefined;
+    let stopOverlayGuard: (() => void) | undefined;
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
+      mode: 'closed',
       position: 'overlay',
       alignment: 'bottom-right',
       onMount: (container, _shadow, shadowHost) => {
+        stopOverlayGuard = guardUntrustedOverlayEvents(_shadow);
         const shell = buildOverlayShell(container);
         stopColorScheme = watchColorScheme(shell.root, window);
         let url = document.location.href;
@@ -193,6 +197,7 @@ export default defineContentScript({
         const activeController = createCaptureController({
           document,
           shadowHost,
+          shadowRoot: _shadow,
           bus,
         });
         controller = activeController;
@@ -211,6 +216,8 @@ export default defineContentScript({
         return shell;
       },
       onRemove: () => {
+        stopOverlayGuard?.();
+        stopOverlayGuard = undefined;
         stopRouteWatch?.();
         stopRouteWatch = undefined;
         stopColorScheme?.();

@@ -6,6 +6,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import contentScript from '../../entrypoints/content';
 import { addAnnotation } from '../annotation-storage';
+import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
 import { interceptPageEvents, releasePageEvents } from '../capture';
 import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../capture/activation';
 import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
@@ -32,6 +33,8 @@ const PAGE_EVENTS = ['pointermove', 'pointerdown', 'mousedown', 'pointerup', 'mo
 
 let ctx: ContentScriptContext;
 let readyState: DocumentReadyState;
+const attachedRoots = new WeakMap<Element, ShadowRoot>();
+const originalAttachShadow = Element.prototype.attachShadow;
 
 // Stub: happy-dom's document is always 'complete'; the getter lets a test start the script at document_start.
 function stubReadyState(state: DocumentReadyState) {
@@ -54,6 +57,11 @@ let restorePopover: () => void;
 
 beforeEach(() => {
   fakeBrowser.reset();
+  vi.spyOn(Element.prototype, 'attachShadow').mockImplementation(function (this: Element, init) {
+    const root = originalAttachShadow.call(this, init);
+    attachedRoots.set(this, root);
+    return root;
+  });
   restorePopover = stubPopover();
   document.body.replaceChildren();
   ctx = new ContentScriptContext('content', { noScriptStartedPostMessage: true });
@@ -68,9 +76,19 @@ afterEach(() => {
 const hosts = () => [...document.querySelectorAll(HOST)];
 const shadow = () => {
   const [host] = hosts();
-  if (!host?.shadowRoot) throw new Error('overlay is not mounted');
-  return host.shadowRoot;
+  const root = host && attachedRoots.get(host);
+  if (!root) throw new Error('overlay is not mounted');
+  return root;
 };
+const dispatchTrusted = <T extends Event>(target: EventTarget, event: T): T => {
+  Object.defineProperty(event, 'isTrusted', { value: true });
+  target.dispatchEvent(event);
+  return event;
+};
+const trustedClick = (target: EventTarget) => dispatchTrusted(
+  target,
+  new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }),
+);
 const button = (text: string) => {
   const match = [...shadow().querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')]
     .find((candidate) => candidate.textContent === text);
@@ -98,6 +116,77 @@ describe('content script entrypoint', () => {
 
     expect(hosts()).toHaveLength(1);
     expect(toolbarButtons().filter((text) => text !== '⠿').slice(0, 3)).toEqual(['Scan', 'View all', 'Annotate']);
+  });
+
+  it('uses a closed shadow root that page script cannot reach', async () => {
+    await start();
+
+    expect(hosts()[0]!.shadowRoot).toBeNull();
+  });
+
+  it('drops untrusted list-clear input but permits the same trusted control sequence', async () => {
+    const storedContext = {
+      selector: '#missing', tagName: 'div', id: 'missing', classList: [], text: '',
+      boundingBox: { x: 0, y: 0, width: 10, height: 10 }, url: location.href,
+      viewport: { width: 800, height: 600 }, sourcePath: null,
+    };
+    await addAnnotation(location.href, {
+      note: 'Stored note',
+      selector: '#missing',
+      elementContext: storedContext,
+    });
+    await addAnnotation(location.href, { note: 'Second stored note', selector: '#missing', elementContext: storedContext });
+    registerBackgroundMessageHandlers({ blobStore: { get: async () => undefined, put: async () => undefined, delete: async () => undefined } });
+    await start();
+    const sendMessage = vi.spyOn(browser.runtime, 'sendMessage');
+    const set = vi.spyOn(browser.storage.local, 'set');
+    const remove = vi.spyOn(browser.storage.local, 'remove');
+    const storedBefore = await browser.storage.local.get(null);
+    const viewAll = button('View all');
+    viewAll.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+    expect(panel().querySelector('[data-annotation-clear]')).toBeNull();
+    trustedClick(viewAll);
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-clear]')).not.toBeNull());
+    const clear = panel().querySelector<HTMLButtonElement>('[data-annotation-clear]')!;
+    clear.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+    expect(panel().querySelector('[data-annotation-clear-confirm]')).toBeNull();
+    trustedClick(clear);
+    const confirm = panel().querySelector<HTMLButtonElement>('[data-annotation-clear-confirm]')!;
+    confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+    const row = panel().querySelector('[data-annotation-row]')!;
+    const removeRow = row.querySelector<HTMLButtonElement>('[data-annotation-delete]')!;
+    removeRow.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+    expect(panel().querySelector('[data-annotation-delete-confirm]')).toBeNull();
+    trustedClick(removeRow);
+    const deleteConfirm = panel().querySelector<HTMLButtonElement>('[data-annotation-delete-confirm]')!;
+    deleteConfirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }));
+
+    expect(await browser.storage.local.get(null)).toEqual(storedBefore);
+    expect(set).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls.filter(([message]) => ['annotation.clear', 'annotation.delete'].includes((message as { type?: string }).type ?? ''))).toEqual([]);
+
+    trustedClick(deleteConfirm);
+    await vi.waitFor(() => expect(sendMessage.mock.calls.filter(([message]) => (message as { type?: string }).type === 'annotation.delete')).toHaveLength(1));
+    expect(remove).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-clear]')).not.toBeNull());
+    trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-clear]')!);
+    trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-clear-confirm]')!);
+    await vi.waitFor(async () => expect(await browser.storage.local.get(null)).toEqual({}));
+    expect(sendMessage.mock.calls.filter(([message]) => (message as { type?: string }).type === 'annotation.clear')).toHaveLength(1);
+  });
+
+  it('ignores an untrusted Escape at the window but accepts a trusted Escape while capture is active', async () => {
+    await start();
+    await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+    const host = hosts()[0]!;
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(host.hasAttribute('data-annotation-active')).toBe(true);
+
+    dispatchTrusted(window, new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(host.hasAttribute('data-annotation-active')).toBe(false);
   });
 
   it('marks Annotate as the only primary toolbar button', async () => {
@@ -132,7 +221,7 @@ describe('content script entrypoint', () => {
     const shortcutReads = () => send.mock.calls.filter(([message]) => (message as { type?: unknown }).type === 'capture.shortcut');
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
     await start();
-    button('View all').click();
+    trustedClick(button('View all'));
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-onboarding]')).not.toBeNull());
 
     await writePolicy({ enabled: false, allowlist: [] });
@@ -183,11 +272,11 @@ describe('content script entrypoint', () => {
 
   it('opening one panel closes the other panel mode', async () => {
     await start();
-    button('View all').click();
+    trustedClick(button('View all'));
     expect(button('View all').getAttribute('aria-expanded')).toBe('true');
     expect(panel().getAttribute('aria-label')).toBe('Annotations on this page');
 
-    button('Scan').click();
+    trustedClick(button('Scan'));
 
     expect(button('View all').getAttribute('aria-expanded')).toBe('false');
     expect(button('Scan').getAttribute('aria-expanded')).toBe('true');
@@ -197,13 +286,13 @@ describe('content script entrypoint', () => {
   it('closing a panel with Escape returns focus to the toggle that opened it', async () => {
     await start();
     const toggle = button('View all');
-    toggle.click();
+    trustedClick(toggle);
     await vi.waitFor(() => expect(panel().querySelector('button, [tabindex]')).not.toBeNull());
     const inside = panel().querySelector<HTMLElement>('button, [tabindex]')!;
     inside.focus();
     expect(shadow().activeElement).toBe(inside);
 
-    inside.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+    dispatchTrusted(inside, new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
 
     expect(panel().hasAttribute('aria-label')).toBe(false);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -216,13 +305,13 @@ describe('content script entrypoint', () => {
     document.body.append(image);
     await start();
     const scan = button('Scan');
-    scan.click();
+    trustedClick(scan);
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-scan-annotate]')).not.toBeNull());
     const annotate = panel().querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]')!;
     expect(annotate.getAttribute('aria-label')).toBe('Annotate finding 1: Broken or placeholder image');
     annotate.focus();
 
-    annotate.click();
+    trustedClick(annotate);
 
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-new-note]')).not.toBeNull());
     expect(panel().getAttribute('aria-label')).toBe('Annotation note');
@@ -232,7 +321,7 @@ describe('content script entrypoint', () => {
     expect(note.value).toBe('Broken or placeholder image: <img> with no src attribute');
     expect(shadow().activeElement).toBe(note);
 
-    panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!.click();
+    trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!);
 
     expect(panel().hasAttribute('aria-label')).toBe(false);
     expect(shadow().activeElement).toBe(scan);
@@ -256,17 +345,18 @@ describe('content script entrypoint', () => {
     });
     await start();
     const toggle = button('View all');
-    toggle.click();
+    trustedClick(toggle);
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-row-edit]')).not.toBeNull());
     const edit = panel().querySelector<HTMLButtonElement>('[data-annotation-row-edit]')!;
     edit.focus();
 
-    edit.click();
+    trustedClick(edit);
 
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-close]')).not.toBeNull());
     expect(panel().getAttribute('aria-label')).toBe('Annotation note');
-    panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!.focus();
-    panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!.click();
+    const close = panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!;
+    close.focus();
+    trustedClick(close);
 
     expect(panel().hasAttribute('aria-label')).toBe(false);
     expect(shadow().activeElement).toBe(toggle);
@@ -276,10 +366,10 @@ describe('content script entrypoint', () => {
     await start();
     const [host] = hosts();
     const toggle = button('View all');
-    toggle.click();
+    trustedClick(toggle);
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-start]')).not.toBeNull());
 
-    panel().querySelector<HTMLButtonElement>('[data-annotation-start]')!.click();
+    trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-start]')!);
 
     expect(panel().hasAttribute('aria-label')).toBe(false);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -292,10 +382,10 @@ describe('content script entrypoint', () => {
     const [host] = hosts();
     await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
     expect(host!.hasAttribute('data-annotation-active')).toBe(true);
-    button('View all').click();
+    trustedClick(button('View all'));
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-start]')).not.toBeNull());
 
-    panel().querySelector<HTMLButtonElement>('[data-annotation-start]')!.click();
+    trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-start]')!);
 
     expect(host!.hasAttribute('data-annotation-active')).toBe(true);
     expect(button('Stop annotating').getAttribute('aria-pressed')).toBe('true');
@@ -401,7 +491,7 @@ describe('content script entrypoint', () => {
     history.pushState(null, '', nextUrl);
     try {
       window.dispatchEvent(new PopStateEvent('popstate'));
-      button('View all').click();
+      trustedClick(button('View all'));
 
       await vi.waitFor(() => expect(panel().querySelector('[data-annotation-row-edit]')).not.toBeNull());
       expect(panel().textContent).toContain('Next route note');
@@ -412,13 +502,13 @@ describe('content script entrypoint', () => {
 
   it('Escape inside the scan panel during a deep scan cancels the scan and keeps the panel open', async () => {
     await start();
-    button('Scan').click();
+    trustedClick(button('Scan'));
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-deep-scan]')).not.toBeNull());
-    panel().querySelector<HTMLButtonElement>('[data-annotation-deep-scan]')!.click();
+    trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-deep-scan]')!);
     const cancel = panel().querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]');
     expect(cancel).not.toBeNull();
 
-    cancel!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+    dispatchTrusted(cancel!, new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
 
     expect(panel().getAttribute('aria-label')).toBe('Page scan');
     expect(button('Scan').getAttribute('aria-expanded')).toBe('true');
@@ -444,15 +534,15 @@ describe('content script entrypoint', () => {
       },
     });
     await start();
-    button('View all').click();
+    trustedClick(button('View all'));
     await vi.waitFor(() => expect(panel().querySelector('[data-annotation-row-edit]')).not.toBeNull());
-    panel().querySelector<HTMLButtonElement>('[data-annotation-row-edit]')!.click();
+    trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-row-edit]')!);
     await vi.waitFor(() => expect(panel().style.top).not.toBe(''));
     expect(panel().getAttribute('aria-label')).toBe('Annotation note');
     const anchored = { top: panel().style.top, left: panel().style.left };
     expect(anchored).toEqual({ top: '192px', left: '10px' });
 
-    button('⠿').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    dispatchTrusted(button('⠿'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 
     expect({ top: panel().style.top, left: panel().style.left }).toEqual(anchored);
   });

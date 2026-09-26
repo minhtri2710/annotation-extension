@@ -5,7 +5,7 @@ export default defineConfig({
   manifest: {
     name: 'Annotation Extension',
     description: 'A browser extension for visual web annotation.',
-    permissions: ['storage', 'activeTab', 'scripting'],
+    permissions: ['storage', 'activeTab'],
     browser_specific_settings: { gecko: { strict_min_version: '125.0' } },
     commands: {
       'capture.toggle': {

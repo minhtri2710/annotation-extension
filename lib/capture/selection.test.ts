@@ -7,6 +7,7 @@ import { createEventBus } from '../ui/event-bus';
 import type { CaptureEvents } from './selection';
 
 let host: HTMLElement;
+let root: ShadowRoot;
 let controller: CaptureController;
 let selected: ElementContext[];
 let pageEvents: string[];
@@ -19,30 +20,30 @@ function stubRect(element: Element, top: number) {
   vi.spyOn(element, 'getBoundingClientRect').mockReturnValue(rect(top));
 }
 
-function pointer(type: string, target: EventTarget, init: PointerEventInit = {}) {
-  const event = new PointerEvent(type, { bubbles: true, composed: true, cancelable: true, button: 0, ...init });
+function dispatchTrusted<T extends Event>(target: EventTarget, event: T): T {
+  Object.defineProperty(event, 'isTrusted', { value: true });
   target.dispatchEvent(event);
   return event;
+}
+
+function pointer(type: string, target: EventTarget, init: PointerEventInit = {}) {
+  return dispatchTrusted(target, new PointerEvent(type, { bubbles: true, composed: true, cancelable: true, button: 0, ...init }));
 }
 
 function mouse(type: string, target: EventTarget) {
-  const event = new MouseEvent(type, { bubbles: true, composed: true, cancelable: true, button: 0 });
-  target.dispatchEvent(event);
-  return event;
+  return dispatchTrusted(target, new MouseEvent(type, { bubbles: true, composed: true, cancelable: true, button: 0, detail: 1 }));
 }
 
 function key(name: string) {
-  const event = new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true });
-  document.body.dispatchEvent(event);
-  return event;
+  return dispatchTrusted(document.body, new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
 }
 
 function highlight() {
-  return host.shadowRoot!.querySelector('[data-annotation-highlight]') as HTMLElement;
+  return root.querySelector('[data-annotation-highlight]') as HTMLElement;
 }
 
 function label() {
-  return host.shadowRoot!.querySelector('[data-annotation-highlight-label]') as HTMLElement;
+  return root.querySelector('[data-annotation-highlight-label]') as HTMLElement;
 }
 
 // The label reads `<description> · <W>×<H>`; this is the description part.
@@ -51,7 +52,7 @@ function labelName() {
 }
 
 function hint() {
-  return host.shadowRoot!.querySelector('[data-annotation-capture-hint]') as HTMLElement | null;
+  return root.querySelector('[data-annotation-capture-hint]') as HTMLElement | null;
 }
 
 function cursorStyles() {
@@ -65,14 +66,14 @@ beforeEach(() => {
   document.body.innerHTML =
     '<main id="outer" class="wrap"><section id="mid"><button id="target" class="primary big extra">Go</button></section></main>';
   host = document.createElement('div');
-  host.attachShadow({ mode: 'open' });
+  root = host.attachShadow({ mode: 'open' });
   document.body.append(host);
   selected = [];
   pageEvents = [];
   for (const type of PAGE_TYPES) document.body.addEventListener(type, recordPage);
   const bus = createEventBus<CaptureEvents>();
   bus.on('element:selected', (context) => selected.push(context));
-  controller = createCaptureController({ document, shadowHost: host, bus });
+  controller = createCaptureController({ document, shadowHost: host, shadowRoot: root, bus });
 });
 
 afterEach(() => {
@@ -136,7 +137,8 @@ describe('commit on pointerdown', () => {
 
   it('never swallows events inside the extension shadow host', () => {
     const button = document.createElement('button');
-    host.shadowRoot!.append(button);
+    root.append(button);
+    Object.defineProperty(root, 'elementFromPoint', { configurable: true, value: () => button });
     const inside: string[] = [];
     for (const type of PAGE_TYPES) button.addEventListener(type, (event) => inside.push(event.type));
     controller.activate();
@@ -156,7 +158,7 @@ describe('commit on pointerdown', () => {
 
     mouse('click', target);
     expect(pageEvents).toEqual(['click']);
-    expect(host.shadowRoot!.childElementCount).toBe(0);
+    expect(root.childElementCount).toBe(0);
   });
 });
 
@@ -233,7 +235,7 @@ describe('deep target', () => {
 
   it('still never highlights or commits the extension UI', () => {
     const button = document.createElement('button');
-    host.shadowRoot!.append(button);
+    root.append(button);
     stubRect(button, 100);
     controller.activate();
 
@@ -451,7 +453,7 @@ describe('keyboard-only capture', () => {
   });
 
   it('never moves onto the extension host or into its shadow root', () => {
-    host.shadowRoot!.append(document.createElement('button'));
+    root.append(document.createElement('button'));
     pointHits = [document.querySelector('#outer')!];
     controller.activate();
     key('ArrowDown');
@@ -893,6 +895,23 @@ describe('window capture listeners that precede the page', () => {
     expect(interceptPageEvents(window)).not.toBe(routes);
   });
 
+  it('ignores untrusted pointerdown, click and keydown while leaving them to the page', () => {
+    const target = document.querySelector('#target')!;
+    const seen: string[] = [];
+    const record = (event: Event) => seen.push(`${event.type}:${event.defaultPrevented}`);
+    for (const type of ['pointerdown', 'click', 'keydown']) window.addEventListener(type, record, true);
+    controller.activate();
+
+    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true, cancelable: true, button: 0 }));
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, cancelable: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    for (const type of ['pointerdown', 'click', 'keydown']) window.removeEventListener(type, record, true);
+
+    expect(seen).toEqual(['pointerdown:false', 'click:false', 'keydown:false']);
+    expect(selected).toEqual([]);
+    expect(controller.active).toBe(true);
+  });
+
   it('highlights and commits although the page stops pointer events at window capture', () => {
     controller.activate();
     const target = document.querySelector('#target')!;
@@ -904,12 +923,13 @@ describe('window capture listeners that precede the page', () => {
 
   it('delivers overlay clicks the page stops at window capture while capture is active', () => {
     const button = document.createElement('button');
-    host.shadowRoot!.append(button);
+    root.append(button);
+    Object.defineProperty(root, 'elementFromPoint', { configurable: true, value: () => button });
     const clicks: boolean[] = [];
     button.addEventListener('click', (event) => clicks.push(event.composed));
     controller.activate();
 
-    const original = mouse('click', button);
+    const original = dispatchTrusted(button, new MouseEvent('click', { bubbles: true, composed: true, cancelable: true, detail: 1 }));
 
     expect(clicks).toEqual([false]);
     expect(original.defaultPrevented).toBe(true);

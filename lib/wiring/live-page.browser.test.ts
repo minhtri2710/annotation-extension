@@ -1,13 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
-import { createCaptureController, interceptPageEvents, type CaptureController, type CaptureEvents } from '../capture/selection';
+import { createCaptureController, guardUntrustedOverlayEvents, interceptPageEvents, type CaptureController, type CaptureEvents } from '../capture/selection';
+import { createAnnotationList } from '../annotation-list/annotation-list';
+import type { AnnotationWriteMessage } from '../annotation-messages';
+import { buildOverlayShell } from '../ui/shell';
 import { createPinsController, type PinsController } from '../pins/pins';
 import { createEventBus } from '../ui/event-bus';
 import { watchRoute } from './route-watch';
 
 let host: HTMLElement;
+let root: ShadowRoot;
+let stopOverlayGuard: (() => void) | undefined;
 let target: HTMLElement;
 let controller: CaptureController | undefined;
 let pins: PinsController | undefined;
@@ -16,7 +21,8 @@ let selected: ElementContext[];
 // The overlay host as the content script mounts it: a shadow host raised into the top layer.
 function mountHost() {
   host = document.createElement('div');
-  host.attachShadow({ mode: 'open' });
+  root = host.attachShadow({ mode: 'closed' });
+  stopOverlayGuard = guardUntrustedOverlayEvents(root);
   document.body.append(host);
   host.popover = 'manual';
   host.showPopover();
@@ -26,12 +32,12 @@ function startCapture() {
   selected = [];
   const bus = createEventBus<CaptureEvents>();
   bus.on('element:selected', (context) => selected.push(context));
-  controller = createCaptureController({ document, shadowHost: host, bus });
+  controller = createCaptureController({ document, shadowHost: host, shadowRoot: root, bus });
   controller.activate();
 }
 
-function hover(element: Element) {
-  element.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, composed: true }));
+async function hover(element: Element) {
+  await userEvent.hover(element);
 }
 
 function annotation(selector: string): Annotation {
@@ -76,6 +82,8 @@ afterEach(() => {
   controller = undefined;
   pins?.destroy();
   pins = undefined;
+  stopOverlayGuard?.();
+  stopOverlayGuard = undefined;
   host.remove();
   target.remove();
   document.documentElement.style.zoom = '';
@@ -90,11 +98,11 @@ describe.each([
     zoomed().style.zoom = '1.5';
   });
 
-  it('the capture highlight covers its element within 2 px', () => {
+  it('the capture highlight covers its element within 2 px', async () => {
     startCapture();
-    hover(target);
+    await hover(target);
 
-    const box = host.shadowRoot!.querySelector<HTMLElement>('[data-annotation-highlight]')!.getBoundingClientRect();
+    const box = root.querySelector<HTMLElement>('[data-annotation-highlight]')!.getBoundingClientRect();
     const expected = target.getBoundingClientRect();
     expect(expected.width).toBeCloseTo(225, 0);
     expectWithin(box.left, expected.left);
@@ -103,11 +111,11 @@ describe.each([
     expectWithin(box.height, expected.height);
   });
 
-  it("the highlight label sits on the element's top edge", () => {
+  it("the highlight label sits on the element's top edge", async () => {
     startCapture();
-    hover(target);
+    await hover(target);
 
-    const label = host.shadowRoot!.querySelector<HTMLElement>('[data-annotation-highlight-label]')!.getBoundingClientRect();
+    const label = root.querySelector<HTMLElement>('[data-annotation-highlight-label]')!.getBoundingClientRect();
     const expected = target.getBoundingClientRect();
     expectWithin(label.left, expected.left);
     expectWithin(label.bottom, expected.top);
@@ -116,7 +124,7 @@ describe.each([
   it("a pin is centred on its element's top-left corner within 2 px", () => {
     const container = document.createElement('div');
     const toolbar = document.createElement('div');
-    host.shadowRoot!.append(container, toolbar);
+    root.append(container, toolbar);
     pins = createPinsController({ document, container, toolbar });
     pins.setAnnotations([annotation('#zoom-target')]);
 
@@ -225,17 +233,161 @@ describe('a page that stops events at window capture (real browser)', () => {
     for (const type of HOSTILE) window.removeEventListener(type, hostile, true);
   });
 
-  it('keeps the overlay buttons working and commits a click while capture is active', async () => {
+  it('keeps overlay button keyboard activation working through a closed root while capture is active', async () => {
     const button = document.createElement('button');
     button.textContent = 'Overlay';
-    button.style.cssText = 'position: fixed; right: 10px; bottom: 10px';
+    host.style.cssText = 'position: fixed; inset: 0';
+    button.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
     let overlayClicks = 0;
     button.addEventListener('click', () => overlayClicks++);
-    host.shadowRoot!.append(button);
+    root.append(button);
     startCapture();
 
-    await userEvent.click(button);
+    await userEvent.click(host);
     expect(overlayClicks).toBe(1);
+    button.focus();
+    await userEvent.keyboard(' ');
+    expect(overlayClicks).toBe(2);
+    expect(controller!.active).toBe(true);
+    host.hidePopover();
+
+    await userEvent.click(target);
+    expect(selected.map((context) => context.id)).toEqual(['zoom-target']);
+  });
+
+  it('redirects trusted Space activation through a closed root while capture is active', async () => {
+    const button = document.createElement('button');
+    button.textContent = 'Overlay';
+    host.style.cssText = 'position: fixed; inset: 0';
+    button.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
+    let overlayClicks = 0;
+    button.addEventListener('click', () => overlayClicks++);
+    root.append(button);
+    startCapture();
+
+    button.focus();
+    await userEvent.keyboard(' ');
+
+    expect(overlayClicks).toBe(1);
+    expect(controller!.active).toBe(true);
+  });
+
+  it('routes capture navigation keys from a focused control inside the closed root', async () => {
+    const parent = document.createElement('div');
+    parent.id = 'key-parent';
+    parent.style.cssText = 'width: 200px; height: 100px';
+    const child = document.createElement('button');
+    child.textContent = 'Page target';
+    child.style.cssText = 'width: 100px; height: 40px';
+    parent.append(child);
+    document.body.append(parent);
+    const overlayButton = document.createElement('button');
+    overlayButton.tabIndex = 0;
+    root.append(overlayButton);
+    startCapture();
+
+    await userEvent.hover(child);
+    overlayButton.focus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(root.querySelector('[data-annotation-highlight-label]')?.textContent).toContain('div#key-parent');
+
+    await userEvent.keyboard('{Escape}');
+    expect(controller!.active).toBe(false);
+    parent.remove();
+  });
+
+  it('blocks untrusted events from the closed-root list and permits trusted clear controls', async () => {
+    const container = document.createElement('div');
+    root.append(container);
+    const shell = buildOverlayShell(container);
+    const sendAnnotationWrite = vi.fn(async (_message: AnnotationWriteMessage) => undefined);
+    const storedAnnotations = [annotation('#first'), { ...annotation('#second'), id: 'second', note: 'Second note' }];
+    const list = createAnnotationList(shell.panel, location.href, {
+      listAnnotations: async () => storedAnnotations,
+      sendAnnotationWrite: async (message) => {
+        sendAnnotationWrite(message);
+        if (message.type === 'annotation.clear') storedAnnotations.splice(0);
+        if (message.type === 'annotation.delete') {
+          const index = storedAnnotations.findIndex((item) => item.id === message.id);
+          if (index >= 0) storedAnnotations.splice(index, 1);
+        }
+      },
+      readBlob: async () => new Blob(),
+      readOnboardingOpen: async () => false,
+      readCaptureShortcut: async () => 'Alt+Q',
+      writeOnboardingOpen: async () => undefined,
+    });
+    await list.render();
+    const viewAll = document.createElement('button');
+    viewAll.type = 'button';
+    viewAll.dataset.annotationListToggle = '';
+    viewAll.setAttribute('aria-expanded', 'false');
+    viewAll.textContent = 'View all';
+    const openList = vi.fn(() => {
+      void list.render().then(() => viewAll.setAttribute('aria-expanded', 'true'));
+    });
+    viewAll.addEventListener('click', openList);
+    shell.toolbar.append(viewAll);
+    host.style.cssText = 'position: fixed; inset: 0';
+    const rows = shell.panel.querySelector('[data-annotation-rows]')!;
+    const before = rows.textContent;
+    const remove = shell.panel.querySelector<HTMLButtonElement>('[data-annotation-delete]')!;
+    const clear = shell.panel.querySelector('[data-annotation-clear]')!;
+    for (const type of HOSTILE) window.removeEventListener(type, hostile, true);
+    const leakedTargets: EventTarget[] = [host, document, window, viewAll, clear, remove];
+    for (const item of leakedTargets) {
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, cancelable: true }));
+      item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true, cancelable: true }));
+      if (item instanceof HTMLElement) item.click();
+    }
+    expect(host.shadowRoot).toBeNull();
+    expect(openList).not.toHaveBeenCalled();
+    expect(shell.panel.querySelector('[data-annotation-clear]')).toBe(clear);
+    expect(shell.panel.querySelector('[data-annotation-clear-confirm]')).toBeNull();
+    expect(shell.panel.querySelector('[data-annotation-delete-confirm]')).toBeNull();
+    expect(shell.panel.querySelector('[data-annotation-row]')).toBe(remove.closest('[data-annotation-row]'));
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    expect(rows.textContent).toBe(before);
+
+    startCapture();
+    viewAll.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
+    await userEvent.click(host);
+    await vi.waitFor(() => expect(viewAll.getAttribute('aria-expanded')).toBe('true'));
+    expect(openList).toHaveBeenCalledTimes(1);
+    viewAll.style.removeProperty('position');
+    viewAll.style.removeProperty('inset');
+    viewAll.style.removeProperty('width');
+    viewAll.style.removeProperty('height');
+    const currentRemove = shell.panel.querySelector<HTMLButtonElement>('[data-annotation-delete]')!;
+    currentRemove.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
+    await userEvent.click(host);
+    const deletePrompt = shell.panel.querySelector('[data-annotation-delete-prompt]')!;
+    const deleteConfirm = deletePrompt.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement;
+    deleteConfirm.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, cancelable: true }));
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    deleteConfirm.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
+    await userEvent.click(host);
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.delete', pageUrl: location.href, id: 'zoomed' });
+
+    const currentClear = shell.panel.querySelector('[data-annotation-clear]') as HTMLButtonElement;
+    currentClear.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
+    await userEvent.click(host);
+    const clearPrompt = shell.panel.querySelector('[data-annotation-clear-prompt]')!;
+    const confirm = clearPrompt.querySelector('[data-annotation-clear-confirm]') as HTMLButtonElement;
+    confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, cancelable: true }));
+    expect(sendAnnotationWrite).not.toHaveBeenCalledWith({ type: 'annotation.clear', pageUrl: location.href });
+    confirm.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
+    await userEvent.click(host);
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.clear', pageUrl: location.href });
+    await list.clear();
+  });
+
+  it('ignores untrusted page capture events but commits a trusted click', async () => {
+    startCapture();
+    target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true, cancelable: true, button: 0 }));
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, cancelable: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(selected).toEqual([]);
     expect(controller!.active).toBe(true);
 
     await userEvent.click(target);
