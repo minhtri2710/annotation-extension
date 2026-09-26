@@ -256,9 +256,16 @@ export function createAnnotationList(
     download.addEventListener('click', () => {
       const version = clearVersion;
       void (async () => {
-        let images = 0;
         try {
           delivery.download(markdown(), 'annotations.md');
+        } catch (error) {
+          if (version !== clearVersion) return;
+          statusMessage = errorMessage(error);
+          await render();
+          return;
+        }
+        let images = 0;
+        try {
           for (const annotation of annotations) {
             for (const { key, filename } of annotationAssets(annotation)) {
               delivery.downloadAsset(await persistence.readBlob(key), filename);
@@ -267,7 +274,7 @@ export function createAnnotationList(
           }
         } catch (error) {
           if (version !== clearVersion) return;
-          statusMessage = errorMessage(error);
+          statusMessage = `Download started for annotations.md, but an image could not be read: ${errorMessage(error)}`;
           await render();
           return;
         }

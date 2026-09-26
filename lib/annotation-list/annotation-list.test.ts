@@ -279,6 +279,19 @@ describe('annotation list', () => {
     await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')).toBeNull());
   });
 
+  it('keeps a Markdown download error raw and does not read image blobs', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Export me', 'image/webp')]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn().mockResolvedValue(undefined), download: vi.fn(() => { throw new Error('download blocked'); }), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+
+    (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('download blocked'));
+    expect(store.readBlob).not.toHaveBeenCalled();
+  });
+
   it('surfaces an export-download error, even across a re-render, but not after clear', async () => {
     const panel = document.createElement('div');
     const store = persistence([annotation('annotation-1', 'Export me', 'image/webp')]);
@@ -291,13 +304,13 @@ describe('annotation list', () => {
     await list.render();
     vi.mocked(store.readBlob).mockRejectedValueOnce(new Error('read failed'));
     download();
-    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('read failed'));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Download started for annotations.md, but an image could not be read: read failed'));
 
     pendingRead();
     download();
     await list.render();
     rejectRead(new Error('late read failed'));
-    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('late read failed'));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Download started for annotations.md, but an image could not be read: late read failed'));
 
     pendingRead();
     download();

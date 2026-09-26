@@ -39,6 +39,17 @@ type AppliedCssEdits = {
   originals: Map<string, string>;
 };
 
+function fetchesResource(declaration: CssDeclaration): boolean {
+  const detached = document.createElement('div');
+  // The detached element is never rendered, so parsing its style cannot fetch a resource.
+  detached.style.setProperty(declaration.property, declaration.value);
+  const serialised = detached.style.getPropertyValue(declaration.property).toLowerCase();
+  // Custom properties preserve escapes verbatim, so reject backslashes before they can hide a fetch function.
+  return serialised.includes('url(')
+    || serialised.includes('image-set(')
+    || (declaration.property.startsWith('--') && declaration.value.includes('\\'));
+}
+
 function createCssEditRegistry() {
   const applied = new Map<string, AppliedCssEdits>();
 
@@ -47,18 +58,19 @@ function createCssEditRegistry() {
     if (!element) return undefined;
 
     const target = element as HTMLElement;
+    const allowed = declarations.filter((declaration) => !fetchesResource(declaration));
     const previous = applied.get(annotation.id);
     const current = previous?.element === target ? previous.originals : new Map<string, string>();
     if (previous) {
       for (const property of previous.originals.keys()) {
-        if (previous.element !== target || !declarations.some((edit) => edit.property === property)) {
+        if (previous.element !== target || !allowed.some((edit) => edit.property === property)) {
           previous.element.style.removeProperty(property);
         }
       }
     }
 
     // Originals are resolved before any setProperty so one edit cannot leak into another's original.
-    const edits = declarations.map(({ property, value }) => ({
+    const edits = allowed.map(({ property, value }) => ({
       property,
       value,
       original:
