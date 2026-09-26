@@ -62,8 +62,22 @@ export async function lookupCaptureShortcut(): Promise<string> {
 
 export const SHORTCUT_SETTINGS = "your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager)";
 
-export function captureShortcutHint(shortcut: string): string {
-  return shortcut
-    ? `Shortcut: ${shortcut}`
-    : `No keyboard shortcut is set; you can add one in ${SHORTCUT_SETTINGS}.`;
+export const CAPTURE_SHORTCUT_UNSET_HINT = `No keyboard shortcut is set; you can add one in ${SHORTCUT_SETTINGS}.`;
+const SHORTCUT_HINT_PREFIX = 'Shortcut: ';
+
+export function renderCaptureShortcutHint(element: HTMLElement, shortcut: string | undefined): void {
+  element.replaceChildren();
+  if (shortcut === undefined) {
+    element.hidden = true;
+    return;
+  }
+  element.hidden = false;
+  if (!shortcut) {
+    element.textContent = CAPTURE_SHORTCUT_UNSET_HINT;
+    return;
+  }
+  element.append(SHORTCUT_HINT_PREFIX);
+  const key = element.ownerDocument.createElement('kbd');
+  key.textContent = shortcut;
+  element.append(key);
 }

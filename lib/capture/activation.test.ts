@@ -1,10 +1,13 @@
+// @vitest-environment happy-dom
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import {
   CAPTURE_SHORTCUT_MESSAGE,
   CAPTURE_STATE_MESSAGE,
   CAPTURE_TOGGLE_MESSAGE,
-  captureShortcutHint,
+  CAPTURE_SHORTCUT_UNSET_HINT,
+  renderCaptureShortcutHint,
   isCaptureShortcutMessage,
   isCaptureStateMessage,
   isCaptureToggleMessage,
@@ -150,16 +153,34 @@ describe('lookupCaptureShortcut', () => {
   });
 });
 
-describe('captureShortcutHint', () => {
-  it('names a set shortcut', () => {
-    expect(captureShortcutHint('Alt+Q')).toBe('Shortcut: Alt+Q');
+describe('renderCaptureShortcutHint', () => {
+  it('builds a set shortcut hint with one readable kbd', () => {
+    const hint = document.createElement('p');
+    renderCaptureShortcutHint(hint, 'Alt+Q');
+    expect(hint.textContent).toBe('Shortcut: Alt+Q');
+    expect(hint.childElementCount).toBe(1);
+    expect(hint.firstElementChild?.tagName).toBe('KBD');
+    expect(hint.firstElementChild?.textContent).toBe('Alt+Q');
+    expect(hint.hidden).toBe(false);
   });
 
-  it('points to the shortcut settings in plain text, naming no key, when none is set', () => {
-    const hint = captureShortcutHint('');
-    expect(hint).toBe("No keyboard shortcut is set; you can add one in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).");
-    expect(hint).toContain('chrome://extensions/shortcuts');
-    expect(hint).toContain('Manage Extension Shortcuts');
-    expect(hint).not.toMatch(/\b(Ctrl|Control|Alt|Shift|Cmd|Command|MacCtrl)\b|⌘|⇧/);
+  it('builds the unset shortcut hint as plain text with no key', () => {
+    const hint = document.createElement('p');
+    renderCaptureShortcutHint(hint, '');
+    expect(hint.textContent).toBe(CAPTURE_SHORTCUT_UNSET_HINT);
+    expect(hint.hidden).toBe(false);
+    expect(hint.childElementCount).toBe(0);
+    expect(hint.textContent).toContain('chrome://extensions/shortcuts');
+    expect(hint.textContent).toContain('Manage Extension Shortcuts');
+    expect(hint.textContent).not.toMatch(/\b(Ctrl|Control|Alt|Shift|Cmd|Command|MacCtrl)\b|⌘|⇧/);
+  });
+
+  it('leaves a fresh hidden hint empty when the shortcut read failed', () => {
+    const hint = document.createElement('p');
+    hint.textContent = 'stale hint';
+    renderCaptureShortcutHint(hint, undefined);
+    expect(hint.textContent).toBe('');
+    expect(hint.hidden).toBe(true);
+    expect(hint.childElementCount).toBe(0);
   });
 });

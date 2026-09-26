@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import popupHtml from '../../entrypoints/popup/index.html?raw';
-import { captureShortcutHint } from '../capture/activation';
+import { renderCaptureShortcutHint } from '../capture/activation';
 import { contrastRatio, parseColor, type Rgba } from '../lint/color';
+import { ANNOTATION_DARK_TOKENS } from './tokens';
 import { PAGE_STYLES } from './page-styles';
 import { buildOverlayShell, raiseOverlay } from './shell';
 import { applyThemeMode, type ThemeMode } from './theme';
@@ -236,11 +237,11 @@ describe('toolbar keyboard model', () => {
 });
 
 describe('popup heading', () => {
-  it('has one h1 naming the extension and the same visible layout as without it', () => {
+  it('has one h1 naming the extension, one All pages heading, and the same visible layout as without it', () => {
     const parsed = new DOMParser().parseFromString(popupHtml, 'text/html');
     const headings = [...parsed.querySelectorAll('h1')];
     expect(headings.map((heading) => heading.textContent)).toEqual(['Annotation Extension']);
-    expect(parsed.querySelectorAll('h2, h3, h4, h5, h6')).toHaveLength(0);
+    expect([...parsed.querySelectorAll('h2, h3, h4, h5, h6')].map((heading) => heading.textContent)).toEqual(['All pages']);
 
     const style = document.createElement('style');
     style.textContent = PAGE_STYLES;
@@ -266,6 +267,60 @@ describe('popup heading', () => {
   });
 });
 
+describe.each(['light', 'dark'] as const)('popup primary in the %s token scheme', (scheme) => {
+  it('uses the accent fill and keeps toggle text at 4.5:1 at rest and hover, including disabled state', async () => {
+    const parsed = new DOMParser().parseFromString(popupHtml, 'text/html');
+    const pageStyle = document.createElement('style');
+    pageStyle.textContent = PAGE_STYLES;
+    const darkTokens = document.createElement('style');
+    if (scheme === 'dark') darkTokens.textContent = `:root {\n${ANNOTATION_DARK_TOKENS}\n}`;
+    document.head.append(pageStyle, darkTokens);
+    const main = document.importNode(parsed.querySelector('main')!, true);
+    document.body.classList.add('annotation-page--popup');
+    document.body.append(main);
+    cleanups.push(() => {
+      main.remove();
+      pageStyle.remove();
+      darkTokens.remove();
+      document.body.classList.remove('annotation-page--popup');
+    });
+    const toggle = main.querySelector<HTMLButtonElement>('#toggle')!;
+    toggle.disabled = false;
+    const settle = () => Promise.allSettled(toggle.getAnimations().map((animation) => animation.finished));
+    const accent = color(getComputedStyle(document.documentElement).getPropertyValue('--annotation-color-accent'));
+    const checkContrast = () => {
+      const style = getComputedStyle(toggle);
+      expect(color(style.backgroundColor)).toEqual(accent);
+      expect(contrastRatio(color(style.color), color(style.backgroundColor))).toBeGreaterThanOrEqual(4.5);
+    };
+    await userEvent.unhover(toggle);
+    await vi.waitFor(() => expect(toggle.matches(':hover')).toBe(false));
+    await settle();
+    checkContrast();
+    await userEvent.hover(toggle);
+    await vi.waitFor(() => expect(toggle.matches(':hover')).toBe(true));
+    await settle();
+    checkContrast();
+    toggle.disabled = true;
+    await settle();
+    expect(Number.parseFloat(getComputedStyle(toggle).opacity)).toBeLessThan(1);
+    expect(getComputedStyle(toggle).cursor).toBe('not-allowed');
+    await userEvent.unhover(toggle);
+    await vi.waitFor(() => expect(toggle.matches(':hover')).toBe(false));
+    await settle();
+    const disabledBackground = getComputedStyle(toggle).backgroundColor;
+    const disabledBorder = getComputedStyle(toggle).borderTopColor;
+    await userEvent.hover(toggle);
+    await vi.waitFor(() => expect(toggle.matches(':hover')).toBe(true));
+    await settle();
+    expect(getComputedStyle(toggle).backgroundColor).toBe(disabledBackground);
+    expect(getComputedStyle(toggle).borderTopColor).toBe(disabledBorder);
+    const hint = main.querySelector<HTMLParagraphElement>('#shortcut-hint')!;
+    renderCaptureShortcutHint(hint, 'Alt+Q');
+    expect(getComputedStyle(hint.querySelector('kbd')!).borderTopWidth).toBe('1px');
+  });
+});
+
 describe('popup shortcut hint', () => {
   type HintState = { kind: 'set'; shortcut: string } | { kind: 'unset' } | { kind: 'failed' };
 
@@ -287,8 +342,7 @@ describe('popup shortcut hint', () => {
     const toggle = main.querySelector<HTMLButtonElement>('#toggle')!;
     if (!withHint) hint.remove();
     else if (state.kind !== 'failed') {
-      hint.textContent = captureShortcutHint(state.kind === 'set' ? state.shortcut : '');
-      hint.hidden = false;
+      renderCaptureShortcutHint(hint, state.kind === 'set' ? state.shortcut : '');
       toggle.setAttribute('aria-describedby', 'shortcut-hint');
     }
     return { main, hint, toggle };

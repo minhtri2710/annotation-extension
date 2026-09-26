@@ -80,6 +80,20 @@ describe('note panel in a real browser', () => {
     expect(getComputedStyle(attach).outlineStyle).toBe('none');
   });
 
+  it('centres note card disclosure summary text while preserving its marker display', async () => {
+    const { shell } = await rendered('light', {
+      cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
+    });
+    const summary = shell.panel.querySelector<HTMLDetailsElement>('[data-annotation-css-group] summary')!;
+    const rect = summary.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(summary);
+    const textRect = range.getBoundingClientRect();
+    expect(getComputedStyle(summary).display).toBe('list-item');
+    expect(rect.height).toBeGreaterThanOrEqual(32);
+    expect(Math.abs((textRect.top + textRect.height / 2) - (rect.top + rect.height / 2))).toBeLessThanOrEqual(2);
+  });
+
   it('renders card borders and stacked full-width disclosure fields', async () => {
     const { shell } = await rendered('light', {
       cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],

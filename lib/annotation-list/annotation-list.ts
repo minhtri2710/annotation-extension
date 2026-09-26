@@ -10,7 +10,7 @@ import { sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-
 import { sendBlobRead } from '../screenshot/messages';
 import { readOnboardingOpen, writeOnboardingOpen } from '../ui/ui-prefs';
 import { resolveSelector } from '../capture/selector';
-import { captureShortcutHint, readCaptureShortcut, SHORTCUT_SETTINGS } from '../capture/activation';
+import { CAPTURE_SHORTCUT_UNSET_HINT, readCaptureShortcut, SHORTCUT_SETTINGS } from '../capture/activation';
 import { createLocateHighlight } from '../ui/locate-highlight';
 import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/shell';
 
@@ -53,7 +53,7 @@ function onboardingSteps(shortcut: string | undefined): string[] {
   const first = shortcut === undefined
     ? `Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in ${SHORTCUT_SETTINGS}.`
     : shortcut === ''
-      ? `Click Annotate, then click any element to leave a note. ${captureShortcutHint('')}`
+      ? `Click Annotate, then click any element to leave a note. ${CAPTURE_SHORTCUT_UNSET_HINT}`
       : `Click Annotate or press ${shortcut}, then click any element to leave a note.`;
   return [first, ...LATER_ONBOARDING_STEPS];
 }
@@ -122,11 +122,11 @@ export function createAnnotationList(
       start.addEventListener('click', () => panel.dispatchEvent(new CustomEvent(ANNOTATION_START_EVENT)));
       panel.append(empty, start);
     } else {
-      panel.append(createClearAll(document, annotations.length), createExportSection(document, annotations));
+      panel.append(createExportSection(document, annotations));
       const rows = document.createElement('div');
       rows.dataset.annotationRows = '';
       annotations.forEach((annotation, index) => rows.append(createRow(document, annotation, index + 1)));
-      panel.append(createStatusFilter(document, annotations, rows), rows);
+      panel.append(createStatusFilter(document, annotations, rows), rows, createClearAll(document, annotations.length));
     }
     restoreFocus();
   }
@@ -143,7 +143,9 @@ export function createAnnotationList(
   }
 
   // Clear all deletes nothing by itself; it swaps in an inline prompt, and only its Delete all clears.
-  function createClearAll(document: Document, count: number): HTMLButtonElement {
+  function createClearAll(document: Document, count: number): HTMLDivElement {
+    const footer = document.createElement('div');
+    footer.dataset.annotationListFooter = '';
     const clear = document.createElement('button');
     clear.type = 'button';
     clear.dataset.annotationClear = '';
@@ -157,7 +159,8 @@ export function createAnnotationList(
       onConfirm: () => void mutate({ type: 'annotation.clear', pageUrl }),
       dataPrefix: 'annotation-clear',
     });
-    return clear;
+    footer.append(clear);
+    return footer;
   }
 
   // Filtering hides rows in place, so rows keep their pin numbers and the pressed chip keeps focus.
@@ -276,7 +279,10 @@ export function createAnnotationList(
       })();
     });
 
-    section.append(heading, copy, download);
+    const actions = document.createElement('div');
+    actions.dataset.annotationExportActions = '';
+    actions.append(copy, download);
+    section.append(heading, actions);
     return section;
   }
 
@@ -341,13 +347,17 @@ export function createAnnotationList(
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.dataset.annotationRowEdit = '';
+    edit.dataset.variant = 'primary';
     edit.setAttribute('aria-label', `Edit annotation ${position}`);
     edit.textContent = 'Edit';
     edit.addEventListener('click', () => {
       panel.dispatchEvent(new CustomEvent<Annotation>(ANNOTATION_EDIT_EVENT, { detail: annotation }));
     });
 
-    row.append(number, note, hint, status, locate, edit, remove);
+    const actions = document.createElement('div');
+    actions.dataset.annotationRowActions = '';
+    actions.append(locate, edit, remove);
+    row.append(number, note, hint, status, actions);
     if (!resolveSelector(document, annotation.selector)) flagMissing(document, row);
     return row;
   }

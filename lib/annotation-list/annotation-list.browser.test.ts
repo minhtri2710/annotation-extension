@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
+import { parseColor } from '../lint/color';
 import { buildOverlayShell } from '../ui/shell';
 import { createAnnotationList } from './annotation-list';
 
@@ -80,6 +81,43 @@ describe('annotation list in a real browser', () => {
     expect(list.live).toBe(live);
     expect(live.textContent).toBe('Annotation 2 located.');
     expect(shell.root.querySelectorAll('[role="status"]')).toHaveLength(1);
+    list.clear();
+  });
+
+  it('spaces row and export action buttons and places Clear all below the rows', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const container = document.createElement('div');
+    host.attachShadow({ mode: 'open' }).append(container);
+    const shell = buildOverlayShell(container);
+    const list = createAnnotationList(shell.panel, pageUrl, {
+      listAnnotations: async () => [annotation('a1', '#missing'), annotation('a2', '#missing')],
+      sendAnnotationWrite: vi.fn(), readBlob: vi.fn(),
+      readOnboardingOpen: async () => false, writeOnboardingOpen: async () => undefined,
+      readCaptureShortcut: async () => 'Alt+Q',
+    });
+    await list.render();
+    const gapAtLeastSpace2 = (actions: HTMLElement, count: number) => {
+      const buttons = [...actions.querySelectorAll('button')];
+      expect(buttons).toHaveLength(count);
+      for (let index = 1; index < buttons.length; index += 1) {
+        expect(buttons[index]!.getBoundingClientRect().left - buttons[index - 1]!.getBoundingClientRect().right).toBeGreaterThanOrEqual(8);
+        expect(buttons[index - 1]!.getBoundingClientRect().right).toBeLessThanOrEqual(buttons[index]!.getBoundingClientRect().left);
+      }
+    };
+    gapAtLeastSpace2(shell.panel.querySelector<HTMLElement>('[data-annotation-row-actions]')!, 3);
+    gapAtLeastSpace2(shell.panel.querySelector<HTMLElement>('[data-annotation-export-actions]')!, 2);
+    const rows = shell.panel.querySelector<HTMLElement>('[data-annotation-rows]')!;
+    const footer = shell.panel.querySelector<HTMLElement>('[data-annotation-list-footer]')!;
+    const clear = footer.querySelector<HTMLButtonElement>('[data-annotation-clear]')!;
+    expect(shell.panel.lastElementChild).toBe(footer);
+    expect(footer.getBoundingClientRect().top).toBeGreaterThan(rows.getBoundingClientRect().bottom);
+    const footerStyle = getComputedStyle(footer);
+    expect(footerStyle.borderTopWidth).toBe('1px');
+    expect(parseColor(footerStyle.borderTopColor)).toEqual(parseColor(getComputedStyle(shell.root).getPropertyValue('--annotation-color-border')));
+    const clearStyle = getComputedStyle(clear);
+    expect(clearStyle.borderTopColor).toBe(clearStyle.borderBottomColor);
+    expect(clear.getBoundingClientRect().height).toBe(shell.panel.querySelector<HTMLButtonElement>('[data-annotation-row-actions] [data-annotation-locate]')!.getBoundingClientRect().height);
     list.clear();
   });
 

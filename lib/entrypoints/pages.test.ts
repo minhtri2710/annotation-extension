@@ -72,6 +72,7 @@ describe('popup page', () => {
     await openPopup();
 
     await vi.waitFor(() => expect(byId('shortcut-hint').textContent).toBe('Shortcut: Alt+Shift+Y'));
+    expect(byId('shortcut-hint').querySelector('kbd')?.textContent).toBe('Alt+Shift+Y');
     expect(byId('shortcut-hint').hidden).toBe(false);
     expect(byId('toggle').getAttribute('aria-describedby')).toBe('shortcut-hint');
   });
@@ -93,6 +94,15 @@ describe('popup page', () => {
 
   it('names the popup exports and import by format and scope', () => {
     loadPage('popup');
+    const card = document.querySelector('.annotation-page__card')!;
+    expect([...card.children].map((child) => child.tagName)).toEqual(['H1', 'P', 'DIV', 'P', 'SECTION', 'INPUT', 'P']);
+    const [toggleActions, hint, allPages] = [...card.children].slice(2, 5);
+    expect(toggleActions?.querySelectorAll('button')).toHaveLength(1);
+    expect(toggleActions?.querySelector('button')?.id).toBe('toggle');
+    expect(byId('toggle').dataset.variant).toBe('primary');
+    expect(hint?.id).toBe('shortcut-hint');
+    expect(allPages?.querySelector('h2')?.textContent).toBe('All pages');
+    expect(allPages?.querySelector('h2')?.nextElementSibling?.className).toBe('annotation-page__actions');
     expect([...document.querySelectorAll('.annotation-page__actions button')].map((button) => button.textContent)).toEqual([
       'Start annotating',
       'Export JSON (all pages)',
@@ -269,7 +279,8 @@ describe('popup page', () => {
 
       await vi.waitFor(() => expect(byId('shortcut-hint').textContent).toBe('Shortcut: Alt+Q'));
       expect(byId('shortcut-hint').hidden).toBe(false);
-      expect(byId('shortcut-hint').childElementCount).toBe(0);
+      expect(byId('shortcut-hint').childElementCount).toBe(1);
+      expect(byId('shortcut-hint').firstElementChild?.tagName).toBe('KBD');
       expect(byId('toggle').getAttribute('aria-describedby')).toBe('shortcut-hint');
       expect(create).not.toHaveBeenCalled();
     });
@@ -312,7 +323,8 @@ describe('popup page', () => {
       await vi.waitFor(() => expect(byId('shortcut-hint').textContent).toBe('Shortcut: Alt+Q'));
       expect(byId('status').textContent).toBe("Annotations can't run on this page.");
       expect(byId('shortcut-hint').hidden).toBe(false);
-      expect(byId('shortcut-hint').childElementCount).toBe(0);
+      expect(byId('shortcut-hint').childElementCount).toBe(1);
+      expect(byId('shortcut-hint').firstElementChild?.tagName).toBe('KBD');
       expect(create).not.toHaveBeenCalled();
     });
   });

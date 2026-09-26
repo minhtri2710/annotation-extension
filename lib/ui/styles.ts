@@ -158,7 +158,9 @@ ${ANNOTATION_DARK_TOKENS}
 }
 
 [data-annotation-shell] [data-annotation-note-actions],
-[data-annotation-shell] [data-annotation-group-actions] {
+[data-annotation-shell] [data-annotation-group-actions],
+[data-annotation-shell] [data-annotation-row-actions],
+[data-annotation-shell] [data-annotation-export-actions] {
   display: flex;
   flex-wrap: wrap;
   gap: var(--annotation-space-2);
@@ -202,6 +204,7 @@ ${ANNOTATION_DARK_TOKENS}
 
 [data-annotation-shell] article[data-annotation-note-card] summary {
   min-height: 32px;
+  line-height: 32px;
 }
 
 [data-annotation-shell] article[data-annotation-note-card] label:has(textarea) {
@@ -569,6 +572,11 @@ ${ANNOTATION_DARK_TOKENS}
   margin: 0;
   color: var(--annotation-color-danger);
   font-size: var(--annotation-font-size-caption);
+}
+
+[data-annotation-shell] [data-annotation-list-footer] {
+  padding-top: var(--annotation-space-3);
+  border-top: 1px solid var(--annotation-color-border);
 }
 
 [data-annotation-shell] [data-annotation-clear-prompt] {

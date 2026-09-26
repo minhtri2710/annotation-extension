@@ -58,6 +58,19 @@ body.annotation-page--popup .annotation-page__card {
   gap: var(--annotation-space-2);
 }
 
+.annotation-page__group {
+  margin-top: var(--annotation-space-4);
+  padding-top: var(--annotation-space-3);
+  border-top: 1px solid var(--annotation-color-border);
+}
+
+.annotation-page__group h2 {
+  margin: 0 0 var(--annotation-space-2);
+  font-size: var(--annotation-font-size-title);
+  font-weight: var(--annotation-font-weight-medium);
+  line-height: 1.2;
+}
+
 .annotation-page__toggle,
 .annotation-page__form {
   display: flex;
@@ -97,6 +110,40 @@ body.annotation-page--popup .annotation-page__card {
 .annotation-page__card button:hover {
   border-color: var(--annotation-color-accent);
   background: var(--annotation-color-surface-raised);
+}
+
+.annotation-page__card button[data-variant="primary"],
+.annotation-page__card button[data-variant="primary"]:active {
+  border-color: var(--annotation-color-accent);
+  background: var(--annotation-color-accent);
+  color: var(--annotation-color-surface);
+  font-weight: var(--annotation-font-weight-medium);
+}
+
+.annotation-page__card button[data-variant="primary"]:hover {
+  border-color: var(--annotation-color-text);
+  background: var(--annotation-color-accent);
+  color: var(--annotation-color-surface);
+}
+
+.annotation-page__card button:disabled,
+.annotation-page__card button:disabled:hover,
+.annotation-page__card button:disabled:active {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.annotation-page__card button:disabled:hover,
+.annotation-page__card button:disabled:active {
+  border-color: var(--annotation-color-border);
+  background: var(--annotation-color-surface);
+}
+
+.annotation-page__card button[data-variant="primary"]:disabled:hover,
+.annotation-page__card button[data-variant="primary"]:disabled:active {
+  border-color: var(--annotation-color-accent);
+  background: var(--annotation-color-accent);
+  color: var(--annotation-color-surface);
 }
 
 .annotation-page__card button:focus-visible,
@@ -139,12 +186,19 @@ body.annotation-page--popup .annotation-page__card {
   accent-color: var(--annotation-color-accent);
 }
 
+.annotation-page__status kbd {
+  padding: 0 var(--annotation-space-1);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-sm);
+  color: inherit;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .annotation-page__card button {
     transition: background 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
   }
 
-  .annotation-page__card button:active {
+  .annotation-page__card button:not(:disabled):active {
     transform: translateY(1px);
   }
 }

@@ -762,6 +762,17 @@ describe('annotation list confirmation, row actions, focus and live status', () 
       ['Locate', 'Edit', 'Delete'],
       ['Locate', 'Edit', 'Delete'],
     ]);
+    const rowActions = rows[0]!.querySelector('[data-annotation-row-actions]');
+    expect([...rowActions!.children].map((button) => (button as HTMLElement).hasAttribute('data-annotation-locate') ? 'Locate' : (button as HTMLElement).hasAttribute('data-annotation-row-edit') ? 'Edit' : 'Delete'))
+      .toEqual(['Locate', 'Edit', 'Delete']);
+    expect(rows[0]?.querySelector<HTMLButtonElement>('[data-annotation-row-edit]')?.dataset.variant).toBe('primary');
+    expect(rows[0]?.querySelector<HTMLButtonElement>('[data-annotation-delete]')?.dataset.variant).toBe('danger');
+    expect([...panel.children].map((child) => child.tagName)).toEqual(['H2', 'DETAILS', 'SECTION', 'DIV', 'P', 'DIV', 'DIV']);
+    expect(panel.lastElementChild?.hasAttribute('data-annotation-list-footer')).toBe(true);
+    expect(panel.lastElementChild?.querySelector('[data-annotation-clear]')).not.toBeNull();
+    expect([...panel.querySelectorAll('[data-annotation-export-actions] button')].map((button) => button.textContent))
+      .toEqual(['Copy Markdown', 'Download Markdown']);
+    expect(panel.querySelector('[data-annotation-export-actions]')?.previousElementSibling?.tagName).toBe('H3');
     expect(rows[1]?.querySelector('[data-annotation-locate]')?.getAttribute('aria-label')).toBe('Locate annotation 2');
     expect(rows[1]?.querySelector('[data-annotation-row-edit]')?.getAttribute('aria-label')).toBe('Edit annotation 2');
     expect(rows[0]?.querySelector('[data-annotation-locate]')?.getAttribute('aria-label')).toBe('Locate annotation 1');

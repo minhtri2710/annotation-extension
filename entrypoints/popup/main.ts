@@ -1,5 +1,5 @@
 import { browser } from 'wxt/browser';
-import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE, captureShortcutHint, lookupCaptureShortcut } from '../../lib/capture';
+import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE, renderCaptureShortcutHint, lookupCaptureShortcut } from '../../lib/capture';
 import { exportJson, importFileSizeError, importJson } from '../../lib/json-io';
 import { listAllAnnotations, listAnnotations } from '../../lib/annotation-storage';
 import { isRecord } from '../../lib/guards';
@@ -113,11 +113,11 @@ async function showShortcutHint(): Promise<void> {
   try {
     shortcut = await lookupCaptureShortcut();
   } catch {
+    if (shortcutHint) renderCaptureShortcutHint(shortcutHint, undefined);
     return;
   }
   if (!shortcutHint) return;
-  shortcutHint.textContent = captureShortcutHint(shortcut);
-  shortcutHint.hidden = false;
+  renderCaptureShortcutHint(shortcutHint, shortcut);
   toggleButton?.setAttribute('aria-describedby', 'shortcut-hint');
 }
 
