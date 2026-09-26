@@ -124,6 +124,121 @@ ${ANNOTATION_DARK_TOKENS}
   margin-top: var(--annotation-space-3);
 }
 
+[data-annotation-shell] [data-annotation-note-header] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--annotation-space-2);
+  align-items: center;
+}
+
+[data-annotation-shell] [data-annotation-note-header] h2 {
+  margin: 0;
+}
+
+[data-annotation-shell] [data-annotation-note-header] [data-annotation-hint] {
+  grid-column: 1 / -1;
+}
+
+[data-annotation-shell] [data-annotation-close] {
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: var(--annotation-font-size-title);
+  line-height: 1;
+}
+
+[data-annotation-shell] article[data-annotation-note-card] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--annotation-space-2);
+  padding: var(--annotation-space-3);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-md);
+}
+
+[data-annotation-shell] [data-annotation-note-actions],
+[data-annotation-shell] [data-annotation-group-actions] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--annotation-space-2);
+  align-items: center;
+}
+
+[data-annotation-shell] [data-annotation-note-actions] label[data-annotation-attach] {
+  display: inline-flex;
+  align-items: center;
+}
+
+[data-annotation-shell] [data-annotation-note-actions] label[data-annotation-attach]:has(input:focus-visible) {
+  outline: 2px solid var(--annotation-color-accent);
+  outline-offset: 2px;
+}
+
+[data-annotation-shell] [data-annotation-attachment-input] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+[data-annotation-shell] [data-annotation-attach-name] {
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+  overflow-wrap: anywhere;
+}
+
+[data-annotation-shell] [data-annotation-css-group],
+[data-annotation-shell] [data-annotation-repro-group] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--annotation-space-2);
+}
+
+[data-annotation-shell] article[data-annotation-note-card] summary {
+  min-height: 32px;
+}
+
+[data-annotation-shell] article[data-annotation-note-card] label:has(textarea) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--annotation-space-1);
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: calc(3 * 1.4em + 2 * var(--annotation-space-1) + 2px);
+  resize: vertical;
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] > form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--annotation-space-2);
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] > form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--annotation-space-1);
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"]:has(article[data-annotation-note-card]) > form {
+  padding-top: var(--annotation-space-3);
+  border-top: 1px solid var(--annotation-color-border);
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] textarea::placeholder {
+  color: var(--annotation-color-text-muted);
+  opacity: 1;
+}
+
 [data-annotation-shell] .annotation-pin[data-annotation-status="resolved"] {
   opacity: 0.55;
 }
@@ -189,7 +304,8 @@ ${ANNOTATION_DARK_TOKENS}
   50% { transform: translate(-50%, -50%) scale(1.18); }
 }
 
-:where([data-annotation-shell] [data-annotation-mount]) button {
+:where([data-annotation-shell] [data-annotation-mount]) button,
+:where([data-annotation-shell] [data-annotation-mount]) label[data-annotation-attach] {
   max-width: 100%;
   min-height: 32px;
   padding: var(--annotation-space-1) var(--annotation-space-2);
@@ -218,7 +334,8 @@ ${ANNOTATION_DARK_TOKENS}
   max-width: 100%;
 }
 
-[data-annotation-shell] [data-annotation-mount] button:hover {
+[data-annotation-shell] [data-annotation-mount] button:hover,
+[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover {
   border-color: var(--annotation-color-accent);
   background: var(--annotation-color-surface-raised);
   color: var(--annotation-color-text);

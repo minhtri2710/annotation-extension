@@ -547,6 +547,22 @@ describe('note panel', () => {
     expect(sentName).not.toContain('  ');
   });
 
+  it('shows the selected attachment name while the attachment write is pending', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Attachment name');
+    await render(panel, [existing], {
+      listAnnotations: vi.fn().mockResolvedValue([existing]),
+      addAttachment: vi.fn(() => new Promise<Awaited<ReturnType<NotePanelPersistence['addAttachment']>>>(() => undefined)),
+    });
+    const input = panel.querySelector<HTMLInputElement>('[data-annotation-attachment-input]')!;
+    Object.defineProperty(input, 'files', {
+      value: [new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'picked.png', { type: 'image/png' })],
+    });
+    input.dispatchEvent(new Event('change'));
+    expect(panel.querySelector('[data-annotation-attach-name]')?.textContent).toBe('picked.png');
+    expect(panel.querySelector('[data-annotation-attach]')?.nextElementSibling).toBe(panel.querySelector('[data-annotation-attach-name]'));
+  });
+
   it('attaches a JPEG named .png as image/jpeg under its own name', async () => {
     const panel = document.createElement('div');
     const existing = annotation('Renamed JPEG');
@@ -727,9 +743,12 @@ describe('note panel close, focus, editor and live status', () => {
     panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, onClose);
     await render(panel);
     const close = panel.querySelector<HTMLButtonElement>('[data-annotation-close]');
+    expect(panel.firstElementChild?.matches('[data-annotation-note-header]')).toBe(true);
+    expect(close?.parentElement).toBe(panel.firstElementChild);
     expect(close?.type).toBe('button');
-    expect(close?.textContent).toBe('Close');
-    expect(close?.getAttribute('aria-label')).toBe('Close annotation note');
+    expect(close?.textContent).toBe('×');
+    expect(close?.getAttribute('aria-label')).toBe('Close');
+    expect(close?.title).toBe('Close');
     close?.click();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -1005,8 +1024,7 @@ describe('note panel screenshot outcome, fresh status, labels, announcements and
     const first = { ...annotation('Elsewhere'), id: '3f2a9c1e-0000-4000-8000-000000000001', selector: '.other' };
     const second = { ...annotation('Here'), id: '3f2a9c1e-0000-4000-8000-000000000002' };
     await render(panel, [first, second]);
-    const names = Array.from(panel.querySelectorAll('textarea[aria-label]'), (field) => field.getAttribute('aria-label') ?? '');
-    const itemNames = names.filter((name) => name !== 'New note');
+    const itemNames = Array.from(panel.querySelectorAll('textarea:not([data-annotation-new-note])[aria-label]'), (field) => field.getAttribute('aria-label') ?? '');
     expect(itemNames).toHaveLength(5);
     for (const name of itemNames) {
       expect(name).not.toContain(second.id);
@@ -1658,9 +1676,13 @@ describe('note panel layout', () => {
     const panel = document.createElement('div');
     await render(panel);
     const hint = panel.querySelector<HTMLElement>('[data-annotation-hint]');
-    expect(panel.children[0]?.textContent).toBe('Notes');
-    expect(panel.children[1]).toBe(hint);
-    expect(hint?.textContent).toBe('BUTTON#target.primary "Target"');
+    const header = panel.children[0];
+    expect(header?.matches('[data-annotation-note-header]')).toBe(true);
+    expect(header?.querySelector('h2')?.textContent).toBe('Notes');
+    expect(header?.querySelector('h2')?.tabIndex).toBe(-1);
+    expect(header?.querySelector('[data-annotation-close]')).not.toBeNull();
+    expect(header?.querySelector('[data-annotation-hint]')).toBe(hint);
+    expect(hint?.textContent).toBe('button#target.primary "Target"');
     expect(hint?.title).toBe('#target');
   });
 
@@ -1681,11 +1703,25 @@ describe('note panel layout', () => {
     expect(panel.querySelector('[data-annotation-hint]')?.textContent).toBe('#target');
   });
 
-  it('puts the status right after the heading, element name and Close', async () => {
+  it('puts the status right after the header', async () => {
     const panel = document.createElement('div');
     await render(panel, [], { listAnnotations: vi.fn().mockRejectedValue(new Error('list failed')) });
-    expect(Array.from(panel.children, (child) => child.tagName)).toEqual(['H2', 'P', 'BUTTON', 'P', 'FORM']);
-    expect(panel.children[3]?.hasAttribute('data-annotation-status')).toBe(true);
+    expect(Array.from(panel.children, (child) => child.tagName)).toEqual(['HEADER', 'P', 'FORM']);
+    expect(panel.children[0]?.querySelector('[data-annotation-close]')).not.toBeNull();
+    expect(panel.children[1]?.hasAttribute('data-annotation-status')).toBe(true);
+  });
+
+  it('labels the new-note field and styles its Add note submit action', async () => {
+    const panel = document.createElement('div');
+    await render(panel);
+    const note = panel.querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!;
+    expect(note.labels?.[0]?.textContent).toBe('Add a note');
+    expect(note.getAttribute('aria-label')).toBeNull();
+    expect(note.placeholder).toBe('What should change here?');
+    const submit = panel.querySelector<HTMLButtonElement>('[data-annotation-save]')!;
+    expect(submit.type).toBe('submit');
+    expect(submit.textContent).toBe('Add note');
+    expect(submit.dataset.variant).toBe('primary');
   });
 
   it('labels the edit save button Save note', async () => {
@@ -1793,7 +1829,7 @@ describe('note panel layout', () => {
     expect(cssGroup(panel).open).toBe(false);
   });
 
-  it('orders an item as note section, Unsaved changes, Attach image, CSS group, repro group, then previews', async () => {
+  it('orders an item as note, Unsaved changes, one actions row, groups, then previews', async () => {
     const panel = document.createElement('div');
     await render(panel, [{
       ...annotation('Full'),
@@ -1807,22 +1843,28 @@ describe('note panel layout', () => {
       child.getAttributeNames().find((name) => name.startsWith('data-annotation-')) ?? child.tagName;
     expect(Array.from(item.children, nameOf)).toEqual([
       'data-annotation-edit-note',
-      'data-annotation-edit',
-      'data-annotation-status-toggle',
-      'data-annotation-capture-screenshot',
-      'data-annotation-delete',
       'data-annotation-unsaved',
-      'LABEL',
+      'data-annotation-note-actions',
       'data-annotation-css-group',
       'data-annotation-repro-group',
       'data-annotation-screenshot',
       'data-annotation-attachment',
     ]);
+    const actions = item.querySelector('[data-annotation-note-actions]')!;
+    expect(Array.from(actions.children, nameOf)).toEqual([
+      'data-annotation-edit',
+      'data-annotation-status-toggle',
+      'data-annotation-capture-screenshot',
+      'data-annotation-attach',
+      'data-annotation-attach-name',
+      'data-annotation-delete',
+    ]);
+    expect(actions.querySelector('[data-annotation-edit]')?.getAttribute('data-variant')).toBe('primary');
+    expect(actions.querySelector('[data-annotation-delete]')?.getAttribute('data-variant')).toBe('danger');
     expect(Array.from(cssGroup(panel).children, nameOf)).toEqual([
       'SUMMARY',
       'LABEL',
-      'data-annotation-css-save',
-      'data-annotation-css-clear',
+      'data-annotation-group-actions',
       'data-annotation-css',
     ]);
     expect(Array.from(reproGroup(panel).children, nameOf)).toEqual([
@@ -1830,8 +1872,11 @@ describe('note panel layout', () => {
       'LABEL',
       'LABEL',
       'LABEL',
-      'data-annotation-repro-save',
+      'data-annotation-group-actions',
       'data-annotation-repro',
     ]);
+    expect(cssGroup(panel).querySelector('[data-annotation-group-actions] [data-annotation-css-save]')).not.toBeNull();
+    expect(cssGroup(panel).querySelector('[data-annotation-group-actions] [data-annotation-css-clear]')).not.toBeNull();
+    expect(reproGroup(panel).querySelector('[data-annotation-group-actions] [data-annotation-repro-save]')).not.toBeNull();
   });
 });

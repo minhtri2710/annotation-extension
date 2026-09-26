@@ -5,6 +5,8 @@ import type { ElementContext } from '../capture/context';
 import { buildOverlayShell } from '../ui/shell';
 import { createNotePanel } from './note-panel';
 import { ScreenshotCaptureError } from '../screenshot/messages';
+import { contrastRatio, parseColor } from '../lint/color';
+import { applyThemeMode, type ThemeMode } from '../ui/theme';
 
 const pageUrl = 'https://example.com/article';
 const context: ElementContext = {
@@ -27,6 +29,99 @@ afterEach(() => {
 });
 
 describe('note panel in a real browser', () => {
+  async function rendered(theme: ThemeMode, overrides: Partial<Annotation> = {}) {
+    const { shadow, shell } = mountShadowPanel();
+    applyThemeMode(shell.root, theme);
+    const annotation: Annotation = {
+      id: 'layout', pageUrl, note: 'Card', selector: context.selector, elementContext: context,
+      createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z', status: 'open',
+      ...overrides,
+    };
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => [annotation],
+      sendAnnotationWrite: vi.fn(), captureScreenshot: vi.fn(), readBlob: vi.fn(), addAttachment: vi.fn(), deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    shell.root.append(notePanel.live);
+    await notePanel.render(context);
+    return { shadow, shell, notePanel };
+  }
+
+  it('places the glyph Close at the header end on the heading row', async () => {
+    const { shell } = await rendered('light');
+    const header = shell.panel.firstElementChild as HTMLElement;
+    const heading = header.querySelector('h2')!;
+    const close = header.querySelector<HTMLButtonElement>('[data-annotation-close]')!;
+    expect(header.matches('[data-annotation-note-header]')).toBe(true);
+    const headerRect = header.getBoundingClientRect();
+    const headingRect = heading.getBoundingClientRect();
+    const closeRect = close.getBoundingClientRect();
+    expect(Math.abs(closeRect.top - headingRect.top)).toBeLessThanOrEqual(4);
+    expect(closeRect.right).toBeCloseTo(headerRect.right - Number.parseFloat(getComputedStyle(header).paddingRight), 0);
+    expect(closeRect.width).toBeGreaterThanOrEqual(32);
+    expect(closeRect.height).toBeGreaterThanOrEqual(32);
+  });
+
+  it('keeps the attachment input tabbable and rings only for keyboard focus', async () => {
+    const { shadow, shell } = await rendered('light');
+    const input = shell.panel.querySelector<HTMLInputElement>('[data-annotation-attachment-input]')!;
+    const attach = shell.panel.querySelector<HTMLLabelElement>('[data-annotation-attach]')!;
+    input.addEventListener('click', (event) => event.preventDefault());
+    expect(input.getBoundingClientRect().width).toBeLessThanOrEqual(1);
+    expect(input.getBoundingClientRect().height).toBeLessThanOrEqual(1);
+    expect(getComputedStyle(attach).height).toBe('32px');
+    shell.panel.querySelector<HTMLButtonElement>('[data-annotation-capture-screenshot]')!.focus();
+    await userEvent.tab();
+    expect(shadow.activeElement).toBe(input);
+    expect(getComputedStyle(attach).outlineStyle).not.toBe('none');
+    expect(getComputedStyle(attach).outlineWidth).toBe('2px');
+    await userEvent.click(attach);
+    expect(shadow.activeElement).toBe(input);
+    expect(getComputedStyle(attach).outlineStyle).toBe('none');
+  });
+
+  it('renders card borders and stacked full-width disclosure fields', async () => {
+    const { shell } = await rendered('light', {
+      cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
+    });
+    const card = shell.panel.querySelector<HTMLTextAreaElement>('[data-annotation-edit-note]')!.closest('article')!;
+    const labels = [...shell.panel.querySelectorAll<HTMLLabelElement>('[data-annotation-css-group] label, [data-annotation-repro-group] label')];
+    const textareas = [...shell.panel.querySelectorAll<HTMLTextAreaElement>('textarea')];
+    const form = shell.panel.querySelector<HTMLFormElement>(':scope > form')!;
+    expect(getComputedStyle(card).borderTopWidth).toBe('1px');
+    expect(card.getBoundingClientRect().height).toBeGreaterThan(0);
+    for (const label of labels) {
+      const field = label.querySelector<HTMLTextAreaElement>('textarea')!;
+      expect(getComputedStyle(label).display).toBe('flex');
+      expect(getComputedStyle(label).flexDirection).toBe('column');
+      expect(field.getBoundingClientRect().width).toBeGreaterThanOrEqual(card.getBoundingClientRect().width * 0.9);
+      expect(field.getBoundingClientRect().top).toBeGreaterThan(label.getBoundingClientRect().top);
+    }
+    for (const field of textareas) {
+      expect(getComputedStyle(field).boxSizing).toBe('border-box');
+      expect(field.getBoundingClientRect().height).toBeGreaterThanOrEqual(3 * Number.parseFloat(getComputedStyle(field).lineHeight));
+      expect(getComputedStyle(field).resize).toBe('vertical');
+    }
+    expect(getComputedStyle(form).borderTopWidth).toBe('1px');
+    expect(getComputedStyle(form).borderTopStyle).toBe('solid');
+  });
+
+  it.each<ThemeMode>(['light', 'dark'])('keeps the new-note placeholder at 4.5:1 in the %s theme', async (theme) => {
+    const { shell } = await rendered(theme);
+    const note = shell.panel.querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!;
+    const styles = getComputedStyle(note);
+    const placeholder = getComputedStyle(note, '::placeholder');
+    const muted = getComputedStyle(shell.root).getPropertyValue('--annotation-color-text-muted').trim();
+    const parsedText = parseColor(placeholder.color);
+    const parsedMuted = parseColor(muted);
+    const parsedSurface = parseColor(styles.backgroundColor);
+    expect(parsedText).toBeDefined();
+    expect(parsedMuted).toBeDefined();
+    expect(parsedText).toEqual(parsedMuted);
+    expect(parsedSurface).toBeDefined();
+    expect(contrastRatio(parsedText!, parsedSurface!)).toBeGreaterThanOrEqual(4.5);
+    expect(note.placeholder).toBe('What should change here?');
+  });
   it('focuses the new-note field on open, saves on a real Ctrl+Enter, keeps focus, and announces an empty save', async () => {
     const { shadow, shell } = mountShadowPanel();
     const stored: Annotation[] = [];

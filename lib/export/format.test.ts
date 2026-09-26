@@ -41,7 +41,7 @@ describe('Markdown annotation formatter', () => {
     expect(markdown).toContain('Annotation count: 1');
     expect(markdown).toContain('Inspect this button');
     expect(markdown).toContain('#submit-button');
-    expect(markdown).toContain('- Element: BUTTON#submit-button.primary.wide "Inspect this button"');
+    expect(markdown).toContain('- Element: button#submit-button.primary.wide "Inspect this button"');
     expect(markdown).toContain('src/App.tsx:42');
     expect(markdown).toContain('![Annotation screenshot](./annotations-annotation-1.webp)');
   });
@@ -150,7 +150,7 @@ describe('Markdown annotation formatter byte identity', () => {
         '- Note: Inspect this button',
         '- Status: open',
         '- Selector: #submit-button',
-        '- Element: BUTTON#submit-button.primary.wide "Inspect this button"',
+        '- Element: button#submit-button.primary.wide "Inspect this button"',
         '- Source: src/App.tsx:42',
         '![Annotation screenshot](./annotations-annotation-1.png)',
         '### Attachments\n- [photo.png](./annotations-annotation-1-attachment-1.png)',

@@ -178,7 +178,8 @@ ${ANNOTATION_DARK_TOKENS}
 
   it('gives overlay buttons hover, focus-visible and active states from tokens', () => {
     const button = '[data-annotation-shell] [data-annotation-mount] button';
-    expect(ruleBody(`${button}:hover {`)).toContain('border-color: var(--annotation-color-accent)');
+    const secondaryHover = `${button}:hover,\n[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover`;
+    expect(ruleBody(`${secondaryHover} {`)).toContain('border-color: var(--annotation-color-accent)');
     expect(ruleBody(`${button}:focus-visible {`)).toMatch(/outline: [^;]*solid var\(--annotation-color-accent\)/);
     expect(ruleBody(`${button}:active {`)).toContain('transform:');
     expect(ruleBody(`${button} {`)).toMatch(/transition: /);
@@ -449,7 +450,7 @@ describe('overlay state contrast computed from the token values', () => {
   }
 
   it('sets hover and active button text with the background at 4.5:1 or more in both schemes', () => {
-    const hover = ruleBody(`${button}:hover {`);
+    const hover = ruleBody(`${button}:hover,\n[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover {`);
     const active = OVERLAY_STYLES.split(`\n${button}:active {`).slice(1).map((rest) => rest.slice(0, rest.indexOf('}'))).find((body) => /(?:^|[\s;])color: /.test(body));
     expect(active).toBeDefined();
     for (const [scheme, tokens] of Object.entries(schemes)) {

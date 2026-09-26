@@ -96,6 +96,8 @@ export function createNotePanel(
     const restoreFocus = keepPanelFocus(panel);
     panel.replaceChildren();
     const document = panel.ownerDocument;
+    const header = document.createElement('header');
+    header.dataset.annotationNoteHeader = '';
     const heading = document.createElement('h2');
     heading.textContent = 'Notes';
     heading.tabIndex = -1;
@@ -106,10 +108,12 @@ export function createNotePanel(
     const close = document.createElement('button');
     close.type = 'button';
     close.dataset.annotationClose = '';
-    close.textContent = 'Close';
-    close.setAttribute('aria-label', 'Close annotation note');
+    close.textContent = '×';
+    close.setAttribute('aria-label', 'Close');
+    close.title = 'Close';
     close.addEventListener('click', () => panel.dispatchEvent(new Event(NOTE_PANEL_CLOSE_EVENT)));
-    panel.append(heading, hint, close);
+    header.append(heading, close, hint);
+    panel.append(header);
     let status: HTMLParagraphElement | undefined;
     const showStatus = () => {
       announce(statusMessage ?? '');
@@ -119,7 +123,7 @@ export function createNotePanel(
         status.dataset.annotationStatus = '';
       }
       status.textContent = statusMessage;
-      if (!status.isConnected) panel.insertBefore(status, close.nextSibling);
+      if (!status.isConnected) panel.insertBefore(status, header.nextSibling);
     };
     showStatus();
     showCurrentStatus = showStatus;
@@ -142,7 +146,9 @@ export function createNotePanel(
     const note = document.createElement('textarea');
     note.dataset.annotationNewNote = '';
     note.maxLength = MAX_TEXT_LENGTH;
-    note.setAttribute('aria-label', 'New note');
+    note.placeholder = 'What should change here?';
+    const noteLabel = document.createElement('label');
+    noteLabel.append('Add a note', note);
     const draftKey = newNoteDraftKey(context.url, context.selector);
     restoreDraft(note, draftKey);
     note.addEventListener('input', () => {
@@ -153,7 +159,8 @@ export function createNotePanel(
     const save = document.createElement('button');
     save.type = 'submit';
     save.dataset.annotationSave = '';
-    save.textContent = 'Save';
+    save.dataset.variant = 'primary';
+    save.textContent = 'Add note';
     const add = () => {
       const value = note.value.trim();
       if (!value) {
@@ -173,7 +180,9 @@ export function createNotePanel(
       event.preventDefault();
       add();
     });
-    form.append(note, save);
+    const actions = document.createElement('div');
+    actions.append(save);
+    form.append(noteLabel, actions);
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       if (event.submitter !== save) add();
@@ -323,6 +332,7 @@ export function createNotePanel(
   ): Promise<HTMLElement> {
     const item = document.createElement('article');
     item.dataset.annotationId = annotation.id;
+    item.dataset.annotationNoteCard = '';
     if (annotation.status === 'resolved') item.dataset.annotationStatus = 'resolved';
     if (annotation.cssEdits && annotation.cssEdits.length > 0) {
       persistence.applyCssEdits(annotation, annotation.cssEdits);
@@ -332,8 +342,7 @@ export function createNotePanel(
     const repro = reproSection(document, annotation, position, context);
     const hasCss = (annotation.cssEdits?.length ?? 0) > 0;
     item.append(
-      ...noteSection(document, annotation, position, context),
-      ...images.controls,
+      ...noteSection(document, annotation, position, context, images.attachLabel, images.attachName),
       group(document, annotation.id, 'css', 'CSS tweaks', hasCss, css.restored, [...css.controls, ...css.readout]),
       group(document, annotation.id, 'repro', 'Reproduction steps', annotation.repro !== undefined, repro.restored, [
         ...repro.controls,
@@ -377,6 +386,8 @@ export function createNotePanel(
     annotation: Annotation,
     position: number,
     context: ElementContext,
+    attachmentLabel: HTMLElement,
+    attachmentName: HTMLElement,
   ): HTMLElement[] {
     const note = document.createElement('textarea');
     note.dataset.annotationEditNote = '';
@@ -473,7 +484,11 @@ export function createNotePanel(
       },
       dataPrefix: 'annotation-delete',
     });
-    return [note, edit, statusToggle, capture, remove, unsaved];
+    edit.dataset.variant = 'primary';
+    const actions = document.createElement('div');
+    actions.dataset.annotationNoteActions = '';
+    actions.append(edit, statusToggle, capture, attachmentLabel, attachmentName, remove);
+    return [note, unsaved, actions];
   }
 
   // The file input sits with the note controls; previews follow the groups once their blobs are read.
@@ -483,15 +498,21 @@ export function createNotePanel(
     annotation: Annotation,
     context: ElementContext,
     reportReadError: (error: unknown) => void,
-  ): { controls: HTMLElement[]; appendPreviews: () => Promise<void> } {
+  ): { attachLabel: HTMLLabelElement; attachName: HTMLSpanElement; appendPreviews: () => Promise<void> } {
     const attachmentInput = document.createElement('input');
     attachmentInput.type = 'file';
     attachmentInput.accept = SUPPORTED_IMAGE_MIME_TYPES.join(',');
     attachmentInput.multiple = true;
     attachmentInput.dataset.annotationAttachmentInput = '';
+    const attachmentLabel = document.createElement('label');
+    attachmentLabel.dataset.annotationAttach = '';
+    attachmentLabel.append('Attach image', attachmentInput);
+    const attachmentName = document.createElement('span');
+    attachmentName.dataset.annotationAttachName = '';
     attachmentInput.addEventListener('change', () => {
       const files = Array.from(attachmentInput.files ?? []);
       if (files.length === 0) return;
+      attachmentName.textContent = files.map((file) => file.name).join(', ');
       void whileWriting(() => addFiles(annotation, context, files).then(
         () => reportFileSuccess(context),
         (error) => reportFileError(error, context),
@@ -508,9 +529,6 @@ export function createNotePanel(
       ));
     });
     item.addEventListener('dragover', (event) => event.preventDefault());
-    const attachmentLabel = document.createElement('label');
-    attachmentLabel.textContent = 'Attach image';
-    attachmentLabel.append(attachmentInput);
     const appendPreviews = async () => {
       if (annotation.screenshot) {
         try {
@@ -546,7 +564,7 @@ export function createNotePanel(
         }
       }
     };
-    return { controls: [attachmentLabel], appendPreviews };
+    return { attachLabel: attachmentLabel, attachName: attachmentName, appendPreviews };
   }
 
   function cssSection(
@@ -587,7 +605,8 @@ export function createNotePanel(
       );
     });
     if (!annotation.cssEdits || annotation.cssEdits.length === 0) {
-      return { controls: [cssDeclsLabel, saveCss], readout: [], restored };
+      const actions = groupActions(document, [saveCss]);
+      return { controls: [cssDeclsLabel, actions], readout: [], restored };
     }
     const clearCss = document.createElement('button');
     clearCss.type = 'button';
@@ -612,7 +631,8 @@ export function createNotePanel(
       entry.textContent = `${property}: ${original} -> ${value}`;
       readout.append(entry);
     }
-    return { controls: [cssDeclsLabel, saveCss], readout: [clearCss, readout], restored };
+    const actions = groupActions(document, [saveCss, clearCss]);
+    return { controls: [cssDeclsLabel, actions], readout: [readout], restored };
   }
 
   function reproSection(
@@ -671,7 +691,7 @@ export function createNotePanel(
         context,
       );
     });
-    const controls = [reproStepsLabel, reproExpectedLabel, reproActualLabel, saveRepro];
+    const controls = [reproStepsLabel, reproExpectedLabel, reproActualLabel, groupActions(document, [saveRepro])];
     if (!annotation.repro) return { controls, readout: [], restored };
     const readout = document.createElement('div');
     readout.dataset.annotationRepro = '';
@@ -767,6 +787,13 @@ function labelledField(
   const label = document.createElement('label');
   label.append(text, field);
   return { field, label };
+}
+
+function groupActions(document: Document, controls: HTMLElement[]): HTMLElement {
+  const actions = document.createElement('div');
+  actions.dataset.annotationGroupActions = '';
+  actions.append(...controls);
+  return actions;
 }
 
 function parseCssDeclarations(value: string): CssDeclaration[] {

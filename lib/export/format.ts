@@ -136,7 +136,7 @@ function linkTarget(filename: string): string {
 export function formatElementContext(elementContext: ElementContext): string | undefined {
   const { tagName, id, classList, text } = elementContext;
   const normalizedText = text.replace(/\s+/g, ' ').trim();
-  const identity = `${tagName}${id ? `#${id}` : ''}${classList
+  const identity = `${tagName.toLowerCase()}${id ? `#${id}` : ''}${classList
     .filter((className) => className.length > 0)
     .map((className) => `.${className}`)
     .join('')}`;

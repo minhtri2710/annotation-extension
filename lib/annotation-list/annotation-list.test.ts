@@ -818,7 +818,7 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'One')]));
     await list.render();
     const hint = panel.querySelector('[data-annotation-hint]');
-    expect(hint?.textContent).toBe('BUTTON#target "Target"');
+    expect(hint?.textContent).toBe('button#target "Target"');
     expect(hint?.getAttribute('title')).toBe('#target-annotation-1');
   });
 
