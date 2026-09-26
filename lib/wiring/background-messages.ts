@@ -32,6 +32,7 @@ import {
 } from '../screenshot/messages';
 import { isCaptureShortcutMessage, lookupCaptureShortcut } from '../capture/activation';
 import { createBlobStore, screenshotKey, type BlobStore } from '../blob-store';
+import { receiveImportJson } from '../json-io';
 import { processScreenshot, type ScreenshotProcessor } from '../screenshot/processor';
 
 export interface BackgroundMessageDependencies {
@@ -44,6 +45,8 @@ export function registerBackgroundMessageHandlers(
 ): void {
   const blobStore = dependencies.blobStore ?? createBlobStore();
   const screenshotProcessor = dependencies.screenshotProcessor ?? processScreenshot;
+
+  browser.runtime.onConnect.addListener((port) => receiveImportJson(port, blobStore));
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (isAnnotationWriteMessage(message)) {

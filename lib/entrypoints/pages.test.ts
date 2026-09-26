@@ -2,10 +2,13 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { browser } from 'wxt/browser';
+import { browser, type Browser } from 'wxt/browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { addAnnotation } from '../annotation-storage';
+import { addAnnotation, listAnnotations } from '../annotation-storage';
+import type { Annotation } from '../annotation';
+import { IMPORT_CHUNK_LENGTH, IMPORT_PORT_NAME } from '../json-io';
+import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
 import { buildInspectExpression } from '../devtools/devtools';
 import { readPolicy, SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
 
@@ -62,6 +65,25 @@ describe('popup page', () => {
     await import('../../entrypoints/popup/main');
   }
 
+  function dispatchImportFileChange(text: string): void {
+    const fileInput = byId<HTMLInputElement>('import-file');
+    Object.defineProperty(fileInput, 'files', { configurable: true, value: [new File([text], 'annotations.json', { type: 'application/json' })] });
+    fileInput.dispatchEvent(new Event('change'));
+  }
+
+  function importedAnnotation(id: string): Annotation {
+    return {
+      id,
+      pageUrl: PAGE,
+      note: 'Imported note',
+      selector: '#target',
+      elementContext: input(PAGE, '#target').elementContext,
+      createdAt: '2024-02-01T10:00:00.000Z',
+      updatedAt: '2024-02-01T10:00:00.000Z',
+      status: 'open',
+    };
+  }
+
   // Stub: fakeBrowser's commands.getAll throws "Not implemented"; default every popup test to a set shortcut.
   beforeEach(() => {
     vi.spyOn(browser.commands, 'getAll').mockResolvedValue([{ name: 'capture.toggle', shortcut: 'Alt+Shift+Y' }] as never);
@@ -109,6 +131,70 @@ describe('popup page', () => {
       'Export Markdown (all pages)',
       'Import JSON',
     ]);
+  });
+
+  it('sends import text in ordered bounded chunks, displays the reply, writes nothing locally, and disconnects', async () => {
+    const json = 'x'.repeat(IMPORT_CHUNK_LENGTH * 2 + 17);
+    const received: { type: string; text?: string }[] = [];
+    let receivedPort: Browser.runtime.Port | undefined;
+    browser.runtime.onConnect.addListener((port) => {
+      if (port.name !== IMPORT_PORT_NAME) return;
+      receivedPort = port;
+      port.onMessage.addListener((message: unknown) => {
+        received.push(message as { type: string; text?: string });
+        if ((message as { type?: string }).type === 'end') port.postMessage({ status: 'receiver status' });
+      });
+    });
+    const set = vi.spyOn(browser.storage.local, 'set');
+    const disconnected = vi.fn();
+    await openPopup();
+    browser.runtime.onConnect.addListener((port) => {
+      if (port.name === IMPORT_PORT_NAME) port.onDisconnect.addListener(disconnected);
+    });
+
+    dispatchImportFileChange(json);
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe('receiver status'));
+    expect(received.map((message) => message.type)).toEqual(['chunk', 'chunk', 'chunk', 'end']);
+    const chunks = received.filter((message) => message.type === 'chunk').map((message) => message.text ?? '');
+    expect(chunks.map((chunk) => chunk.length)).toEqual([IMPORT_CHUNK_LENGTH, IMPORT_CHUNK_LENGTH, 17]);
+    expect(chunks.join('')).toBe(json);
+    expect(set).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(disconnected).toHaveBeenCalledOnce());
+    expect(receivedPort?.name).toBe(IMPORT_PORT_NAME);
+
+    received.length = 0;
+    dispatchImportFileChange('');
+    await vi.waitFor(() => expect(received).toEqual([{ type: 'end' }]));
+    await vi.waitFor(() => expect(disconnected).toHaveBeenCalledTimes(2));
+    expect(byId('status').textContent).toBe('receiver status');
+  });
+
+  it('imports through the real background receiver into its storage owner', async () => {
+    const source = importedAnnotation('popup-import-live');
+    const set = vi.spyOn(browser.storage.local, 'set');
+    registerBackgroundMessageHandlers();
+    await openPopup();
+
+    dispatchImportFileChange(JSON.stringify([source]));
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe('Imported 1 annotation, skipped 0 already present.'));
+    await expect(listAnnotations(PAGE)).resolves.toEqual([source]);
+    expect(set).toHaveBeenCalled();
+  });
+
+  it('shows the partial-import warning when the receiver disconnects before replying', async () => {
+    browser.runtime.onConnect.addListener((port) => {
+      if (port.name === IMPORT_PORT_NAME) port.disconnect();
+    });
+    await openPopup();
+
+    dispatchImportFileChange(JSON.stringify([importedAnnotation('popup-import-disconnect')]));
+
+    await vi.waitFor(() => expect(byId('status').textContent).toBe(
+      'Import did not finish. Some annotations may have been imported; open View all on a page to check.',
+    ));
+    await expect(listAnnotations(PAGE)).resolves.toEqual([]);
   });
 
   it('reports that annotations are unavailable when the tab cannot be reached', async () => {

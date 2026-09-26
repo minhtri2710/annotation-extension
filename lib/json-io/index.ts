@@ -1,3 +1,4 @@
+import { browser, type Browser } from 'wxt/browser';
 import { errorMessage, isRecord } from '../guards';
 import { base64ToBlob, blobToBase64 } from '../base64';
 import { deleteAnnotation, listAllAnnotations, restoreAnnotation } from '../annotation-storage';
@@ -46,6 +47,11 @@ export interface JsonExportDependencies {
 
 /** In UTF-16 code units of the file text, so a file over it is also over it in bytes. */
 export const MAX_IMPORT_LENGTH = 200 * 1024 * 1024;
+export const IMPORT_PORT_NAME = 'annotation.import-json';
+// Chrome's 64 MiB per-message limit; worst-case JSON escaping is 6 bytes per code unit, so 48 MiB.
+export const IMPORT_CHUNK_LENGTH = 8 * 1024 * 1024;
+const IMPORT_DISCONNECT = 'Import did not finish. Some annotations may have been imported; open View all on a page to check.';
+const IMPORT_FAILURE = 'Import failed. Nothing was imported.';
 const TOO_LARGE = 'Import failed: the file is larger than 200 MB. Nothing was imported.';
 
 export async function serialize(
@@ -177,8 +183,67 @@ export async function importJson(
     const { imported, skipped } = await importAll(await parseImport(json, dimensions), blobStore);
     return `Imported ${plural(imported, 'annotation')}, skipped ${skipped} already present.`;
   } catch (error) {
-    return error instanceof JsonImportError ? error.message : 'Import failed. Nothing was imported.';
+    return error instanceof JsonImportError ? error.message : IMPORT_FAILURE;
   }
+}
+
+function isImportPortMessage(value: unknown): value is { type: 'chunk'; text: string } | { type: 'end' } {
+  if (!isRecord(value)) return false;
+  return (value.type === 'chunk' && typeof value.text === 'string') || value.type === 'end';
+}
+
+export function sendImportJson(json: string): Promise<string> {
+  return new Promise((resolve) => {
+    const port = browser.runtime.connect({ name: IMPORT_PORT_NAME });
+    let settled = false;
+    const finish = (status: string) => {
+      if (settled) return;
+      settled = true;
+      port.onMessage.removeListener(onMessage);
+      port.onDisconnect.removeListener(onDisconnect);
+      port.disconnect();
+      resolve(status);
+    };
+    const onMessage = (message: unknown) => {
+      if (isRecord(message) && typeof message.status === 'string') finish(message.status);
+    };
+    const onDisconnect = () => finish(IMPORT_DISCONNECT);
+    port.onMessage.addListener(onMessage);
+    port.onDisconnect.addListener(onDisconnect);
+    try {
+      for (let offset = 0; offset < json.length; offset += IMPORT_CHUNK_LENGTH) {
+        port.postMessage({ type: 'chunk', text: json.slice(offset, offset + IMPORT_CHUNK_LENGTH) });
+      }
+      port.postMessage({ type: 'end' });
+    } catch {
+      finish(IMPORT_DISCONNECT);
+    }
+  });
+}
+
+export function receiveImportJson(port: Browser.runtime.Port, blobStore: BlobStore): void {
+  if (port.name !== IMPORT_PORT_NAME) return;
+  const chunks: string[] = [];
+  const onMessage = (message: unknown) => {
+    if (!isImportPortMessage(message)) {
+      port.onMessage.removeListener(onMessage);
+      port.postMessage({ status: IMPORT_FAILURE });
+      return;
+    }
+    if (message.type === 'chunk') {
+      chunks.push(message.text);
+      return;
+    }
+    port.onMessage.removeListener(onMessage);
+    void importJson(chunks.join(''), blobStore).then((status) => {
+      try {
+        port.postMessage({ status });
+      } catch {
+        // Closing the popup after end must not interrupt the background import.
+      }
+    });
+  };
+  port.onMessage.addListener(onMessage);
 }
 
 async function parseEntry(

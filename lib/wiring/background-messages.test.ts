@@ -1,9 +1,11 @@
-import { browser } from 'wxt/browser';
+import { browser, type Browser } from 'wxt/browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { registerBackgroundMessageHandlers } from './background-messages';
 import { isAnnotationWriteMessage, MAX_TEXT_LENGTH } from '../annotation-messages';
 import { listAnnotations } from '../annotation-storage';
+import { pageKey } from '../../utils/page-key';
+import { sendImportJson, IMPORT_PORT_NAME } from '../json-io';
 import type { BlobStore } from '../blob-store';
 
 const pageUrl = 'https://example.com/message-test';
@@ -80,6 +82,72 @@ function stubCommands(shortcut: string) {
 }
 
 describe('background message routing', () => {
+  it('keeps an imported annotation and a concurrent note save on the same page', async () => {
+    const store = new MemoryBlobStore();
+    start(store);
+    const key = pageKey(pageUrl);
+    const originalGet = browser.storage.local.get.bind(browser.storage.local);
+    let reads = 0;
+    let releaseReads: () => void = () => {};
+    const bothReads = new Promise<void>((resolve) => { releaseReads = resolve; });
+    vi.spyOn(browser.storage.local, 'get').mockImplementation((async (keys: string | null) => {
+      if (keys === key) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        reads += 1;
+        if (reads === 2) releaseReads();
+        // With one queue the second read cannot start while the first waits, so time out to let the first continue.
+        await Promise.race([bothReads, new Promise((resolve) => setTimeout(resolve, 25))]);
+      }
+      return originalGet(keys);
+    }) as never);
+    const imported = {
+      id: 'race-import', pageUrl, note: 'Imported A', selector: '#target', elementContext,
+      createdAt: '2024-02-01T10:00:00.000Z', updatedAt: '2024-02-01T10:00:00.000Z', status: 'open',
+    };
+    const importStatus = sendImportJson(JSON.stringify([imported]));
+    const addResponse = browser.runtime.sendMessage({
+      type: 'annotation.add', pageUrl, input: { note: 'Concurrent note', selector: '#target', elementContext },
+    });
+
+    await expect(importStatus).resolves.toBe('Imported 1 annotation, skipped 0 already present.');
+    expect(await addResponse).toMatchObject({ note: 'Concurrent note' });
+    await expect(listAnnotations(pageUrl)).resolves.toEqual(expect.arrayContaining([
+      imported,
+      expect.objectContaining({ note: 'Concurrent note' }),
+    ]));
+    expect(await listAnnotations(pageUrl)).toHaveLength(2);
+  });
+
+  it('rejects invalid import-port messages and drops data when the port disconnects before end', async () => {
+    const store = new MemoryBlobStore();
+    start(store);
+    const invalidPort = browser.runtime.connect({ name: IMPORT_PORT_NAME });
+    const invalidReply = new Promise<unknown>((resolve) => invalidPort.onMessage.addListener(resolve));
+    invalidPort.postMessage({ type: 'unknown' });
+    await expect(invalidReply).resolves.toEqual({ status: 'Import failed. Nothing was imported.' });
+    await expect(sendImportJson('')).resolves.toBe('Import failed: the file is not valid JSON. Nothing was imported.');
+    await expect(listAnnotations(pageUrl)).resolves.toEqual([]);
+
+    let receiverPort: Browser.runtime.Port | undefined;
+    const observeReceiver = (port: Browser.runtime.Port) => {
+      if (port.name === IMPORT_PORT_NAME) receiverPort = port;
+    };
+    browser.runtime.onConnect.addListener(observeReceiver);
+    const abandonedPort = browser.runtime.connect({ name: IMPORT_PORT_NAME });
+    await vi.waitFor(() => expect(receiverPort).toBeDefined());
+    const receiverDisconnected = new Promise<void>((resolve) => receiverPort!.onDisconnect.addListener(() => resolve()));
+    abandonedPort.postMessage({ type: 'chunk', text: JSON.stringify([{
+      id: 'abandoned-import', pageUrl, note: 'Should be dropped', selector: '#target', elementContext,
+      createdAt: '2024-02-01T10:00:00.000Z', updatedAt: '2024-02-01T10:00:00.000Z', status: 'open',
+    }]) });
+    abandonedPort.disconnect();
+    await receiverDisconnected;
+    browser.runtime.onConnect.removeListener(observeReceiver);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await browser.storage.local.get(null)).toEqual({});
+    expect(store.blobs.size).toBe(0);
+  });
+
   it('answers a rejected storage mutation with an error response', async () => {
     const store = new MemoryBlobStore();
     start(store);
