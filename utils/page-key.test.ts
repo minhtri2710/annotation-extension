@@ -7,4 +7,10 @@ describe('pageKey', () => {
       'page:https://example.com/docs?mode=full',
     );
   });
+
+  it('treats an empty query as no query and keeps non-empty queries distinct', () => {
+    expect(pageKey('https://a.com/x?')).toBe(pageKey('https://a.com/x'));
+    expect(pageKey('https://a.com/x?q=1')).not.toBe(pageKey('https://a.com/x'));
+    expect(pageKey('https://a.com/x?q?')).toBe('page:https://a.com/x?q?');
+  });
 });

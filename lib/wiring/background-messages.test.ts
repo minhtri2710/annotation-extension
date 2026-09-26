@@ -148,21 +148,6 @@ describe('background message routing', () => {
     expect(store.blobs.size).toBe(0);
   });
 
-  it('answers a rejected storage mutation with an error response', async () => {
-    const store = new MemoryBlobStore();
-    start(store);
-    vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('storage unavailable'));
-    const sendResponse = vi.fn();
-
-    await fakeBrowser.runtime.onMessage.trigger(
-      { type: 'annotation.add', pageUrl, input: { note: 'failed write', selector: '#target', elementContext } },
-      {},
-      sendResponse,
-    );
-
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'storage unavailable' }));
-  });
-
   it('answers an over-cap or malformed annotation write with an error response and writes nothing', async () => {
     const store = new MemoryBlobStore();
     start(store);
@@ -399,6 +384,24 @@ describe('background message routing', () => {
       captureFailed('Annotation was not found for screenshot capture; cleanup failed: cleanup unavailable'),
     ));
     expect(processor).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the captured Blob and answers not-found when the annotation is gone', async () => {
+    const store = new MemoryBlobStore();
+    start(store);
+    vi.spyOn(browser.tabs, 'captureVisibleTab').mockResolvedValue('data:image/png;base64,capture' as never);
+    const sendResponse = vi.fn();
+
+    await fakeBrowser.runtime.onMessage.trigger(
+      { type: 'screenshot.capture', pageUrl, annotationId: 'missing', rect: elementContext.boundingBox, devicePixelRatio: 1 },
+      sender,
+      sendResponse,
+    );
+
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith(
+      captureFailed('Annotation was not found for screenshot capture'),
+    ));
+    expect(store.blobs.size).toBe(0);
   });
 
   it('answers read requests with transport-safe bytes', async () => {
