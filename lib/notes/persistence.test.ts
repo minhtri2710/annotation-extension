@@ -73,7 +73,7 @@ describe('note panel persistence css edits', () => {
     const persistence = createNotePanelPersistence();
 
     const edits = persistence.applyCssEdits(existing, [{ property: 'color', value: 'red' }]);
-    expect(edits?.map((edit) => edit.property)).toEqual(['color']);
+    expect(edits?.edits.map((edit) => edit.property)).toEqual(['color']);
     expect(deep.style.getPropertyValue('color')).toBe('red');
     expect(light.style.getPropertyValue('color')).toBe('');
 
@@ -140,7 +140,7 @@ describe('note panel persistence css edits', () => {
       { property: 'display', value: 'flex' },
     ]);
 
-    expect(edits).toEqual([
+    expect(edits?.edits).toEqual([
       { property: 'color', value: 'red', original: 'green' },
       { property: 'display', value: 'flex', original: 'block' },
     ]);
@@ -160,7 +160,7 @@ describe('note panel persistence css edits', () => {
 
     const edits = persistence.applyCssEdits(existing, [{ property: 'color', value: 'blue' }]);
 
-    expect(edits).toEqual([{ property: 'color', value: 'blue', original: 'rgb(0, 0, 0)' }]);
+    expect(edits?.edits).toEqual([{ property: 'color', value: 'blue', original: 'rgb(0, 0, 0)' }]);
     expect(computed).not.toHaveBeenCalled();
   });
 
@@ -175,6 +175,6 @@ describe('note panel persistence css edits', () => {
     persistence.applyCssEdits(existing, [{ property: 'color', value: 'red' }]);
     const edits = persistence.applyCssEdits(existing, [{ property: 'color', value: 'blue' }]);
 
-    expect(edits).toEqual([{ property: 'color', value: 'blue', original: 'green' }]);
+    expect(edits?.edits).toEqual([{ property: 'color', value: 'blue', original: 'green' }]);
   });
 });

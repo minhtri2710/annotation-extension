@@ -334,11 +334,11 @@ export function createNotePanel(
     item.dataset.annotationId = annotation.id;
     item.dataset.annotationNoteCard = '';
     if (annotation.status === 'resolved') item.dataset.annotationStatus = 'resolved';
-    if (annotation.cssEdits && annotation.cssEdits.length > 0) {
-      persistence.applyCssEdits(annotation, annotation.cssEdits);
-    }
+    const appliedCss = annotation.cssEdits && annotation.cssEdits.length > 0
+      ? persistence.applyCssEdits(annotation, annotation.cssEdits)
+      : undefined;
     const images = imagesSection(document, item, annotation, context, reportReadError);
-    const css = cssSection(document, annotation, position, context, reportReadError);
+    const css = cssSection(document, annotation, position, context, reportReadError, appliedCss?.refused);
     const repro = reproSection(document, annotation, position, context);
     const hasCss = (annotation.cssEdits?.length ?? 0) > 0;
     item.append(
@@ -573,6 +573,7 @@ export function createNotePanel(
     position: number,
     context: ElementContext,
     reportReadError: (error: unknown) => void,
+    refused: CssDeclaration[] = [],
   ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean } {
     const { field: cssDecls, label: cssDeclsLabel } = labelledField(
       document,
@@ -589,19 +590,23 @@ export function createNotePanel(
     saveCss.addEventListener('click', () => {
       const declarations = parseCssDeclarations(cssDecls.value);
       if (declarations.length === 0) return;
-      const edits = persistence.applyCssEdits(annotation, declarations);
-      if (!edits) {
+      const result = persistence.applyCssEdits(annotation, declarations);
+      if (!result) {
         reportReadError(new Error('Element not found on this page; CSS tweaks were not saved.'));
         return;
       }
+      const successMessage = result.refused.length > 0
+        ? `Not applied because it would load a resource: ${result.refused.map(({ property }) => property).join(', ')}.`
+        : undefined;
       void mutate(
         {
           type: 'annotation.update',
           pageUrl: context.url,
           id: annotation.id,
-          changes: { cssEdits: edits },
+          changes: { cssEdits: result.edits },
         },
         context,
+        successMessage,
       );
     });
     if (!annotation.cssEdits || annotation.cssEdits.length === 0) {
@@ -628,7 +633,8 @@ export function createNotePanel(
     readout.dataset.annotationCss = '';
     for (const { property, value, original } of annotation.cssEdits) {
       const entry = document.createElement('li');
-      entry.textContent = `${property}: ${original} -> ${value}`;
+      const isRefused = refused.some((declaration) => declaration.property === property && declaration.value === value);
+      entry.textContent = `${property}: ${original} -> ${value}${isRefused ? ' (not applied: it would load a resource)' : ''}`;
       readout.append(entry);
     }
     const actions = groupActions(document, [saveCss, clearCss]);

@@ -14,5 +14,6 @@ ideas and UX only, no third-party source is copied.
 
 ## Status
 
-Bootstrapping. Toolchain: [WXT](https://wxt.dev) + TypeScript, Manifest V3, one
-codebase targeting Chrome and Firefox.
+Pre-launch. Feature-complete for the scope above; not yet published.
+Toolchain: [WXT](https://wxt.dev) + TypeScript, Manifest V3, one codebase
+targeting Chrome and Firefox.

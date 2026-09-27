@@ -239,7 +239,7 @@ describe('note panel', () => {
       { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' },
       { property: 'margin', value: '1rem: extra', original: '0px' },
     ];
-    const applyCssEdits = vi.fn().mockReturnValue(cssEdits);
+    const applyCssEdits = vi.fn().mockReturnValue({ edits: cssEdits, refused: [] });
     const { applyCssEdits: apply } = await render(panel, [], {
       listAnnotations,
       sendAnnotationWrite,
@@ -264,6 +264,50 @@ describe('note panel', () => {
       changes: { cssEdits },
     } satisfies AnnotationWriteMessage);
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+  });
+
+  it('says which CSS declarations were not applied on Save CSS', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('CSS target');
+    const colorEdit = { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' };
+    const refused = [
+      { property: 'background-image', value: 'url(a.png)' },
+      { property: '--hero', value: '"b.png"' },
+    ];
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn().mockReturnValue({ edits: [colorEdit], refused });
+    await render(panel, [existing], { sendAnnotationWrite, applyCssEdits });
+
+    (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value =
+      'color: red\nbackground-image: url(a.png)\n--hero: "b.png"';
+    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.update',
+      pageUrl,
+      id: existing.id,
+      changes: { cssEdits: [colorEdit] },
+    } satisfies AnnotationWriteMessage);
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')?.textContent)
+      .toBe('Not applied because it would load a resource: background-image, --hero.'));
+  });
+
+  it('marks a stored CSS edit that was not applied', async () => {
+    const panel = document.createElement('div');
+    const colorEdit = { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' };
+    const backgroundImageEdit = { property: 'background-image', value: 'url(a.png)', original: 'none' };
+    const existing = {
+      ...annotation('Saved CSS'),
+      cssEdits: [colorEdit, backgroundImageEdit],
+    };
+    const applyCssEdits = vi.fn().mockReturnValue({ edits: [colorEdit], refused: [backgroundImageEdit] });
+    await render(panel, [existing], { applyCssEdits });
+
+    expect(Array.from(panel.querySelectorAll('[data-annotation-css] li'), (row) => row.textContent)).toEqual([
+      'color: rgb(0, 0, 0) -> red',
+      'background-image: none -> url(a.png) (not applied: it would load a resource)',
+    ]);
   });
 
   it('re-applies stored css edits when an annotation renders', async () => {
@@ -1085,7 +1129,7 @@ describe('note panel text caps', () => {
     const long = 'x'.repeat(MAX_TEXT_LENGTH + 1);
     await render(panel, [annotation('Existing note')], {
       sendAnnotationWrite,
-      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: long, original: 'blue' }]),
+      applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: long, original: 'blue' }], refused: [] }),
     });
 
     const css = panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement;
@@ -1472,7 +1516,7 @@ describe('note panel drafts', () => {
   it('keeps repro text when this panel saves CSS on the same note', async () => {
     const panel = document.createElement('div');
     const { listAnnotations } = await render(panel, [annotation('Existing')], {
-      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: 'red', original: 'blue' }]),
+      applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: 'red', original: 'blue' }], refused: [] }),
     });
     type(reproField(panel, 'steps'), 'Open the menu');
     type(cssDecls(panel), 'color: red');
@@ -1485,7 +1529,7 @@ describe('note panel drafts', () => {
   it('drops the CSS draft once Save CSS succeeds', async () => {
     const panel = document.createElement('div');
     const { notePanel, listAnnotations, sendAnnotationWrite } = await render(panel, [annotation('Existing')], {
-      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: 'red', original: 'blue' }]),
+      applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: 'red', original: 'blue' }], refused: [] }),
     });
     type(cssDecls(panel), 'color: red');
     (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
@@ -1501,7 +1545,7 @@ describe('note panel drafts', () => {
     const sendAnnotationWrite = vi.fn().mockResolvedValue(null);
     const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], {
       sendAnnotationWrite,
-      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: 'red', original: 'blue' }]),
+      applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: 'red', original: 'blue' }], refused: [] }),
     });
     type(cssDecls(panel), 'color: red');
     (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
@@ -1574,7 +1618,7 @@ describe('note panel drafts', () => {
     const panel = document.createElement('div');
     const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], {
       sendAnnotationWrite: vi.fn().mockRejectedValue(new Error('write failed')),
-      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: 'red', original: 'blue' }]),
+      applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: 'red', original: 'blue' }], refused: [] }),
     });
     type(cssDecls(panel), 'color: red');
     (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
@@ -1605,7 +1649,7 @@ describe('note panel drafts', () => {
     const panel = document.createElement('div');
     const long = 'x'.repeat(MAX_TEXT_LENGTH + 1);
     const { notePanel, sendAnnotationWrite } = await render(panel, [annotation('Existing')], {
-      applyCssEdits: vi.fn().mockReturnValue([{ property: 'color', value: long, original: 'blue' }]),
+      applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: long, original: 'blue' }], refused: [] }),
     });
     type(cssDecls(panel), 'color: red');
     (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();

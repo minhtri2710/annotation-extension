@@ -14,7 +14,7 @@ export interface NotePanelPersistence {
   readBlob(key: string): Promise<Blob>;
   addAttachment(message: Omit<Parameters<typeof sendAttachmentAdd>[0], 'type'>): Promise<AttachmentMetadata>;
   deleteAttachment(message: Omit<Parameters<typeof sendAttachmentDelete>[0], 'type'>): Promise<boolean>;
-  applyCssEdits(annotation: Annotation, declarations: CssDeclaration[]): CssEdit[] | undefined;
+  applyCssEdits(annotation: Annotation, declarations: CssDeclaration[]): { edits: CssEdit[]; refused: CssDeclaration[] } | undefined;
   revertCssEdits(annotation: Annotation): void;
   revertAllCssEdits(): void;
 }
@@ -44,21 +44,35 @@ function fetchesResource(declaration: CssDeclaration): boolean {
   // The detached element is never rendered, so parsing its style cannot fetch a resource.
   detached.style.setProperty(declaration.property, declaration.value);
   const serialised = detached.style.getPropertyValue(declaration.property).toLowerCase();
-  // Custom properties preserve escapes verbatim, so reject backslashes before they can hide a fetch function.
+  // A custom property keeps its raw text, so a backslash can hide a fetch function, and a quoted string can be read by the page's own CSS as an image-set() URL.
   return serialised.includes('url(')
     || serialised.includes('image-set(')
-    || (declaration.property.startsWith('--') && declaration.value.includes('\\'));
+    || (declaration.property.startsWith('--') && (
+      declaration.value.includes('\\')
+      || declaration.value.includes('"')
+      || declaration.value.includes("'")
+    ));
 }
 
 function createCssEditRegistry() {
   const applied = new Map<string, AppliedCssEdits>();
 
-  function applyCssEdits(annotation: Annotation, declarations: CssDeclaration[]): CssEdit[] | undefined {
+  function applyCssEdits(
+    annotation: Annotation,
+    declarations: CssDeclaration[],
+  ): { edits: CssEdit[]; refused: CssDeclaration[] } | undefined {
     const element = resolveSelector(document, annotation.selector);
     if (!element) return undefined;
 
     const target = element as HTMLElement;
-    const allowed = declarations.filter((declaration) => !fetchesResource(declaration));
+    const refused: CssDeclaration[] = [];
+    const allowed = declarations.filter((declaration) => {
+      if (fetchesResource(declaration)) {
+        refused.push(declaration);
+        return false;
+      }
+      return true;
+    });
     const previous = applied.get(annotation.id);
     const current = previous?.element === target ? previous.originals : new Map<string, string>();
     if (previous) {
@@ -88,7 +102,7 @@ function createCssEditRegistry() {
         originals: new Map(edits.map((edit) => [edit.property, edit.original])),
       });
     }
-    return edits;
+    return { edits, refused };
   }
 
   function revertCssEdits(annotation: Annotation): void {
