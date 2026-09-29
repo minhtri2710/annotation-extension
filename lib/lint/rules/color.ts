@@ -559,7 +559,6 @@ function radialSpotlightHit(ctx: ScanContext, el: Element): RuleHit[] {
 
 const lowContrastRule: ElementRule = {
   id: 'low-contrast',
-  category: 'quality',
   name: 'Low contrast text',
   description: 'Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.',
   scope: 'element',
@@ -568,7 +567,6 @@ const lowContrastRule: ElementRule = {
 
 const grayOnColorRule: ElementRule = {
   id: 'gray-on-color',
-  category: 'quality',
   name: 'Gray text on colored background',
   description: 'Gray text looks washed out on colored backgrounds. Use a darker shade of the background color instead, or white/near-white for contrast.',
   scope: 'element',
@@ -577,7 +575,6 @@ const grayOnColorRule: ElementRule = {
 
 const gradientTextRule: ElementRule = {
   id: 'gradient-text',
-  category: 'slop',
   name: 'Gradient text',
   description: 'Gradient text is decorative rather than meaningful — a common AI tell, especially on headings and metrics. Use solid colors for text.',
   scope: 'element',
@@ -586,7 +583,6 @@ const gradientTextRule: ElementRule = {
 
 const creamPaletteRule: PageRule = {
   id: 'cream-palette',
-  category: 'slop',
   name: 'Cream / beige palette',
   description: 'A warm cream or beige page background has become the default "tasteful" AI surface, reached for by reflex. Choose a background that comes from a deliberate palette, not the safe warm off-white.',
   scope: 'page',
@@ -595,7 +591,6 @@ const creamPaletteRule: PageRule = {
 
 const aiColorPaletteRule: PageRule = {
   id: 'ai-color-palette',
-  category: 'slop',
   name: 'AI color palette',
   description: 'Purple/violet gradients and cyan-on-dark are the most recognizable tells of AI-generated UIs. A gradient in one of those hues is the tell on its own; flat neon ink on a dark ground is charged once a second tell hue joins it. Choose a distinctive, intentional palette.',
   scope: 'page',
@@ -604,7 +599,6 @@ const aiColorPaletteRule: PageRule = {
 
 const darkGlowRule: ElementRule = {
   id: 'dark-glow',
-  category: 'slop',
   name: 'Glowing shadow accents',
   description: 'Colored glow shadows — a zero-offset chromatic halo (box- or text-shadow) on any background, or any colored blurred shadow on a dark background — are the default "cool" look of AI-generated UIs. Use neutral elevation shadows and subtle, purposeful lighting instead.',
   scope: 'element',
@@ -613,7 +607,6 @@ const darkGlowRule: ElementRule = {
 
 const radialHaloRule: ElementRule = {
   id: 'radial-halo',
-  category: 'slop',
   name: 'Radial-gradient background halo',
   description: 'A chromatic radial-gradient wash — saturated at the center, fading to transparent — used as a decorative background glow on a dark page. Same tell as glowing shadows, drawn with a gradient instead of a shadow. Ground the surface with a solid or subtly shifted background instead.',
   scope: 'element',
@@ -622,7 +615,6 @@ const radialHaloRule: ElementRule = {
 
 const radialSpotlightRule: ElementRule = {
   id: 'radial-spotlight-glow',
-  category: 'slop',
   name: 'Decorative radial spotlight glow',
   description: 'A soft, low-opacity accent-colored radial gradient fading to transparent, dropped behind a hero or section as a "spotlight." It is a reflex AI decoration — the translucent cousin of the saturated radial halo. Let the surface stand on its own, or light the composition with a deliberate material accent rather than a floating colored haze.',
   scope: 'element',

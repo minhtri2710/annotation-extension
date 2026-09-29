@@ -90,7 +90,6 @@ async function measureHiddenText(ctx: ScanContext, checkpoint: Checkpoint): Prom
 
 const contentHiddenAtRest: PageRule = {
   id: 'content-hidden-at-rest',
-  category: 'quality',
   severity: 'error',
   name: 'Content invisible at rest',
   description:

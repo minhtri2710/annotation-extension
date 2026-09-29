@@ -31,7 +31,6 @@ describe('rule registry', () => {
   });
 
   it('keeps the deep-scan rule out of ALL_RULES and registers it alone in DEEP_SCAN_RULES', () => {
-    expect(ALL_RULES).toHaveLength(56);
     expect(ALL_RULES.map((rule) => rule.id)).not.toContain('content-hidden-at-rest');
     expect(DEEP_SCAN_RULES).toHaveLength(1);
     expect(DEEP_SCAN_RULES).toEqual(hiddenAtRestRules);

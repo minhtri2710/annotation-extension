@@ -437,7 +437,6 @@ async function textOcclusionUnchecked(ctx: ScanContext, checkpoint: Checkpoint):
 
 const textOcclusionRule: PageRule = {
   id: 'text-occlusion',
-  category: 'quality',
   name: 'Text occluded by an overlapping element',
   description: 'Text is painted under an opaque element or a second text run, so part of it cannot be read. A decorative box, a stacked layer, or an inline element with leaked padding lands on the words instead of beside them. Give overlapping layers room, or move the text out from under the layer above it.',
   scope: 'page',
@@ -446,7 +445,6 @@ const textOcclusionRule: PageRule = {
 
 const textOcclusionUncheckedRule: PageRule = {
   id: 'text-occlusion-unchecked',
-  category: 'quality',
   severity: 'advisory',
   name: 'Text not checked for occlusion',
   description: 'Text with pointer-events:none is skipped by hit testing, so the scan cannot tell whether another element paints over it. Floating form labels are the usual case. Check these by eye.',

@@ -46,32 +46,25 @@ describe('typography-structure lint rules through the real engine', () => {
     ]);
 
     expect(typographyStructureRules.find((rule) => rule.id === 'overused-font')).toMatchObject({
-      category: 'slop',
       name: 'Overused font',
       description: 'Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.',
     });
     expect(typographyStructureRules.find((rule) => rule.id === 'flat-type-hierarchy')).toMatchObject({
-      category: 'slop',
       name: 'Flat type hierarchy',
     });
     expect(typographyStructureRules.find((rule) => rule.id === 'skipped-heading')).toMatchObject({
-      category: 'quality',
       name: 'Skipped heading level',
     });
     expect(typographyStructureRules.find((rule) => rule.id === 'icon-tile-stack')).toMatchObject({
-      category: 'slop',
       name: 'Icon tile stacked above heading',
     });
     expect(typographyStructureRules.find((rule) => rule.id === 'italic-serif-display')).toMatchObject({
-      category: 'slop',
       name: 'Italic serif display headline',
     });
     expect(typographyStructureRules.find((rule) => rule.id === 'hero-eyebrow-chip')).toMatchObject({
-      category: 'slop',
       name: 'Hero eyebrow / pill chip',
     });
     expect(typographyStructureRules.find((rule) => rule.id === 'kicker-above-heading')).toMatchObject({
-      category: 'slop',
       name: 'Kicker / eyebrow label above heading',
     });
   });

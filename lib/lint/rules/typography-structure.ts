@@ -406,18 +406,16 @@ function kickerAboveHeading(el: Element, ctx: ScanContext): RuleHit[] {
   return [{ detail: `kicker "${kickerText.slice(0, 40)}" above ${headingTag} "${headingText.slice(0, 60)}"` }];
 }
 
-const pageRule = (id: string, category: 'slop' | 'quality', name: string, description: string, test: PageRule['test']): PageRule => ({
+const pageRule = (id: string, name: string, description: string, test: PageRule['test']): PageRule => ({
   id,
-  category,
   name,
   description,
   scope: 'page',
   test,
 });
 
-const elementRule = (id: string, category: 'slop' | 'quality', name: string, description: string, test: ElementRule['test'], severity?: 'error' | 'warning' | 'advisory'): ElementRule => ({
+const elementRule = (id: string, name: string, description: string, test: ElementRule['test'], severity?: 'error' | 'warning' | 'advisory'): ElementRule => ({
   id,
-  category,
   ...(severity === undefined ? {} : { severity }),
   name,
   description,
@@ -428,49 +426,42 @@ const elementRule = (id: string, category: 'slop' | 'quality', name: string, des
 export const typographyStructureRules: Rule[] = [
   pageRule(
     'overused-font',
-    'slop',
     'Overused font',
     'Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.',
     (ctx, checkpoint) => overusedFont(ctx, checkpoint),
   ),
   pageRule(
     'flat-type-hierarchy',
-    'slop',
     'Flat type hierarchy',
     'Dominant heading and body roles are separated by less than 1.25× at every step, leaving the size hierarchy flat. Add at least one stronger size step.',
     (ctx, checkpoint) => flatTypeHierarchy(ctx, checkpoint),
   ),
   pageRule(
     'skipped-heading',
-    'quality',
     'Skipped heading level',
     'Heading levels should not skip (e.g. h1 then h3 with no h2). Screen readers use heading hierarchy for navigation. Skipping levels breaks the document outline.',
     (ctx, checkpoint) => skippedHeading(ctx, checkpoint),
   ),
   elementRule(
     'icon-tile-stack',
-    'slop',
     'Icon tile stacked above heading',
     'A small rounded-square icon container above a heading is the universal AI feature-card template — every generator outputs this exact shape. Try a side-by-side icon and heading, or let the icon sit in flow without its own container.',
     (el, ctx) => iconTileStack(el, ctx),
   ),
   elementRule(
     'italic-serif-display',
-    'slop',
     'Italic serif display headline',
     'Oversized italic serif (Fraunces, Recoleta, Playfair, Newsreader-italic) as the primary hero headline reads as taste in isolation but has become the universal AI-startup landing page hero. Set roman, or move to a non-serif display face. Editorial / magazine register may legitimately want this — judge by context.',
     (el, ctx) => italicSerifDisplay(el, ctx),
   ),
   elementRule(
     'hero-eyebrow-chip',
-    'slop',
     'Hero eyebrow / pill chip',
     'A tiny uppercase letter-spaced label sitting immediately above an oversized hero headline — or the same shape rendered as a pill chip — is now the default AI SaaS hero. Drop the eyebrow, integrate the kicker into the headline, or run it as a navigation breadcrumb instead.',
     (el, ctx) => heroEyebrowChip(el, ctx),
   ),
   elementRule(
     'kicker-above-heading',
-    'slop',
     'Kicker / eyebrow label above heading',
     'A tiny tracked uppercase or small-caps label sitting as its own block directly above a heading is banned outright, repeated or not. Generated kickers never earn their place: the heading carries its own weight. Delete the label and let the heading speak; if the words matter, work them into the heading or the body.',
     (el, ctx) => kickerAboveHeading(el, ctx),

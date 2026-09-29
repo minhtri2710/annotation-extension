@@ -358,13 +358,11 @@ function oversizedH1(el: Element, ctx: ScanContext): RuleHit[] {
 
 const rule = (
   id: string,
-  category: 'slop' | 'quality',
   name: string,
   description: string,
   test: ElementRule['test'],
 ): ElementRule => ({
   id,
-  category,
   name,
   description,
   scope: 'element',
@@ -374,56 +372,48 @@ const rule = (
 export const typographySizeRules: Rule[] = [
   rule(
     'tiny-text',
-    'quality',
     'Tiny body text',
     'Body text below 12px is hard to read, especially on high-DPI screens. Use at least 14px for body content, 16px is ideal.',
     tinyText,
   ),
   rule(
     'undersized-ui-text',
-    'quality',
     'Undersized functional text',
     'Interactive and content-bearing UI text (links, buttons, nav items, labels, table cells, meta rows, timecodes) below 11px is a legibility failure, not a style choice. WCAG sets no absolute pixel floor, but functional text under 11px is a defensible quality bar: it fails on high-DPI and small viewports and it degrades tap and read targets. The 11px floor holds even inside a footer; only non-interactive legal smallprint gets the softer 10px floor. Being ON the DESIGN.md size ramp does not exempt a value here: adding 8px to the ramp launders the token but not the legibility problem, and that is exactly the escape hatch this rule closes. Exempts sup/sub, visually-hidden (sr-only) text, and code/terminal contexts. Decorative letterspaced micro-labels are still functional and stay in scope.',
     undersizedUiText,
   ),
   rule(
     'all-caps-body',
-    'quality',
     'All-caps body text',
     'Long passages in uppercase are hard to read. We recognize words by shape (ascenders and descenders), which all-caps removes. Reserve uppercase for short labels and headings.',
     allCapsBody,
   ),
   rule(
     'wide-tracking',
-    'quality',
     'Wide letter spacing on body text',
     'Letter spacing above 0.05em on body text disrupts natural character groupings and slows reading. Reserve wide tracking for short uppercase labels only.',
     wideTracking,
   ),
   rule(
     'extreme-negative-tracking',
-    'slop',
     'Crushed letter spacing',
     'Letter-spacing pulled tighter than the point where characters keep their own shapes costs legibility. Tighten display type optically, not destructively.',
     extremeNegativeTracking,
   ),
   rule(
     'tight-leading',
-    'quality',
     'Tight line height',
     'Line height below 1.3x the font size makes multi-line text hard to read. Use 1.5 to 1.7 for body text so lines have room to breathe.',
     tightLeading,
   ),
   rule(
     'justified-text',
-    'quality',
     'Justified text',
     'Justified text without hyphenation creates uneven word spacing ("rivers of white"). Use text-align: left for body text, or enable hyphens: auto if you must justify.',
     justifiedText,
   ),
   rule(
     'oversized-h1',
-    'slop',
     'Oversized hero headline',
     'A full-sentence headline set at display size ends up dominating the viewport, leaving no room for anything else above the fold. A punchy one- or two-word headline at that size is fine — the problem is a long headline blown up too large. Set long headlines smaller, or tighten the copy.',
     oversizedH1,

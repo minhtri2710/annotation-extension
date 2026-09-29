@@ -111,7 +111,7 @@ describe('lint engine on a large page (real browser)', () => {
   it('measures a stretch over budget when a page rule never checkpoints', async () => {
     await buildFixture(2_000);
     const stuck: PageRule = {
-      id: 'stuck', scope: 'page', category: 'quality', name: 'stuck', description: 'Busy for the whole budget.',
+      id: 'stuck', scope: 'page', name: 'stuck', description: 'Busy for the whole budget.',
       test: async () => {
         const start = performance.now();
         while (performance.now() - start < MAX_STRETCH_MS);

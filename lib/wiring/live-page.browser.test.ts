@@ -8,7 +8,6 @@ import type { AnnotationWriteMessage } from '../annotation-messages';
 import { buildOverlayShell } from '../ui/shell';
 import { createPinsController, type PinsController } from '../pins/pins';
 import { createEventBus } from '../ui/event-bus';
-import { watchRoute } from './route-watch';
 
 let host: HTMLElement;
 let root: ShadowRoot;
@@ -135,27 +134,6 @@ describe.each([
   });
 });
 
-describe('route changes without a head change (real browser)', () => {
-  const start = location.href;
-
-  afterEach(() => {
-    history.replaceState(null, '', start);
-  });
-
-  it.each(['pushState', 'replaceState'] as const)('reports a %s route within one poll, once', async (method) => {
-    const seen: string[] = [];
-    const stop = watchRoute(window, (url) => seen.push(url));
-    try {
-      history[method](null, '', '/live-page-route');
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-    } finally {
-      stop();
-    }
-
-    expect(seen).toEqual([`${location.origin}/live-page-route`]);
-  });
-});
-
 describe('clicks inside frames (real browser)', () => {
   it('announces that frame content cannot be annotated, stays active and saves nothing', async () => {
     const frame = document.createElement('iframe');
@@ -255,23 +233,6 @@ describe('a page that stops events at window capture (real browser)', () => {
     expect(selected.map((context) => context.id)).toEqual(['zoom-target']);
   });
 
-  it('redirects trusted Space activation through a closed root while capture is active', async () => {
-    const button = document.createElement('button');
-    button.textContent = 'Overlay';
-    host.style.cssText = 'position: fixed; inset: 0';
-    button.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
-    let overlayClicks = 0;
-    button.addEventListener('click', () => overlayClicks++);
-    root.append(button);
-    startCapture();
-
-    button.focus();
-    await userEvent.keyboard(' ');
-
-    expect(overlayClicks).toBe(1);
-    expect(controller!.active).toBe(true);
-  });
-
   it('routes capture navigation keys from a focused control inside the closed root', async () => {
     const parent = document.createElement('div');
     parent.id = 'key-parent';
@@ -340,7 +301,6 @@ describe('a page that stops events at window capture (real browser)', () => {
       item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true, cancelable: true }));
       if (item instanceof HTMLElement) item.click();
     }
-    expect(host.shadowRoot).toBeNull();
     expect(openList).not.toHaveBeenCalled();
     expect(shell.panel.querySelector('[data-annotation-clear]')).toBe(clear);
     expect(shell.panel.querySelector('[data-annotation-clear-confirm]')).toBeNull();

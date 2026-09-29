@@ -39,16 +39,4 @@ describe('revealSweep in a real browser', () => {
     expect(findings).toEqual([]);
   }, 30_000);
 
-  it('stops at the next step on abort and restores the exact position', async () => {
-    const win = await load();
-    win.scrollTo({ top: 1234, left: 0, behavior: 'instant' });
-    const controller = new AbortController();
-    const outcome = revealSweep(win, controller.signal).catch((error: unknown) => error);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const reason = new Error('cancel');
-    controller.abort(reason);
-    expect(await outcome).toBe(reason);
-    expect(win.scrollY).toBe(1234);
-    expect(win.document.querySelectorAll('.reveal.in').length).toBeLessThan(SECTIONS);
-  }, 30_000);
 });

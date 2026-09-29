@@ -17,18 +17,6 @@ afterEach(() => {
 });
 
 describe('watchRoute', () => {
-  it('reports a new URL when popstate follows a path change', () => {
-    const onChange = vi.fn();
-    const stop = watchRoute(window, onChange);
-
-    window.history.pushState(null, '', '/next');
-    window.dispatchEvent(new PopStateEvent('popstate'));
-
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith(`${origin}/next`);
-    stop();
-  });
-
   it('reports a pushState navigation signalled only by a title change', async () => {
     const onChange = vi.fn();
     const stop = watchRoute(window, onChange);

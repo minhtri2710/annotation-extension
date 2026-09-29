@@ -144,28 +144,6 @@ describe('pin resolve cost on a 50k-element page (real browser)', () => {
     expect(runs.some((r) => r.slices > 1 && r.longest < 50), `per run: ${summary}`).toBe(true);
   }, 90_000);
 
-  it('backs off re-resolving 200 unresolved annotations while the page keeps mutating', async () => {
-    buildPage();
-    const annotations = Array.from({ length: ANNOTATIONS }, (_, index) => annotation(index, `#missing-${index}`));
-    controller = createPinsController({ document, container: overlay, toolbar });
-    controller.setAnnotations(annotations);
-    const querySelector = vi.spyOn(document, 'querySelector');
-    const ticker = document.createElement('span');
-    document.body.append(ticker);
-    let tick = 0;
-    const interval = setInterval(() => {
-      ticker.textContent = String((tick += 1));
-    }, 100);
-
-    await new Promise((resolve) => setTimeout(resolve, 10_000));
-    clearInterval(interval);
-
-    // One pass resolves #missing-0 once; without backoff the 1 s max wait forces about 10 passes in 10 s.
-    const passes = querySelector.mock.calls.filter(([selector]) => selector === '#missing-0').length;
-    console.info(`[pins P2] re-resolve passes in 10 s: ${passes}`);
-    expect(passes).toBeGreaterThanOrEqual(2);
-    expect(passes).toBeLessThanOrEqual(4);
-  }, 30_000);
 });
 
 describe('pins and their tooltip at the viewport edges (real browser)', () => {

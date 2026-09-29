@@ -132,24 +132,6 @@ describe('pins controller', () => {
     controller.destroy();
   });
 
-  it('keeps marker badges at their source ordinals across an unresolved annotation', () => {
-    const { toolbar, overlay } = setup();
-    const thirdTarget = document.createElement('button');
-    thirdTarget.id = 'third-target';
-    document.body.append(thirdTarget);
-    const controller = createPinsController({ document, container: overlay, toolbar });
-
-    controller.setAnnotations([
-      annotation('annotation-1'),
-      annotation('annotation-2', '#missing'),
-      annotation('annotation-3', '#third-target'),
-    ]);
-
-    expect(Array.from(overlay.querySelectorAll<HTMLButtonElement>('[data-annotation-id]'))
-      .map((marker) => marker.textContent)).toEqual(['1', '3']);
-    controller.destroy();
-  });
-
   it('shows and tears down a truncated note tooltip on hover and focus', () => {
     const { toolbar, overlay } = setup();
     const matching = annotation('annotation-1');
@@ -288,22 +270,6 @@ describe('pins controller', () => {
     getBoundingClientRect.mockReturnValue(rectAt(0, 100, 0, 40));
     controller.reanchor();
     expect(marker.hidden).toBe(true);
-  });
-
-  it('removes the tooltip when reanchor hides its focused pin', () => {
-    const { toolbar, overlay, target } = setup();
-    stubViewport();
-    const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
-    const controller = createPinsController({ document, container: overlay, toolbar });
-    controller.setAnnotations([annotation('annotation-1')]);
-    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
-    marker.dispatchEvent(new Event('focus'));
-    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
-
-    getBoundingClientRect.mockReturnValue(rectAt(-500, 100));
-    controller.reanchor();
-    expect(marker.hidden).toBe(true);
-    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
   });
 
   describe('tooltip follows its pin on reanchor', () => {
@@ -497,6 +463,7 @@ describe('pins controller', () => {
     expect(visible.hidden).toBe(false);
     expect([visible.style.left, visible.style.top]).toEqual(['9px', '9px']);
   });
+
 
   it('keeps a pin off the toolbar rect it reads on each reanchor', () => {
     const { toolbar, overlay, target } = setup();

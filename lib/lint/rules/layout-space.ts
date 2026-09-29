@@ -764,7 +764,6 @@ async function headingRhythmHit(ctx: ScanContext, checkpoint: Checkpoint): Promi
 
 const nestedCardsRule: PageRule = {
   id: 'nested-cards',
-  category: 'slop',
   name: 'Nested cards',
   description: 'Cards inside cards create visual noise and excessive depth. Flatten the hierarchy — use spacing, typography, and dividers instead of nesting containers.',
   scope: 'page',
@@ -773,7 +772,6 @@ const nestedCardsRule: PageRule = {
 
 const monotonousSpacingRule: PageRule = {
   id: 'monotonous-spacing',
-  category: 'slop',
   name: 'Monotonous spacing',
   description: 'The same spacing value used everywhere — no rhythm, no variation. Use tight groupings for related items and generous separations between sections.',
   scope: 'page',
@@ -782,7 +780,6 @@ const monotonousSpacingRule: PageRule = {
 
 const numberedSectionLabelsRule: PageRule = {
   id: 'numbered-section-labels',
-  category: 'slop',
   severity: 'advisory',
   name: 'Tiny numbered section labels',
   description: 'Small numeric index labels riding next to section headings, repeated section after section, are AI editorial scaffolding — a page numbering its own chapters instead of earning structure. Let hierarchy, content, and rhythm carry the sequence.',
@@ -792,7 +789,6 @@ const numberedSectionLabelsRule: PageRule = {
 
 const lineLengthRule: ElementRule = {
   id: 'line-length',
-  category: 'quality',
   severity: 'advisory',
   name: 'Line length too long',
   description: 'Text lines wider than ~80 characters are hard to read. The eye loses its place tracking back to the start of the next line, so it is measured on the lines that rendered and charged when more than one of them runs long. Add a max-width (65ch to 75ch) to text containers.',
@@ -802,7 +798,6 @@ const lineLengthRule: ElementRule = {
 
 const crampedPaddingRule: ElementRule = {
   id: 'cramped-padding',
-  category: 'quality',
   name: 'Cramped padding',
   description: 'Text is too close to the edge of its container. Two shapes: (1) an element with its own text where the space between the rendered text and the border box is too small for the font size, and (2) a wrapper whose children\'s text lands flush against a visible boundary (border, outline, or non-transparent background) with nothing to inset it. Add at least 8px (ideally 12–16px) of space inside bordered, outlined, or colored containers.',
   scope: 'element',
@@ -811,7 +806,6 @@ const crampedPaddingRule: ElementRule = {
 
 const bodyTextViewportEdgeRule: ElementRule = {
   id: 'body-text-viewport-edge',
-  category: 'quality',
   name: 'Body text touching viewport edge',
   description: 'Body paragraphs render flush against the left or right viewport edge with no container providing horizontal padding. Wrap content in a container with at least 16px (ideally 24-32px) of horizontal padding, or apply max-width with mx-auto.',
   scope: 'element',
@@ -820,7 +814,6 @@ const bodyTextViewportEdgeRule: ElementRule = {
 
 const headingRhythmRule: PageRule = {
   id: 'heading-rhythm',
-  category: 'quality',
   name: 'Heading crowded against the previous block',
   description: 'A heading binds to the content it introduces, so the rendered space above it should exceed the space below it. When headings across a page sit as close or closer to the block above than to their own content, every section reads as if it captions the previous one. Open up the space above each heading.',
   scope: 'page',

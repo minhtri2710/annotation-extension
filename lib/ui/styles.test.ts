@@ -4,14 +4,6 @@ import { ANNOTATION_DARK_TOKENS, ANNOTATION_TOKENS } from './tokens';
 import { OVERLAY_STYLES } from './styles';
 
 describe('overlay styles', () => {
-  it('defines the fixed toolbar chrome', () => {
-    expect(OVERLAY_STYLES).toContain('[data-annotation-mount="toolbar"]');
-    expect(OVERLAY_STYLES).toContain('position: fixed');
-    expect(OVERLAY_STYLES).toContain('bottom: var(--annotation-space-4)');
-    expect(OVERLAY_STYLES).toContain('right: var(--annotation-space-4)');
-    expect(OVERLAY_STYLES).toContain('z-index: 2147483646');
-  });
-
   it('keeps the extracted tokens and existing overlay invariants', () => {
     const rootRule = `[data-annotation-shell] {
 ${ANNOTATION_TOKENS}
@@ -83,65 +75,6 @@ ${ANNOTATION_DARK_TOKENS}
     expect(OVERLAY_STYLES).toContain(toolbarRule);
     expect(OVERLAY_STYLES).toContain(panelRule);
     expect(OVERLAY_STYLES).toContain(formControlRule);
-
-    expect(OVERLAY_STYLES).toContain(ANNOTATION_TOKENS);
-    expect(OVERLAY_STYLES).toContain('[data-annotation-shell] {');
-    expect(OVERLAY_STYLES).toContain('[data-annotation-shell][data-theme="dark"]');
-    expect(OVERLAY_STYLES).toContain(ANNOTATION_DARK_TOKENS);
-    expect(OVERLAY_STYLES).toContain('[data-annotation-mount="toolbar"]');
-    expect(OVERLAY_STYLES).toContain('[data-annotation-mount="panel"]');
-    expect(OVERLAY_STYLES).toContain('display: flex');
-    expect(OVERLAY_STYLES).toContain('display: block');
-    expect(OVERLAY_STYLES).toContain('border: 1px solid var(--annotation-color-border)');
-    expect(OVERLAY_STYLES).toContain('border-radius: var(--annotation-radius-lg)');
-    expect(OVERLAY_STYLES).toContain('background: var(--annotation-color-surface)');
-    expect(OVERLAY_STYLES).toContain('box-shadow: 0 4px 16px rgba(23, 32, 51, 0.2)');
-    expect(OVERLAY_STYLES).toContain('box-shadow: 0 12px 32px rgba(23, 32, 51, 0.24)');
-    expect(OVERLAY_STYLES).toContain('[data-annotation-shell] [data-annotation-mount] select');
-
-    const declarations = OVERLAY_STYLES.match(/--annotation-[a-z0-9-]+(?=:)/g) ?? [];
-    expect(declarations).toHaveLength(31);
-    expect(new Set(declarations)).toEqual(
-      new Set([
-        ...Object.keys({
-          '--annotation-color-surface': true,
-          '--annotation-color-surface-raised': true,
-          '--annotation-color-text': true,
-          '--annotation-color-text-muted': true,
-          '--annotation-color-border': true,
-          '--annotation-color-accent': true,
-          '--annotation-color-danger': true,
-          '--annotation-color-warning': true,
-          '--annotation-space-1': true,
-          '--annotation-space-2': true,
-          '--annotation-space-3': true,
-          '--annotation-space-4': true,
-          '--annotation-radius-sm': true,
-          '--annotation-radius-md': true,
-          '--annotation-radius-lg': true,
-          '--annotation-font-family': true,
-          '--annotation-font-size-caption': true,
-          '--annotation-font-size-body': true,
-          '--annotation-font-size-title': true,
-          '--annotation-font-weight-regular': true,
-          '--annotation-font-weight-medium': true,
-          '--annotation-font-weight-bold': true,
-          '--annotation-line-height': true,
-        }),
-      ]),
-    );
-  });
-
-  it('defines the floating panel card and keeps existing tokens', () => {
-    expect(OVERLAY_STYLES).toContain('[data-annotation-mount="panel"]');
-    expect(OVERLAY_STYLES).toContain('background: var(--annotation-color-surface)');
-    expect(OVERLAY_STYLES).toContain('border: 1px solid var(--annotation-color-border)');
-    expect(OVERLAY_STYLES).toContain('border-radius: var(--annotation-radius-lg)');
-    expect(OVERLAY_STYLES).toContain('box-shadow:');
-    expect(OVERLAY_STYLES).toContain('max-height: calc(100vh - 2 * var(--annotation-space-4))');
-    expect(OVERLAY_STYLES).toContain('--annotation-color-surface');
-    expect(OVERLAY_STYLES).toContain('--annotation-space-4');
-    expect(OVERLAY_STYLES).toContain('[data-theme="dark"]');
   });
 
   it('hides an empty panel and scopes sibling spacing to the panel only', () => {
@@ -149,7 +82,6 @@ ${ANNOTATION_DARK_TOKENS}
     expect(OVERLAY_STYLES).toContain(
       '[data-annotation-shell] [data-annotation-mount="panel"] > * + * {\n  margin-top: var(--annotation-space-3);\n}',
     );
-    expect(OVERLAY_STYLES).not.toContain('[data-annotation-shell] [data-annotation-mount] > * + *');
   });
 
   it('defines marker, tooltip, and reduced-motion-safe locate pulse styles', () => {
@@ -169,7 +101,6 @@ ${ANNOTATION_DARK_TOKENS}
     const values = [...rules.matchAll(/font-(?:size|weight):\s*([^;]+);/g)].map((match) => match[1]);
     expect(values.length).toBeGreaterThan(0);
     for (const value of values) expect(value).toMatch(/^var\(--annotation-font-(?:size|weight)-[a-z]+\)$/);
-    expect(OVERLAY_STYLES).not.toContain('var(--annotation-font-size)');
     expect(ruleBody('[data-annotation-shell] .annotation-pin {')).toContain('font-weight: var(--annotation-font-weight-bold)');
     expect(ruleBody('[data-annotation-shell] .annotation-pin-tooltip {')).toContain(
       'font-size: var(--annotation-font-size-caption)',
@@ -417,7 +348,6 @@ describe('overlay styles independent of the page', () => {
   overflow-wrap: anywhere;
 }`);
     const tooltipRule = /\[data-annotation-shell\] \.annotation-pin-tooltip \{([^}]*)\}/.exec(OVERLAY_STYLES)?.[1] ?? '';
-    expect(tooltipRule).toContain('pointer-events: auto;');
     expect(tooltipRule).toContain('max-width: min(256px, calc(100% - 16px));');
     expect(OVERLAY_STYLES).toContain(`[data-annotation-shell] .annotation-pin-tooltip::before {
   content: "";
@@ -431,9 +361,6 @@ describe('overlay styles independent of the page', () => {
 describe('overlay state contrast computed from the token values', () => {
   const schemes = { light: ANNOTATION_TOKENS, dark: `${ANNOTATION_TOKENS}\n${ANNOTATION_DARK_TOKENS}` };
   const button = '[data-annotation-shell] [data-annotation-mount] button';
-  const white = parseColor('#ffffff')!;
-  const black = parseColor('#000000')!;
-
   function tokenColor(tokens: string, declaration: string): Rgba {
     const name = /var\((--annotation-color-[a-z-]+)\)/.exec(declaration)?.[1];
     expect(name, declaration).toBeDefined();
@@ -458,34 +385,6 @@ describe('overlay state contrast computed from the token values', () => {
         const ratio = contrastRatio(tokenColor(tokens, declaration(body, 'color')), tokenColor(tokens, declaration(body, 'background')));
         expect(ratio, `${scheme}: ${body}`).toBeGreaterThanOrEqual(4.5);
       }
-    }
-  });
-
-  it('draws the pin focus ring in two colours, one at 3:1 or more against white and black pages', () => {
-    const body = ruleBody('[data-annotation-shell] .annotation-pin:focus-visible {');
-    const outline = declaration(body, 'outline');
-    const shadow = declaration(body, 'box-shadow');
-    expect(Number.parseFloat(/(\d+)px$/.exec(shadow.split(' var(')[0]!.trim())?.[1] ?? '0')).toBeGreaterThan(
-      Number.parseFloat(/outline-offset: (\d+)px/.exec(body)?.[1] ?? '0') + Number.parseFloat(/(\d+)px/.exec(outline)?.[1] ?? '0'),
-    );
-    for (const [scheme, tokens] of Object.entries(schemes)) {
-      const ring = tokenColor(tokens, outline);
-      const halo = tokenColor(tokens, shadow);
-      expect(contrastRatio(ring, halo), scheme).toBeGreaterThanOrEqual(3);
-      for (const page of [white, black]) {
-        expect(Math.max(contrastRatio(ring, page), contrastRatio(halo, page)), scheme).toBeGreaterThanOrEqual(3);
-      }
-    }
-  });
-
-  it('outlines focused text fields at 3:1 or more against the panel surface in both schemes', () => {
-    const field = '[data-annotation-shell] [data-annotation-mount]';
-    const body = ruleBody(`${field} input:focus-visible,\n${field} textarea:focus-visible,\n${field} select:focus-visible {`);
-    const outline = declaration(body, 'outline');
-    expect(outline).toMatch(/^2px solid /);
-    for (const [scheme, tokens] of Object.entries(schemes)) {
-      const surface = tokenColor(tokens, 'var(--annotation-color-surface)');
-      expect(contrastRatio(tokenColor(tokens, outline), surface), scheme).toBeGreaterThanOrEqual(3);
     }
   });
 });

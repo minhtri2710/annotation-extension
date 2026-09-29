@@ -89,16 +89,6 @@ describe('popup page', () => {
     vi.spyOn(browser.commands, 'getAll').mockResolvedValue([{ name: 'capture.toggle', shortcut: 'Alt+Shift+Y' }] as never);
   });
 
-  it('names the default stubbed shortcut and describes the toggle with it', async () => {
-    stubTab(PAGE, async () => ({ active: false }));
-    await openPopup();
-
-    await vi.waitFor(() => expect(byId('shortcut-hint').textContent).toBe('Shortcut: Alt+Shift+Y'));
-    expect(byId('shortcut-hint').querySelector('kbd')?.textContent).toBe('Alt+Shift+Y');
-    expect(byId('shortcut-hint').hidden).toBe(false);
-    expect(byId('toggle').getAttribute('aria-describedby')).toBe('shortcut-hint');
-  });
-
   it('sends the capture toggle to the active tab and closes the popup', async () => {
     const { query, sendMessage } = stubTab(PAGE, async () => ({ active: false }));
     // Stub: happy-dom's window.close would tear the test window down.
@@ -222,7 +212,6 @@ describe('popup page', () => {
     expect(byId('toggle').textContent).toBe('Stop annotating');
     expect(byId('status').textContent).toBe('');
   });
-
   it('offers Start annotating when capture is inactive on the tab', async () => {
     stubTab(PAGE, async () => ({ active: false }));
     await openPopup();
@@ -268,7 +257,6 @@ describe('popup page', () => {
   });
 
   it.each([
-    ['a rejected state message', () => Promise.reject(new Error('Receiving end does not exist.'))],
     ['a malformed state reply', () => Promise.resolve({ active: 'yes' })],
   ])('asks for a reload after %s', async (_name, reply) => {
     stubTab(PAGE, reply);

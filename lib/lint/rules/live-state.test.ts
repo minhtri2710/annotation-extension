@@ -80,39 +80,32 @@ describe('live-state lint rules through the real engine', () => {
       'clipped-overflow-container',
     ]);
     expect(liveStateRules.find((rule) => rule.id === 'edge-flush-cards')).toMatchObject({
-      category: 'quality',
       name: 'Cards flush against the scroller edge',
       description: 'Cards inside a horizontal scroller or tab panel sit flush against the container edge at rest while keeping a gutter on the other side, so their edges and rounded corners get cut off. Usually the panel is sized wider than its clip box. Keep a consistent inset on both sides.',
       scope: 'page',
     });
     expect(liveStateRules.find((rule) => rule.id === 'text-occlusion')).toMatchObject({
-      category: 'quality',
       name: 'Text occluded by an overlapping element',
       description: 'Text is painted under an opaque element or a second text run, so part of it cannot be read. A decorative box, a stacked layer, or an inline element with leaked padding lands on the words instead of beside them. Give overlapping layers room, or move the text out from under the layer above it.',
       scope: 'page',
     });
     expect(liveStateRules.find((rule) => rule.id === 'first-viewport-column-overflow')).toMatchObject({
-      category: 'quality',
       name: 'One column stretches the first viewport',
       scope: 'page',
     });
     expect(liveStateRules.find((rule) => rule.id === 'text-overflow')).toMatchObject({
-      category: 'quality',
       name: 'Content overflowing its container',
       scope: 'element',
     });
     expect(liveStateRules.find((rule) => rule.id === 'repeated-container-text')).toMatchObject({
-      category: 'quality',
       name: 'Same text repeated inside one container',
       scope: 'page',
     });
     expect(liveStateRules.find((rule) => rule.id === 'clipped-overflow-container')).toMatchObject({
-      category: 'quality',
       name: 'Positioned child clipped by overflow container',
       scope: 'element',
     });
     expect(liveStateRules.find((rule) => rule.id === 'text-occlusion-unchecked')).toMatchObject({
-      category: 'quality',
       severity: 'advisory',
       name: 'Text not checked for occlusion',
       scope: 'page',
@@ -187,7 +180,7 @@ describe('live-state lint rules through the real engine', () => {
     place();
     const several = (await collectFindings(liveStateRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'text-occlusion-unchecked');
     expect(several).toHaveLength(1);
-    expect(first(several)).toMatchObject({ severity: 'advisory', category: 'quality', detail: '3 text elements with pointer-events:none were not checked for occlusion' });
+    expect(first(several)).toMatchObject({ severity: 'advisory', detail: '3 text elements with pointer-events:none were not checked for occlusion' });
     expect(first(several).el).toBeUndefined();
     expect(point).not.toHaveBeenCalled();
   });

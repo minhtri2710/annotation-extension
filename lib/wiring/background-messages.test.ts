@@ -2,7 +2,7 @@ import { browser, type Browser } from 'wxt/browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { registerBackgroundMessageHandlers } from './background-messages';
-import { isAnnotationWriteMessage, MAX_TEXT_LENGTH } from '../annotation-messages';
+import { MAX_TEXT_LENGTH } from '../annotation-messages';
 import { listAnnotations } from '../annotation-storage';
 import { pageKey } from '../../utils/page-key';
 import { sendImportJson, IMPORT_PORT_NAME } from '../json-io';
@@ -177,7 +177,6 @@ describe('background message routing', () => {
     await fakeBrowser.runtime.onMessage.trigger(message, {}, sendResponse);
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledTimes(1));
     expect(sendResponse.mock.calls[0]?.[0]).toMatchObject({ note: 'created' });
-    expect(isAnnotationWriteMessage(message)).toBe(true);
     await expect(listAnnotations(pageUrl)).resolves.toHaveLength(1);
     await expect(listAnnotations(pageUrl)).resolves.toEqual([sendResponse.mock.calls[0]?.[0]]);
   });

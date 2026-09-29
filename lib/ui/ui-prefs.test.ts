@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import {
-  ONBOARDING_OPEN_STORAGE_KEY,
-  TOOLBAR_PREFS_STORAGE_KEY,
   readOnboardingOpen,
   readToolbarPrefs,
   writeOnboardingOpen,
@@ -20,7 +18,6 @@ describe('ui prefs', () => {
 
   it('round-trips toolbar prefs through storage.local under ui:toolbar', async () => {
     await writeToolbarPrefs({ position: { x: 12, y: 34 }, collapsed: true });
-    expect(TOOLBAR_PREFS_STORAGE_KEY).toBe('ui:toolbar');
     await expect(fakeBrowser.storage.local.get('ui:toolbar')).resolves.toEqual({
       'ui:toolbar': { position: { x: 12, y: 34 }, collapsed: true },
     });
@@ -48,7 +45,6 @@ describe('ui prefs', () => {
   it('defaults onboarding to open and round-trips it under ui:onboarding-open', async () => {
     await expect(readOnboardingOpen()).resolves.toBe(true);
     await writeOnboardingOpen(false);
-    expect(ONBOARDING_OPEN_STORAGE_KEY).toBe('ui:onboarding-open');
     await expect(fakeBrowser.storage.local.get('ui:onboarding-open')).resolves.toEqual({ 'ui:onboarding-open': false });
     await expect(readOnboardingOpen()).resolves.toBe(false);
   });

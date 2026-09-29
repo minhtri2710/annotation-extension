@@ -19,7 +19,6 @@ function tickingRule(log: Element[], clock: { now: number }): ElementRule {
   return {
     id: 'tick',
     scope: 'element',
-    category: 'quality',
     name: 'Tick',
     description: 'Advances the clock 5 ms per element.',
     test: (el) => {
@@ -52,7 +51,6 @@ describe('lint engine', () => {
       {
         id: 'fake-element',
         scope: 'element',
-        category: 'quality',
         name: 'Fake element rule',
         description: 'Finds the target element.',
         severity: 'advisory',
@@ -61,7 +59,6 @@ describe('lint engine', () => {
       {
         id: 'fake-page',
         scope: 'page',
-        category: 'slop',
         name: 'Fake page rule',
         description: 'Finds the page.',
         test: async () => [{ detail: 'page hit' }],
@@ -76,7 +73,6 @@ describe('lint engine', () => {
         name: 'Fake element rule',
         description: 'Finds the target element.',
         severity: 'advisory',
-        category: 'quality',
         el: target,
         detail: 'target hit',
       },
@@ -85,7 +81,6 @@ describe('lint engine', () => {
         name: 'Fake page rule',
         description: 'Finds the page.',
         severity: 'warning',
-        category: 'slop',
         el: undefined,
         detail: 'page hit',
       },
@@ -130,11 +125,11 @@ describe('lint engine', () => {
     document.body.innerHTML = '<section id="s"><p id="p"></p></section><a id="a"></a>';
     const byId = (id: string) => document.getElementById(id)!;
     const rule = (id: string, match: string): Rule => ({
-      id, scope: 'element', category: 'quality', name: id, description: id,
+      id, scope: 'element', name: id, description: id,
       test: (el) => (el.matches(match) ? [{ detail: `${id}:${el.id}` }] : []),
     });
     const page: Rule = {
-      id: 'page', scope: 'page', category: 'slop', name: 'page', description: 'page',
+      id: 'page', scope: 'page', name: 'page', description: 'page',
       test: async () => [{ detail: 'page:a', el: byId('a') }, { detail: 'page:none' }],
     };
 
@@ -159,7 +154,7 @@ describe('lint engine', () => {
     const elements = tenElements();
     const log: Element[] = [];
     const pageTest = vi.fn(async () => []);
-    const page: Rule = { id: 'page', scope: 'page', category: 'slop', name: 'page', description: 'page', test: pageTest };
+    const page: Rule = { id: 'page', scope: 'page', name: 'page', description: 'page', test: pageTest };
     const controller = new AbortController();
     const reason = new Error('stopped');
 
@@ -177,8 +172,8 @@ describe('lint engine', () => {
     const elementTest = vi.fn(() => []);
     const pageTest = vi.fn(async () => []);
     const rules: Rule[] = [
-      { id: 'el', scope: 'element', category: 'quality', name: 'el', description: 'el', test: elementTest },
-      { id: 'page', scope: 'page', category: 'quality', name: 'page', description: 'page', test: pageTest },
+      { id: 'el', scope: 'element', name: 'el', description: 'el', test: elementTest },
+      { id: 'page', scope: 'page', name: 'page', description: 'page', test: pageTest },
     ];
     const controller = new AbortController();
     const reason = new Error('pre-aborted');
@@ -215,7 +210,7 @@ describe('lint engine', () => {
       return fakeSetTimeout(handler, ms);
     }) as typeof setTimeout);
     const looping: Rule = {
-      id: 'looping', scope: 'page', category: 'quality', name: 'looping', description: 'looping',
+      id: 'looping', scope: 'page', name: 'looping', description: 'looping',
       test: async (_ctx, checkpoint) => {
         for (let i = 0; i < 6; i += 1) {
           await checkpoint();
@@ -226,7 +221,7 @@ describe('lint engine', () => {
       },
     };
     const next: Rule = {
-      id: 'next', scope: 'page', category: 'quality', name: 'next', description: 'next',
+      id: 'next', scope: 'page', name: 'next', description: 'next',
       test: async () => {
         events.push('next');
         return [{ detail: 'next done' }];
@@ -250,7 +245,7 @@ describe('lint engine', () => {
     const reason = new Error('stopped in page phase');
     const nextTest = vi.fn(async () => []);
     const looping: Rule = {
-      id: 'looping', scope: 'page', category: 'quality', name: 'looping', description: 'looping',
+      id: 'looping', scope: 'page', name: 'looping', description: 'looping',
       test: async (_ctx, checkpoint) => {
         for (let i = 0; i < 6; i += 1) {
           await checkpoint();
@@ -261,7 +256,7 @@ describe('lint engine', () => {
         return [];
       },
     };
-    const next: Rule = { id: 'next', scope: 'page', category: 'quality', name: 'next', description: 'next', test: nextTest };
+    const next: Rule = { id: 'next', scope: 'page', name: 'next', description: 'next', test: nextTest };
 
     const pending = collectFindings([looping, next], createScanContext(window), controller.signal);
     const outcome = pending.then(() => 'resolved', (error: unknown) => error);
@@ -277,11 +272,11 @@ describe('lint engine', () => {
     const kept = document.getElementById('kept')!;
     const removed = document.getElementById('removed')!;
     const early: Rule = {
-      id: 'early', scope: 'page', category: 'quality', name: 'early', description: 'early',
+      id: 'early', scope: 'page', name: 'early', description: 'early',
       test: async () => [{ detail: 'kept', el: kept }, { detail: 'removed', el: removed }, { detail: 'page' }],
     };
     const remover: Rule = {
-      id: 'remover', scope: 'page', category: 'quality', name: 'remover', description: 'remover',
+      id: 'remover', scope: 'page', name: 'remover', description: 'remover',
       test: async () => {
         removed.remove();
         return [];
@@ -299,11 +294,11 @@ describe('lint engine', () => {
     const kept = document.getElementById('kept')!;
     const removed = document.getElementById('removed')!;
     const flag: Rule = {
-      id: 'flag', scope: 'element', category: 'quality', name: 'flag', description: 'flag',
+      id: 'flag', scope: 'element', name: 'flag', description: 'flag',
       test: (el) => (el.tagName === 'P' ? [{ detail: el.id }] : []),
     };
     const remover: Rule = {
-      id: 'remover', scope: 'page', category: 'quality', name: 'remover', description: 'remover',
+      id: 'remover', scope: 'page', name: 'remover', description: 'remover',
       test: async () => {
         removed.remove();
         return [{ detail: 'page' }];
@@ -315,7 +310,4 @@ describe('lint engine', () => {
     expect(findings.map((f) => [f.detail, f.el])).toEqual([['kept', kept], ['page', undefined]]);
   });
 
-  it('runs last on the real setTimeout after earlier tests spied on a fake one', async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }, 1000);
 });

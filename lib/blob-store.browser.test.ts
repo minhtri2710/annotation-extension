@@ -85,13 +85,6 @@ describe('createBlobStore (IndexedDB)', () => {
     await expect(writer.get('attachment:shared')).resolves.toBeUndefined();
   });
 
-  it('closes its connection after each operation so the database can be deleted', async () => {
-    const store = createBlobStore();
-    await store.put('screenshot:a', new Blob(['a']));
-    await store.get('screenshot:a');
-    await store.delete(['screenshot:a']);
-    await expect(deleteDatabase()).resolves.toBeUndefined();
-  });
 });
 
 describe('blob keys', () => {

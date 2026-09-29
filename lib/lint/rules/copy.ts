@@ -97,7 +97,6 @@ async function theaterSlopPhrase(ctx: ScanContext): Promise<PageHit[]> {
 
 const emDashOveruseRule: PageRule = {
   id: 'em-dash-overuse',
-  category: 'slop',
   severity: 'advisory',
   name: 'Em-dash overuse',
   description:
@@ -108,7 +107,6 @@ const emDashOveruseRule: PageRule = {
 
 const marketingBuzzwordRule: PageRule = {
   id: 'marketing-buzzword',
-  category: 'slop',
   name: 'Marketing buzzword',
   description:
     'Generic SaaS phrases (streamline / empower / supercharge / world-class / enterprise-grade / next-generation / cutting-edge / etc) are instant AI tells. Pick a specific verb and noun that says what the product literally does.',
@@ -118,7 +116,6 @@ const marketingBuzzwordRule: PageRule = {
 
 const aphoristicCadenceRule: PageRule = {
   id: 'aphoristic-cadence',
-  category: 'slop',
   name: 'Aphoristic-cadence copy',
   description:
     'Three or more sections landing on a short rebuttal sentence ("X. No Y." / "X. Just Y.") or a manufactured-contrast aphorism ("Not a feature. A platform.") reads as AI cadence, not voice. Once is fine; the pattern is the tell.',
@@ -128,7 +125,6 @@ const aphoristicCadenceRule: PageRule = {
 
 const theaterSlopPhraseRule: PageRule = {
   id: 'theater-slop-phrase',
-  category: 'slop',
   severity: 'advisory',
   name: 'Theater framing copy',
   description:

@@ -26,18 +26,17 @@ afterEach(() => {
 describe('copy lint rules through the real engine', () => {
   it('exports the four rules in registry order with faithful metadata', () => {
     expect(
-      copyRules.map(({ id, category, severity, name, scope }) => ({
+      copyRules.map(({ id, severity, name, scope }) => ({
         id,
-        category,
         severity,
         name,
         scope,
       })),
     ).toEqual([
-      { id: 'em-dash-overuse', category: 'slop', severity: 'advisory', name: 'Em-dash overuse', scope: 'page' },
-      { id: 'marketing-buzzword', category: 'slop', severity: undefined, name: 'Marketing buzzword', scope: 'page' },
-      { id: 'aphoristic-cadence', category: 'slop', severity: undefined, name: 'Aphoristic-cadence copy', scope: 'page' },
-      { id: 'theater-slop-phrase', category: 'slop', severity: 'advisory', name: 'Theater framing copy', scope: 'page' },
+      { id: 'em-dash-overuse', severity: 'advisory', name: 'Em-dash overuse', scope: 'page' },
+      { id: 'marketing-buzzword', severity: undefined, name: 'Marketing buzzword', scope: 'page' },
+      { id: 'aphoristic-cadence', severity: undefined, name: 'Aphoristic-cadence copy', scope: 'page' },
+      { id: 'theater-slop-phrase', severity: 'advisory', name: 'Theater framing copy', scope: 'page' },
     ]);
     expect(copyRules[3]?.description).toBe(
       'Dismissing something as "theater" is a recurring generated-copy tic. Say plainly what the thing does or does not do.',

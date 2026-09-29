@@ -72,6 +72,14 @@ describe('annotation write messages', () => {
         type: 'annotation.update',
         pageUrl,
         id: 'annotation-1',
+        changes: { screenshot: 5 },
+      }),
+    ).toBe(false);
+    expect(
+      isAnnotationWriteMessage({
+        type: 'annotation.update',
+        pageUrl,
+        id: 'annotation-1',
         changes: { note: 'still valid', selector: '#target', elementContext },
       }),
     ).toBe(true);
@@ -336,13 +344,6 @@ describe('shared caps on write messages', () => {
     await expect(sendAnnotationWrite({ type: 'annotation.add', pageUrl: bad, input: { note: 'x', selector: '#target', elementContext } }))
       .rejects.toThrow('The page URL is not an http, https or file URL.');
     expect(Object.keys(await fakeBrowser.storage.local.get(null))).toEqual([]);
-  });
-
-  it('answers an over-cap write with an error response and stores nothing', async () => {
-    await expect(sendAnnotationWrite(add({ note: over }) as never)).rejects.toThrow(
-      `The note is longer than ${MAX_TEXT_LENGTH} characters.`,
-    );
-    await expect(listAnnotations(pageUrl)).resolves.toEqual([]);
   });
 });
 

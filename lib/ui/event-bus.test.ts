@@ -34,18 +34,6 @@ describe('event bus', () => {
     expect(received).toEqual([true]);
   });
 
-  it('stops delivery when a subscriber is removed with off', () => {
-    const bus = createEventBus<UiEvents>();
-    const received: boolean[] = [];
-    const subscriber = (payload: UiEvents['panel']) => received.push(payload.open);
-
-    bus.on('panel', subscriber);
-    bus.off('panel', subscriber);
-    bus.emit('panel', { open: true });
-
-    expect(received).toEqual([]);
-  });
-
   it('ignores empty channels and keeps event channels isolated', () => {
     const bus = createEventBus<UiEvents>();
     const toolbarSubscriber = vi.fn();

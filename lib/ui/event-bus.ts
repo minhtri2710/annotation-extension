@@ -2,7 +2,6 @@ export type EventHandler<Payload> = (payload: Payload) => void;
 
 export interface EventBus<Events extends object> {
   on<Event extends keyof Events>(event: Event, handler: EventHandler<Events[Event]>): () => void;
-  off<Event extends keyof Events>(event: Event, handler: EventHandler<Events[Event]>): void;
   emit<Event extends keyof Events>(event: Event, payload: Events[Event]): void;
 }
 
@@ -24,10 +23,6 @@ export function createEventBus<Events extends object>(): EventBus<Events> {
         currentSubscribers?.delete(subscriber);
         if (currentSubscribers?.size === 0) subscribers.delete(event);
       };
-    },
-
-    off(event, handler) {
-      subscribers.get(event)?.delete(handler as EventHandler<unknown>);
     },
 
     emit(event, payload) {

@@ -139,6 +139,9 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
     expect(style.outlineStyle).toBe('solid');
     const ring = color(style.outlineColor);
     const halo = shadowColor(style.boxShadow);
+    expect(Number.parseFloat(style.boxShadow.match(/0px 0px 0px ([\d.]+)px/)?.[1] ?? '0')).toBeGreaterThan(
+      Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth),
+    );
     expect(contrastRatio(ring, halo)).toBeGreaterThanOrEqual(3);
     expect(Math.max(contrastRatio(ring, color(page)), contrastRatio(halo, color(page)))).toBeGreaterThanOrEqual(3);
   });
@@ -161,15 +164,17 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
     expect(ratio).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('outlines a focused textarea at 3:1 or more against the panel surface', async () => {
+  it('outlines focused form fields at 3:1 or more against the panel surface', async () => {
     const { shell } = mountOverlay(theme);
-    const field = document.createElement('textarea');
-    shell.panel.append(field);
-    field.focus();
-    const style = getComputedStyle(field);
-    expect(style.outlineStyle).toBe('solid');
-    expect(Number.parseFloat(style.outlineWidth)).toBeGreaterThanOrEqual(2);
-    expect(contrastRatio(color(style.outlineColor), color(getComputedStyle(shell.panel).backgroundColor))).toBeGreaterThanOrEqual(3);
+    for (const field of [document.createElement('input'), document.createElement('textarea'), document.createElement('select')]) {
+      shell.panel.append(field);
+      field.focus();
+      const style = getComputedStyle(field);
+      expect(style.outlineStyle).toBe('solid');
+      expect(Number.parseFloat(style.outlineWidth)).toBeGreaterThanOrEqual(2);
+      expect(contrastRatio(color(style.outlineColor), color(getComputedStyle(shell.panel).backgroundColor))).toBeGreaterThanOrEqual(3);
+      field.remove();
+    }
   });
 });
 

@@ -484,7 +484,6 @@ async function gridBackgroundTest(ctx: ScanContext, checkpoint: Checkpoint): Pro
 
 const sideTabRule: ElementRule = {
   id: 'side-tab',
-  category: 'slop',
   severity: 'advisory',
   name: 'Side-tab accent border',
   description: 'Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.',
@@ -494,7 +493,6 @@ const sideTabRule: ElementRule = {
 
 const borderAccentRule: ElementRule = {
   id: 'border-accent-on-rounded',
-  category: 'slop',
   name: 'Border accent on rounded element',
   description: 'Thick accent border on a rounded card — the border clashes with the rounded corners. Remove the border or the border-radius.',
   scope: 'element',
@@ -503,7 +501,6 @@ const borderAccentRule: ElementRule = {
 
 const gptThinBorderWideShadowRule: ElementRule = {
   id: 'gpt-thin-border-wide-shadow',
-  category: 'slop',
   severity: 'advisory',
   name: 'Hairline border with wide shadow',
   description: 'A hairline border paired with a wide, diffuse shadow is a recurring generated-UI signature. Commit to one — a defined edge or a soft elevation — rather than both at once.',
@@ -513,7 +510,6 @@ const gptThinBorderWideShadowRule: ElementRule = {
 
 const repeatingStripesGradientRule: PageRule = {
   id: 'repeating-stripes-gradient',
-  category: 'slop',
   severity: 'advisory',
   name: 'Repeating-gradient stripes',
   description: 'Repeating-gradient stripes used as surface decoration are a recurring generated-UI signature. Reach for a deliberate texture or leave the surface plain.',
@@ -523,7 +519,6 @@ const repeatingStripesGradientRule: PageRule = {
 
 const codexGridBackgroundRule: PageRule = {
   id: 'codex-grid-background',
-  category: 'slop',
   severity: 'advisory',
   name: 'Decorative grid-line background',
   description: 'A decorative grid or line-field background drawn with hairline linear-gradient layers tiled by a fixed pixel cell is a recurring generated-UI signature. Reserve grid overlays for actual canvas, map, blueprint, or measurement surfaces; elsewhere use product structure or a plain surface.',

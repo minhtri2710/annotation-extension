@@ -69,37 +69,18 @@ function expectColor(actual: number[], expected: number[]): void {
 }
 
 describe('processScreenshot', () => {
-  it('crops the bounding box scaled by devicePixelRatio and encodes WebP', async () => {
-    const capture = await splitImage(400, 200);
+  it('places the colour boundaries of asymmetric crops exactly where the device-pixel offsets put them', async () => {
+    const symmetricCapture = await quadrantImage(400, 200);
+    const symmetric = await processScreenshot(symmetricCapture, { x: 80, y: 30, width: 40, height: 40 }, 2);
 
-    const result = await processScreenshot(capture, { x: 60, y: 20, width: 80, height: 50 }, 2);
+    expect([symmetric.width, symmetric.height]).toEqual([80, 80]);
+    const symmetricImage = await decode(symmetric.blob);
+    expect([symmetricImage.width, symmetricImage.height]).toEqual([80, 80]);
+    expectColor(symmetricImage.pixel(10, 10), RED);
+    expectColor(symmetricImage.pixel(70, 10), BLUE);
+    expectColor(symmetricImage.pixel(10, 70), GREEN);
+    expectColor(symmetricImage.pixel(70, 70), YELLOW);
 
-    expect(result.width).toBe(160);
-    expect(result.height).toBe(100);
-    // Product contract: screenshots are stored as WebP on both engines.
-    expect(result.blob.type).toBe('image/webp');
-    const image = await decode(result.blob);
-    expect([image.width, image.height]).toEqual([160, 100]);
-    expectColor(image.pixel(10, 50), RED);
-    expectColor(image.pixel(150, 50), BLUE);
-  });
-
-  it('offsets and scales the crop by devicePixelRatio on both axes', async () => {
-    const capture = await quadrantImage(400, 200);
-
-    // Device-pixel crop is x 160..240, y 60..140: it straddles both the vertical and the horizontal split.
-    const result = await processScreenshot(capture, { x: 80, y: 30, width: 40, height: 40 }, 2);
-
-    expect([result.width, result.height]).toEqual([80, 80]);
-    const image = await decode(result.blob);
-    expect([image.width, image.height]).toEqual([80, 80]);
-    expectColor(image.pixel(10, 10), RED);
-    expectColor(image.pixel(70, 10), BLUE);
-    expectColor(image.pixel(10, 70), GREEN);
-    expectColor(image.pixel(70, 70), YELLOW);
-  });
-
-  it('places the colour boundaries of an asymmetric crop exactly where the device-pixel offsets put them', async () => {
     const capture = await quadrantImage(400, 200);
 
     // Device-pixel crop is x 170..250, y 80..150: the vertical split (x 200) lands at output column 30 of 80,

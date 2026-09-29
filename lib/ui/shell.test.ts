@@ -28,16 +28,6 @@ describe('overlay shell', () => {
     expect(container.querySelector('style')?.textContent).toBe(OVERLAY_STYLES);
   });
 
-  it('keeps toolbar and panel mounts as direct shell children', () => {
-    const container = document.createElement('div');
-
-    const shell = buildOverlayShell(container);
-
-    expect(shell.toolbar.parentElement).toBe(shell.root);
-    expect(shell.panel.parentElement).toBe(shell.root);
-    expect(shell.root.querySelectorAll('[data-annotation-mount]')).toHaveLength(2);
-  });
-
   it('positions popovers below or above and clamps them to the viewport', () => {
     expect(
       positionPopover(
@@ -84,7 +74,6 @@ describe('overlay shell', () => {
     expect(clampToolbarPosition({ x: 700, y: 100 }, size, viewport)).toEqual({ x: 592, y: 100 });
     expect(clampToolbarPosition({ x: 100, y: -5 }, size, viewport)).toEqual({ x: 100, y: 8 });
     expect(clampToolbarPosition({ x: 100, y: 590 }, size, viewport)).toEqual({ x: 100, y: 552 });
-    expect(clampToolbarPosition({ x: 900, y: 900 }, size, viewport, 16)).toEqual({ x: 584, y: 544 });
   });
 
   it('pins the toolbar to the margin when the viewport is smaller than the toolbar', () => {

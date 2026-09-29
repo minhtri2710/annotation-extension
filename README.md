@@ -9,8 +9,10 @@ account. All state lives in extension storage; results leave the extension only
 through explicit user export (clipboard, Markdown, file).
 
 The feature set is inspired by existing annotation tools (Vibe Annotations,
-Impeccable's in-page tooling, MarkAgent). This is a **clean-room** implementation:
-ideas and UX only, no third-party source is copied.
+Impeccable's in-page tooling, MarkAgent). The annotation features are a
+**clean-room** implementation: ideas and UX only, no third-party source is copied.
+The design-lint rules are ported from impeccable under the Apache License 2.0;
+see NOTICE.
 
 ## Status
 

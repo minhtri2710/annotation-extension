@@ -1,6 +1,4 @@
 export type Severity = 'error' | 'warning' | 'advisory';
-export type RuleCategory = 'slop' | 'quality';
-
 export interface RuleHit {
   detail: string;
 }
@@ -11,7 +9,6 @@ export interface PageHit extends RuleHit {
 
 export interface RuleMeta {
   id: string;
-  category: RuleCategory;
   severity?: Severity;
   name: string;
   description: string;
@@ -36,7 +33,6 @@ export interface Finding {
   name: string;
   description: string;
   severity: Severity;
-  category: RuleCategory;
   el?: Element;
   detail: string;
 }
@@ -127,7 +123,6 @@ function toFinding(rule: Rule, hit: RuleHit, el: Element | undefined): Finding {
     name: rule.name,
     description: rule.description,
     severity,
-    category: rule.category,
     el,
     detail: hit.detail,
   };

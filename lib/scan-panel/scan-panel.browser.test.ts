@@ -17,7 +17,7 @@ afterEach(() => {
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
 function finding(severity: Severity, detail: string, el?: Element): Finding {
-  return { ruleId: severity, name: severity, description: '', severity, category: 'quality', detail, el };
+  return { ruleId: severity, name: severity, description: '', severity, detail, el };
 }
 
 function box(margin: string): HTMLElement {

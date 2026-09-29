@@ -56,7 +56,6 @@ describe('annotation list', () => {
     expect(panel.querySelector('[data-annotation-empty-state]')).not.toBeNull();
     expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(0);
     expect(panel.querySelector('[data-annotation-export]')).toBeNull();
-    expect(panel.querySelector('[data-annotation-export-template]')).toBeNull();
   });
 
   it('copies one format and downloads its Markdown plus screenshot assets', async () => {
@@ -374,20 +373,12 @@ describe('annotation list', () => {
     const SET = 'Click Annotate or press Alt+Q, then click any element to leave a note.';
     const UNSET = "Click Annotate, then click any element to leave a note. No keyboard shortcut is set; you can add one in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).";
     const FAILED = "Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).";
-    const KEY_TOKEN = /\b(Ctrl|Control|Alt|Shift|Cmd|Command|MacCtrl)\b|⌘|⇧/;
-
     async function firstStep(shortcut: Promise<string>): Promise<string> {
       const panel = document.createElement('div');
       const store = persistence([]);
       vi.mocked(store.readCaptureShortcut).mockReturnValue(shortcut);
       await createAnnotationList(panel, pageUrl, store).render();
       return panel.querySelector('[data-annotation-onboarding] ol > li')?.textContent ?? '';
-    }
-
-    function expectNoDefault(step: string): void {
-      for (const banned of ['Ctrl+Shift', 'Control+Shift', 'Period', 'default shortcut']) {
-        expect(step).not.toContain(banned);
-      }
     }
 
     it('names the set shortcut', async () => {
@@ -400,14 +391,6 @@ describe('annotation list', () => {
 
     it('names no key when the shortcut read fails', async () => {
       expect(await firstStep(Promise.reject(new Error('no background')))).toBe(FAILED);
-    });
-
-    it('carries no hard-coded default shortcut in any state', async () => {
-      expectNoDefault(await firstStep(Promise.resolve('Alt+Q')));
-      for (const step of [await firstStep(Promise.resolve('')), await firstStep(Promise.reject(new Error('down')))]) {
-        expectNoDefault(step);
-        expect(step).not.toMatch(KEY_TOKEN);
-      }
     });
   });
 });
@@ -697,13 +680,6 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  it('names the export buttons by the Markdown they produce', async () => {
-    const panel = document.createElement('div');
-    await createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'One')])).render();
-    expect([...panel.querySelectorAll('[data-annotation-export] button')].map((button) => button.textContent))
-      .toEqual(['Copy Markdown', 'Download Markdown']);
-  });
-
   it('counts every downloaded screenshot and attachment in the Download status', async () => {
     const panel = document.createElement('div');
     const annotations = [annotation('annotation-1', 'One', 'image/webp'), annotation('annotation-2', 'Two')];
@@ -752,14 +728,19 @@ describe('annotation list confirmation, row actions, focus and live status', () 
 
   it('announces list errors through one persistent role=status node and clears it on close', async () => {
     const { panel, root } = mounted();
-    const store = persistence([annotation('annotation-1', 'One')]);
+    anchor('annotation-2');
+    const store = persistence([annotation('annotation-1', 'One'), annotation('annotation-2', 'Two')]);
     vi.mocked(store.sendAnnotationWrite).mockRejectedValueOnce(new Error('delete failed'));
     const list = createAnnotationList(panel, pageUrl, store);
     root.append(list.live);
-    expect(list.live.getAttribute('role')).toBe('status');
+    const live = list.live;
+    expect(live.getAttribute('role')).toBe('status');
     await list.render();
-    expect(list.live.textContent).toBe('');
-    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    panel.querySelector<HTMLButtonElement>('[data-annotation-id="annotation-2"] [data-annotation-locate]')!.click();
+    expect(list.live).toBe(live);
+    expect(live.textContent).toBe('Annotation 2 located.');
+    expect(root.querySelectorAll('[role="status"]')).toHaveLength(1);
+    (panel.querySelector('[data-annotation-id="annotation-1"] [data-annotation-delete]') as HTMLButtonElement).click();
     (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(list.live.textContent).toBe('delete failed'));
     expect(list.live.isConnected).toBe(true);

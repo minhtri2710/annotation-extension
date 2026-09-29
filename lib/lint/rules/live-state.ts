@@ -378,7 +378,6 @@ function clippedOverflowContainer(el: Element, ctx: ScanContext): RuleHit[] {
 
 const edgeFlushCardsRule: PageRule = {
   id: 'edge-flush-cards',
-  category: 'quality',
   name: 'Cards flush against the scroller edge',
   description: 'Cards inside a horizontal scroller or tab panel sit flush against the container edge at rest while keeping a gutter on the other side, so their edges and rounded corners get cut off. Usually the panel is sized wider than its clip box. Keep a consistent inset on both sides.',
   scope: 'page',
@@ -387,7 +386,6 @@ const edgeFlushCardsRule: PageRule = {
 
 const firstViewportColumnOverflowRule: PageRule = {
   id: 'first-viewport-column-overflow',
-  category: 'quality',
   name: 'One column stretches the first viewport',
   description: 'A multi-column opening section lets one column run far past the fold while its sibling fits in a single viewport, so the short column floats in dead space and the fold falls deep inside one section. Balance the columns, cap the tall one, or let the long content flow below the opening row.',
   scope: 'page',
@@ -396,7 +394,6 @@ const firstViewportColumnOverflowRule: PageRule = {
 
 const textOverflowRule: ElementRule = {
   id: 'text-overflow',
-  category: 'quality',
   name: 'Content overflowing its container',
   description: 'Content renders wider than its container, spilling out or forcing a horizontal scrollbar. Let text wrap, constrain widths, or give the region a deliberate scroll affordance.',
   scope: 'element',
@@ -405,7 +402,6 @@ const textOverflowRule: ElementRule = {
 
 const repeatedContainerTextRule: PageRule = {
   id: 'repeated-container-text',
-  category: 'quality',
   name: 'Same text repeated inside one container',
   description: 'The same literal text rendered three or more times in structurally different spots inside a single card or panel is redundant messaging — usually a status or label wired into every slot of a template. Say it once, in the slot where it matters most.',
   scope: 'page',
@@ -414,7 +410,6 @@ const repeatedContainerTextRule: PageRule = {
 
 const clippedOverflowContainerRule: ElementRule = {
   id: 'clipped-overflow-container',
-  category: 'quality',
   name: 'Positioned child clipped by overflow container',
   description: 'A clipping container (overflow hidden or clip) wrapping an absolutely-positioned child cuts off tooltips, menus, and popovers that need to escape. Let the overflow be visible, or move the positioned layer out of the clip.',
   scope: 'element',

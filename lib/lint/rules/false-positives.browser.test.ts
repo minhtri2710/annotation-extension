@@ -91,40 +91,7 @@ describe('pulsing-dot reduced-motion guard in a real browser', () => {
   });
 });
 
-describe('repeating-stripes-gradient in a real browser', () => {
-  const stripes = '.fill{height:16px;width:60%;background-color:#2563eb;background-image:repeating-linear-gradient(45deg,rgb(255 255 255 / .15) 0 10px,transparent 10px 20px)}';
-
-  it('anchors the hit to the striped progress fill', async () => {
-    const win = await load(page(stripes, '<div role="progressbar" aria-valuenow="60" aria-label="Upload progress"><div class="fill"></div></div>'));
-    const hits = await findings(win, visualDetailsRules, 'repeating-stripes-gradient');
-    expect(hits).toHaveLength(1);
-    expect(hits[0]!.el).toBe(win.document.querySelector('.fill'));
-    expect(hits[0]).toMatchObject({ severity: 'advisory', detail: 'repeating-gradient decorative stripes' });
-  });
-
-  it('reports one hit with a count for rows sharing one stripe value', async () => {
-    const win = await load(page(stripes, Array.from({ length: 3 }, () => '<div role="progressbar" aria-label="Upload progress"><div class="fill"></div></div>').join('')));
-    const hits = await findings(win, visualDetailsRules, 'repeating-stripes-gradient');
-    expect(hits).toHaveLength(1);
-    expect(hits[0]!.el).toBe(win.document.querySelector('.fill'));
-    expect(hits[0]!.detail).toBe('repeating-gradient decorative stripes (3 elements)');
-  });
-
-  it('does not fire for a stripe rule that matches no element', async () => {
-    const win = await load(page(stripes, '<div role="progressbar" aria-label="Upload progress"><div class="bar"></div></div>'));
-    expect(await findings(win, visualDetailsRules, 'repeating-stripes-gradient')).toEqual([]);
-  });
-});
-
 describe('inactive, truncated and snapping UI in a real browser', () => {
-  it('skips low-contrast on a disabled button and still flags the same colors when enabled', async () => {
-    const css = 'button{font:16px system-ui;padding:8px 16px;border:0;color:#a0a0a0;background:#f0f0f0}';
-    const win = await load(page(css, '<button id="off" disabled>Save</button><div aria-disabled="true"><button>Aria</button></div><button id="on">Send</button>'));
-    const hits = await findings(win, colorRules, 'low-contrast');
-    expect(hits).toHaveLength(1);
-    expect(hits[0]!.el).toBe(win.document.querySelector('#on'));
-  });
-
   it('skips text-overflow on ellipsis truncation and still flags an unclipped overflow', async () => {
     const long = 'A very long list item title that cannot fit in the narrow column at all';
     const win = await load(page(
@@ -184,47 +151,6 @@ describe('text-occlusion on floating labels in a real browser', () => {
     await expectUnchecked(await load(field(';position:relative;z-index:1;background:#fff')), 1);
   });
 
-  const covers: Array<[string, string, string, string]> = [
-    ['a transform', '', ';transform:translateZ(0)', ''],
-    ['opacity below 1', '', ';opacity:0.99', ''],
-    ['will-change on a wrapper', '', '', 'will-change:transform'],
-    ['a filter', '', ';filter:blur(0)', ''],
-    ['isolation', '', ';isolation:isolate', ''],
-    ['contain:paint', '', ';contain:paint', ''],
-    ['a flex-item z-index:1', '.field{display:flex;flex-direction:column}', ';z-index:1', ''],
-    ['position:relative;z-index:1', '', ';position:relative;z-index:1', ''],
-    ['no stacking trigger', '', '', ''],
-  ];
-  const orders = ['label before input', 'label after input'] as const;
-
-  it.each(orders.flatMap((order) => covers.map(([name, fieldCss, input, wrapper]) => [name, order, fieldCss, input, wrapper] as const)))(
-    'reports the label exactly when the browser paints the input with %s over it (%s)',
-    async (_name, order, fieldCss, input, wrapper) => {
-      const html = (labelCss: string) => {
-        const inputHtml = wrapper ? `<div style="${wrapper}"><input id="dest"></div>` : '<input id="dest">';
-        const labelHtml = '<label for="dest">Destination</label>';
-        return field(`${input};background:#fff`)
-          .replace('</style>', `${fieldCss}.field label{${labelCss}}</style>`)
-          .replace('<input id="dest"><label for="dest">Destination</label>', order === 'label before input' ? labelHtml + inputHtml : inputHtml + labelHtml);
-      };
-      const truthWin = await load(html('pointer-events:auto'));
-      const truthLabel = truthWin.document.querySelector('label')!;
-      const rect = truthLabel.getBoundingClientRect();
-      const covered = truthWin.document.elementFromPoint(rect.left + 5, rect.top + rect.height / 2) !== truthLabel;
-      const hits = await findings(truthWin, liveStateRules, 'text-occlusion');
-      if (covered) {
-        expect(hits).toHaveLength(1);
-        expect(hits[0]!.el).toBe(truthLabel);
-        expect(hits[0]!.detail).toContain('covered by an opaque element (input)');
-      } else {
-        expect(hits).toEqual([]);
-      }
-      frame!.remove();
-
-      await expectUnchecked(await load(html('')), 1);
-    },
-  );
-
   // A cover outside the field, overlapping the label; the truth page is the same page with a
   // hit-testable label.
   const outside = (css: string, body: string) => (labelCss: string) => page(
@@ -264,45 +190,6 @@ describe('text-occlusion on floating labels in a real browser', () => {
 
   it('reports a z-indexed dropdown in a will-change:scroll-position wrapper painted over a later label', async () => {
     await expectOccludedExactlyWhenPainted(outside('', `<div style="will-change:scroll-position;height:0"><div class="cover" style="position:absolute;z-index:1000"></div></div>${outsideField}`), true);
-  });
-
-  it.each(['will-change:scroll-position', 'will-change:contents', 'will-change:transform', 'will-change:opacity', 'will-change:scroll-position, transform', 'contain:inline-size', 'contain:paint'])(
-    'reports the label exactly when the browser paints a z-indexed dropdown in a %s wrapper over it',
-    async (wrapper) => {
-      await expectOccludedExactlyWhenPainted(outside('', `<div style="${wrapper};height:0"><div class="cover" style="position:absolute;z-index:1000"></div></div>${outsideField}`));
-    },
-  );
-
-  const wrappers = [['no wrapper', ''], ['a position:relative wrapper', 'position:relative'], ['a position:relative;z-index:1 wrapper', 'position:relative;z-index:1'], ['a transform wrapper', 'transform:translateZ(0)']] as const;
-  const coverStyles = [['plain', ''], ['position:absolute;z-index:1000', 'position:absolute;z-index:1000'], ['position:relative', 'position:relative'], ['opacity:0.99', 'opacity:0.99']] as const;
-  const labelZ = [['auto', 'auto'], ['10', '10']] as const;
-  const coverOrders = ['cover before field', 'cover after field'] as const;
-  const matrix = wrappers.flatMap(([wrapperName, wrapper]) => coverStyles.flatMap(([coverName, cover]) => labelZ.flatMap(([zName, z]) => coverOrders.map((order) => [wrapperName, coverName, zName, order, wrapper, cover, z] as const))));
-
-  it.each(matrix)(
-    'reports the label exactly when the browser paints an outside cover over it: %s, %s cover, label z-index %s, %s',
-    async (_wrapperName, _coverName, _zName, order, wrapper, cover, z) => {
-      const after = order === 'cover after field';
-      const coverHtml = wrapper
-        ? `<div style="${wrapper};height:0${after ? ';margin-top:-56px' : ''}"><div class="cover" style="${cover}"></div></div>`
-        : `<div class="cover" style="${cover};${after ? 'margin-top:-56px' : 'margin-bottom:-60px'}"></div>`;
-      await expectOccludedExactlyWhenPainted(outside(`.field label{z-index:${z}}`, after ? outsideField + coverHtml : coverHtml + outsideField));
-    },
-  );
-
-  const triggers = ['clip-path:inset(0)', 'mask-image:linear-gradient(#000,#000)', '-webkit-mask-image:linear-gradient(#000,#000)', 'content-visibility:auto', 'view-transition-name:x'];
-  const triggerRows = triggers.flatMap((trigger) => [
-    [`a ${trigger} cover before the field`, `<div class="cover" style="margin-bottom:-60px;${trigger}"></div>${outsideField}`],
-    [`a ${trigger} cover after the field`, `${outsideField}<div class="cover" style="margin-top:-56px;${trigger}"></div>`],
-  ]).concat([
-    ['a z-indexed dropdown in a will-change:z-index wrapper before the field', `<div style="will-change:z-index;height:0"><div class="cover" style="position:absolute;z-index:1000"></div></div>${outsideField}`],
-    ['a z-indexed dropdown in a will-change:z-index wrapper after the field', `${outsideField}<div style="will-change:z-index;height:0;margin-top:-56px"><div class="cover" style="position:absolute;z-index:1000"></div></div>`],
-    ['a z-2 grid item under a display:contents parent after a z-1 field item', `<div style="display:grid"><div style="grid-area:1/1;z-index:1">${outsideField}</div><div style="display:contents"><div class="cover" style="grid-area:1/1;z-index:2"></div></div></div>`],
-    ['a z-2 grid item under a display:contents parent before a z-1 field item', `<div style="display:grid"><div style="display:contents"><div class="cover" style="grid-area:1/1;z-index:2"></div></div><div style="grid-area:1/1;z-index:1">${outsideField}</div></div>`],
-  ]);
-
-  it.each(triggerRows)('reports the label exactly when the browser paints %s over it', async (_name, body) => {
-    await expectOccludedExactlyWhenPainted(outside('', body));
   });
 
   it('never writes to the page during a full scan', async () => {

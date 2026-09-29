@@ -30,7 +30,6 @@ describe('content-hidden-at-rest', () => {
     const [rule] = hiddenAtRestRules;
     expect(rule).toMatchObject({
       id: 'content-hidden-at-rest',
-      category: 'quality',
       severity: 'error',
       scope: 'page',
       name: 'Content invisible at rest',

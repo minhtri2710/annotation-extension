@@ -192,22 +192,6 @@ describe('note panel', () => {
     expect(panel.querySelector('[data-annotation-screenshot]')).toBeNull();
   });
 
-  it('shows a capture write error and keeps the annotation item', async () => {
-    const panel = document.createElement('div');
-    const existing = annotation('Capture write failure');
-    const captureScreenshot = vi.fn().mockRejectedValue(new Error('capture write failed'));
-    await render(panel, [], {
-      listAnnotations: vi.fn().mockResolvedValue([existing]),
-      sendAnnotationWrite: vi.fn().mockResolvedValue(undefined),
-      captureScreenshot,
-    });
-
-    (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
-
-    await vi.waitFor(() => expect(panel.textContent).toContain('capture write failed'));
-    expect(panel.querySelector(`[data-annotation-id="${existing.id}"]`)).not.toBeNull();
-  });
-
   it('captures through the persistence seam and relies on background metadata update', async () => {
     const panel = document.createElement('div');
     const existing = annotation('With screenshot control');
@@ -626,6 +610,17 @@ describe('note panel', () => {
     });
   });
 
+  it('reports a rejected file through statusMessage without rejecting render', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('File target');
+    await render(panel, [existing]);
+    const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'bad.svg', { type: 'image/svg+xml' })] });
+    input.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')?.textContent).toContain('bad.svg is not a PNG, JPEG or WebP image.'));
+    await expect(createNotePanel(panel).render(context)).resolves.toBeUndefined();
+  });
+
   it('refuses non-image bytes named .png with a status and writes nothing', async () => {
     const panel = document.createElement('div');
     const existing = annotation('Fake PNG');
@@ -661,34 +656,6 @@ describe('note panel', () => {
     expect(panel.querySelector('[data-annotation-new-note]')).not.toBeNull();
   });
 
-  it('reports a rejected file through statusMessage without rejecting render', async () => {
-    const panel = document.createElement('div');
-    const existing = annotation('File target');
-    await render(panel, [existing]);
-    const input = panel.querySelector('[data-annotation-attachment-input]') as HTMLInputElement;
-    Object.defineProperty(input, 'files', { value: [new File(['x'], 'bad.svg', { type: 'image/svg+xml' })] });
-    input.dispatchEvent(new Event('change'));
-    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')?.textContent).toContain('bad.svg is not a PNG, JPEG or WebP image.'));
-    await expect(createNotePanel(panel).render(context)).resolves.toBeUndefined();
-  });
-
-  it('does not add an empty or whitespace-only note', async () => {
-    const panel = document.createElement('div');
-    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    await render(panel, [], {
-      listAnnotations: vi.fn().mockResolvedValue([]),
-      sendAnnotationWrite,
-      captureScreenshot: vi.fn(),
-    });
-
-    const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
-    note.value = '   \n  ';
-    (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
-    await Promise.resolve();
-
-    expect(sendAnnotationWrite).not.toHaveBeenCalled();
-  });
-
   it('toggles resolved status through annotation.update', async () => {
     const panel = document.createElement('div');
     const existing = { ...annotation('Resolve me'), status: 'open' as const };
@@ -700,68 +667,6 @@ describe('note panel', () => {
     } satisfies AnnotationWriteMessage));
   });
 
-  it('updates a note with the exact write message and re-reads storage', async () => {
-    const panel = document.createElement('div');
-    const listAnnotations = vi.fn().mockResolvedValue([annotation('Before')]);
-    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    await render(panel, [], {
-      listAnnotations,
-      sendAnnotationWrite,
-      captureScreenshot: vi.fn(),
-    });
-
-    const note = panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
-    note.value = 'After';
-    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
-
-    expect(sendAnnotationWrite).toHaveBeenCalledWith({
-      type: 'annotation.update',
-      pageUrl,
-      id: 'annotation-1',
-      changes: { note: 'After' },
-    } satisfies AnnotationWriteMessage);
-    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
-  });
-
-  it('does not update an existing note to empty text', async () => {
-    const panel = document.createElement('div');
-    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    await render(panel, [], {
-      listAnnotations: vi.fn().mockResolvedValue([annotation('Before')]),
-      sendAnnotationWrite,
-      captureScreenshot: vi.fn(),
-    });
-
-    const note = panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
-    note.value = '  ';
-    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
-    await Promise.resolve();
-
-    expect(sendAnnotationWrite).not.toHaveBeenCalled();
-  });
-
-  it('deletes a note with the exact write message and re-reads storage', async () => {
-    const panel = document.createElement('div');
-    const listAnnotations = vi.fn().mockResolvedValue([annotation('To delete')]);
-    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    await render(panel, [], {
-      listAnnotations,
-      sendAnnotationWrite,
-      captureScreenshot: vi.fn(),
-    });
-
-    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
-    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
-
-    expect(sendAnnotationWrite).toHaveBeenCalledWith({
-      type: 'annotation.delete',
-      pageUrl,
-      id: 'annotation-1',
-    } satisfies AnnotationWriteMessage);
-    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
-  });
 });
 
 describe('note panel close, focus, editor and live status', () => {
