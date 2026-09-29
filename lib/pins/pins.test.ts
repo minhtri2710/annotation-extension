@@ -464,7 +464,6 @@ describe('pins controller', () => {
     expect([visible.style.left, visible.style.top]).toEqual(['9px', '9px']);
   });
 
-
   it('keeps a pin off the toolbar rect it reads on each reanchor', () => {
     const { toolbar, overlay, target } = setup();
     stubViewport();

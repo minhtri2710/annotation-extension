@@ -319,8 +319,6 @@ describe('scan panel', () => {
     expect(onAnnotate).toHaveBeenCalledTimes(1);
     expect(onAnnotate).toHaveBeenCalledWith(target, hit);
   });
-
-
 });
 
 describe('scan panel outlines', () => {

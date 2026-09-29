@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { collectFindings, createScanContext, type Finding, type Rule } from '../engine';
 import { revealSweep } from '../../scan-panel/reveal-sweep';
-import { colorRules } from './color';
 import { imageryRules } from './imagery';
 import { hiddenAtRestRules } from './hidden-at-rest';
 import { ALL_RULES } from './index';
 import { liveStateRules } from './live-state';
 import { motionRules } from './motion';
-import { visualDetailsRules } from './visual-details';
 
 const page = (css: string, body: string): string =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>body{margin:0;font:16px/1.5 system-ui,sans-serif}${css}</style></head><body>${body}</body></html>`;

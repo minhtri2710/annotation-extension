@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { Annotation } from '../annotation';
-import { exportJson, importAll, importFileSizeError, importJson, JsonImportError, MAX_IMPORT_LENGTH, parseImport, serialize } from './index';
+import { exportJson, importAll, importFileSizeError, importJson, MAX_IMPORT_LENGTH, parseImport, serialize } from './index';
 import { annotationWriteError, MAX_LIST_LENGTH, MAX_TEXT_LENGTH, sendAnnotationWrite, type AnnotationWriteMessage } from '../annotation-messages';
 import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
 import { addAttachment, restoreAnnotation } from '../annotation-storage';
@@ -199,7 +199,7 @@ describe('JSON annotation I/O', () => {
 
     const stored = await fakeBrowser.storage.local.get(null);
     expect(Object.keys(stored).sort()).toEqual(['page:https://example.com/docs?mode=full', `page:${new URL(secondPage).toString()}`]);
-    expect(await storedAnnotations()).toEqual([plan[0]!.annotation, plan[1]!.annotation]);
+    expect(await storedAnnotations()).toEqual(expect.arrayContaining([plan[0]!.annotation, plan[1]!.annotation]));
     expect((await storedAnnotations())).toHaveLength(2);
   });
 

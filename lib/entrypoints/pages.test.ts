@@ -212,6 +212,7 @@ describe('popup page', () => {
     expect(byId('toggle').textContent).toBe('Stop annotating');
     expect(byId('status').textContent).toBe('');
   });
+
   it('offers Start annotating when capture is inactive on the tab', async () => {
     stubTab(PAGE, async () => ({ active: false }));
     await openPopup();
