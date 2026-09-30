@@ -27,10 +27,28 @@ export interface ElementContext {
   sourcePath: SourcePath | null;
 }
 
+const NON_VISIBLE_TEXT_ELEMENTS = new Set(['style', 'script', 'noscript', 'template']);
+
+function collectVisibleText(node: Node, parts: string[]): void {
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      parts.push(child.nodeValue ?? '');
+    } else if (child.nodeType === Node.ELEMENT_NODE && !NON_VISIBLE_TEXT_ELEMENTS.has((child as Element).localName)) {
+      collectVisibleText(child, parts);
+    }
+  }
+}
+
+function visibleText(element: Element): string {
+  const parts: string[] = [];
+  collectVisibleText(element, parts);
+  return parts.join('').replace(/\s+/g, ' ').trim();
+}
+
 export function extractElementContext(element: Element): ElementContext {
   const rect = element.getBoundingClientRect();
   const ownerWindow = element.ownerDocument.defaultView;
-  const text = (element.textContent ?? '').trim();
+  const text = visibleText(element);
 
   return {
     selector: buildSelector(element),

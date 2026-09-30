@@ -31,4 +31,38 @@ describe('extractElementContext', () => {
       height: expect.any(Number),
     });
   });
+
+  it('records only the visible text, skipping style, script, noscript and template content in document order', () => {
+    document.body.innerHTML =
+      '<div id="host">one<style>.a{color:red}</style><span>two</span><script>var s = 1;</script>' +
+      '<noscript>enable js</noscript><template><b>tpl</b></template>three</div>';
+
+    const context = extractElementContext(document.querySelector('#host') as HTMLElement);
+
+    expect(context.text).toBe('onetwothree');
+  });
+
+  it('collapses whitespace runs to one space and trims the text', () => {
+    document.body.innerHTML = '<div id="host">\n  <p>alpha \t beta</p>\n\n  <span>gamma</span>   delta \n</div>';
+
+    const context = extractElementContext(document.querySelector('#host') as HTMLElement);
+
+    expect(context.text).toBe('alpha beta gamma delta');
+  });
+
+  it('applies the 200-character cap to the cleaned text', () => {
+    document.body.innerHTML = '<div id="host"><style>' + 'a{b:c}'.repeat(100) + '</style>' + 'v'.repeat(250) + '</div>';
+
+    const context = extractElementContext(document.querySelector('#host') as HTMLElement);
+
+    expect(context.text).toBe('v'.repeat(200));
+  });
+
+  it('counts the cap after whitespace is collapsed, so long indentation does not cut visible text', () => {
+    document.body.innerHTML = '<div id="host">start' + ' '.repeat(300) + 'end</div>';
+
+    const context = extractElementContext(document.querySelector('#host') as HTMLElement);
+
+    expect(context.text).toBe('start end');
+  });
 });
