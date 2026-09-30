@@ -353,6 +353,18 @@ describe('popup page', () => {
       expect(toolbarToggle().parentElement).toBe(byId('toggle').parentElement);
     });
 
+    it('reads an unreadable setting as shown: the button says Hide toolbar and is enabled', async () => {
+      const get = browser.storage.local.get.bind(browser.storage.local);
+      // Stub: only the hidden-setting read fails; the policy and annotation reads go to fakeBrowser storage.
+      vi.spyOn(browser.storage.local, 'get').mockImplementation(((keys: string) =>
+        keys === 'ui:toolbar-hidden' ? Promise.reject(new Error('Storage failed')) : get(keys)) as never);
+      stubTab(PAGE, async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
+      expect(toolbarToggle().textContent).toBe('Hide toolbar');
+    });
+
     it.each([
       ['absent', undefined, true],
       ['hidden', true, false],

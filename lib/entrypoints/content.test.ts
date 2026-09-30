@@ -576,6 +576,33 @@ describe('content script entrypoint', () => {
       await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(false));
     });
 
+    // Stub: answers the first read of the hidden setting through `read`; every other key goes to fakeBrowser storage.
+    const stubHiddenRead = (read: () => Promise<Record<string, unknown>>) => {
+      const get = browser.storage.local.get.bind(browser.storage.local);
+      return vi.spyOn(browser.storage.local, 'get').mockImplementation(((keys: string) =>
+        keys === 'ui:toolbar-hidden' ? read() : get(keys)) as never);
+    };
+
+    it('lets a hidden-state change that arrives during the first read win over the value that read returns', async () => {
+      let answer: (stored: Record<string, unknown>) => void = () => undefined;
+      const read = stubHiddenRead(() => new Promise((resolve) => { answer = resolve; }));
+      const running = start();
+      await vi.waitFor(() => expect(read.mock.calls.some(([keys]) => keys === 'ui:toolbar-hidden')).toBe(true));
+
+      await fakeBrowser.storage.onChanged.trigger({ 'ui:toolbar-hidden': { newValue: true } }, 'local');
+      answer({ 'ui:toolbar-hidden': false });
+      await running;
+
+      expect(toolbar().hasAttribute('hidden')).toBe(true);
+    });
+
+    it('mounts with the toolbar shown when the first read of the setting rejects', async () => {
+      stubHiddenRead(() => Promise.reject(new Error('Storage failed')));
+      await start();
+
+      expect(toolbar().hasAttribute('hidden')).toBe(false);
+    });
+
     it('ignores a hidden-state change from another storage area', async () => {
       await start();
 
