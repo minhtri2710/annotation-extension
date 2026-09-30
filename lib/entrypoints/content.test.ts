@@ -434,6 +434,23 @@ describe('content script entrypoint', () => {
     expect(selection.map(({ unsubscribe }) => unsubscribe.mock.calls)).toEqual([[[]]]);
   });
 
+  it('removes every runtime message listener and ignores a toolbar change after the context is invalidated', async () => {
+    const messageListeners = vi.spyOn(browser.runtime.onMessage, 'addListener');
+    await start();
+    await pushToolbar(true);
+    const added = messageListeners.mock.calls.map(([listener]) => listener);
+    expect(added.length).toBeGreaterThanOrEqual(2);
+    expect(added.map((listener) => browser.runtime.onMessage.hasListener(listener))).toEqual(added.map(() => true));
+    const bar = shadow().querySelector<HTMLElement>('[role="toolbar"]')!;
+    expect(bar.hasAttribute('hidden')).toBe(false);
+
+    ctx.notifyInvalidated();
+
+    expect(added.map((listener) => browser.runtime.onMessage.hasListener(listener))).toEqual(added.map(() => false));
+    await pushToolbar(false);
+    expect(bar.hasAttribute('hidden')).toBe(false);
+  });
+
   it('toggles capture only for a capture-toggle runtime message', async () => {
     await start();
     await pushToolbar(true);
