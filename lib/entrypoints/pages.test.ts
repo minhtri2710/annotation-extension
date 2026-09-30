@@ -109,7 +109,7 @@ describe('popup page', () => {
     const card = document.querySelector('.annotation-page__card')!;
     expect([...card.children].map((child) => child.tagName)).toEqual(['H1', 'P', 'DIV', 'P', 'SECTION', 'INPUT', 'P']);
     const [toggleActions, hint, allPages] = [...card.children].slice(2, 5);
-    expect(toggleActions?.querySelectorAll('button')).toHaveLength(1);
+    expect(toggleActions?.querySelectorAll('button')).toHaveLength(2);
     expect(toggleActions?.querySelector('button')?.id).toBe('toggle');
     expect(byId('toggle').dataset.variant).toBe('primary');
     expect(hint?.id).toBe('shortcut-hint');
@@ -117,6 +117,7 @@ describe('popup page', () => {
     expect(allPages?.querySelector('h2')?.nextElementSibling?.className).toBe('annotation-page__actions');
     expect([...document.querySelectorAll('.annotation-page__actions button')].map((button) => button.textContent)).toEqual([
       'Start annotating',
+      'Hide toolbar',
       'Export JSON (all pages)',
       'Export Markdown (all pages)',
       'Import JSON',
@@ -331,6 +332,71 @@ describe('popup page', () => {
 
     await vi.waitFor(() => expect(byId('status').textContent).toBe(RELOAD));
     expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
+  });
+
+  describe('toolbar visibility', () => {
+    const TOOLBAR_SAVE_ERROR = 'The toolbar setting could not be saved.';
+    const toolbarToggle = () => byId<HTMLButtonElement>('toolbar-toggle');
+
+    it.each([
+      ['absent', undefined, 'Hide toolbar'],
+      ['shown', false, 'Hide toolbar'],
+      ['hidden', true, 'Show toolbar'],
+    ])('labels the button for a stored state that is %s', async (_name, stored, label) => {
+      if (stored !== undefined) await fakeBrowser.storage.local.set({ 'ui:toolbar-hidden': stored });
+      stubTab(PAGE, async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(toolbarToggle().textContent).toBe(label));
+      expect(toolbarToggle().disabled).toBe(false);
+      expect(toolbarToggle().hasAttribute('data-variant')).toBe(false);
+      expect(toolbarToggle().parentElement).toBe(byId('toggle').parentElement);
+    });
+
+    it.each([
+      ['absent', undefined, true],
+      ['hidden', true, false],
+    ])('flips a stored state that is %s, then closes the popup', async (_name, stored, saved) => {
+      if (stored !== undefined) await fakeBrowser.storage.local.set({ 'ui:toolbar-hidden': stored });
+      stubTab(PAGE, async () => ({ active: false }));
+      // Stub: happy-dom's window.close would tear the test window down.
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      await openPopup();
+      await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
+
+      toolbarToggle().click();
+
+      await vi.waitFor(() => expect(close).toHaveBeenCalled());
+      await expect(fakeBrowser.storage.local.get('ui:toolbar-hidden')).resolves.toEqual({ 'ui:toolbar-hidden': saved });
+      expect(byId('status').textContent).toBe('');
+    });
+
+    it('keeps the popup open and says so when the write is rejected', async () => {
+      stubTab(PAGE, async () => ({ active: false }));
+      const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+      await openPopup();
+      await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
+      vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('Storage failed'));
+
+      toolbarToggle().click();
+
+      await vi.waitFor(() => expect(byId('status').textContent).toBe(TOOLBAR_SAVE_ERROR));
+      expect(close).not.toHaveBeenCalled();
+      expect(toolbarToggle().textContent).toBe('Hide toolbar');
+    });
+
+    it.each([
+      ['a browser page', 'chrome://extensions/', "Annotations can't run on this page."],
+      ['a site turned off in Options', PAGE, 'Annotations are turned off for this site in Options.'],
+    ])('stays enabled on %s while Start annotating is disabled', async (_name, url, status) => {
+      await writePolicy({ enabled: true, allowlist: ['other.example'] });
+      stubTab(url, async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(byId('status').textContent).toBe(status));
+      await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
+      expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
+    });
   });
 
   describe('shortcut hint', () => {

@@ -103,6 +103,11 @@ export function raiseOverlay(host: HTMLElement): void {
   host.showPopover();
 }
 
+// A hidden toolbar takes no layout box and none of its controls can take focus (display: none in styles).
+export function setToolbarHidden(toolbar: HTMLElement, hidden: boolean): void {
+  toolbar.hidden = hidden;
+}
+
 export function clampToolbarPosition(
   position: { x: number; y: number },
   size: { width: number; height: number },

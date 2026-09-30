@@ -56,6 +56,10 @@ ${ANNOTATION_DARK_TOKENS}
   cursor: grabbing;
 }
 
+[data-annotation-shell] [data-annotation-mount="toolbar"][hidden] {
+  display: none;
+}
+
 [data-annotation-shell] [data-annotation-mount="toolbar"][data-collapsed] > :not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse]):not([data-annotation-badge]) {
   display: none;
 }

@@ -10,6 +10,7 @@ import { registerBackgroundMessageHandlers } from '../wiring/background-messages
 import { interceptPageEvents, releasePageEvents } from '../capture';
 import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../capture/activation';
 import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
+import type { ToolbarPrefs } from '../ui/ui-prefs';
 
 // Spy: the content script's event bus is closure-private; the real bus runs, and each `on` records its unsubscriber.
 const busSubscriptions = vi.hoisted(() => [] as { event: PropertyKey; unsubscribe: import('vitest').Mock }[]);
@@ -545,5 +546,105 @@ describe('content script entrypoint', () => {
     dispatchTrusted(button('⠿'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 
     expect({ top: panel().style.top, left: panel().style.left }).toEqual(anchored);
+  });
+
+  describe('whole-toolbar hidden setting', () => {
+    const toolbar = () => shadow().querySelector<HTMLElement>('[role="toolbar"]')!;
+    const setHidden = (hidden: boolean) => fakeBrowser.storage.local.set({ 'ui:toolbar-hidden': hidden });
+    const storedToolbar = async () => (await browser.storage.local.get('ui:toolbar'))['ui:toolbar'] as ToolbarPrefs;
+
+    it.each([
+      ['hidden', true],
+      ['shown', false],
+      ['absent', undefined],
+    ])('mounts with the toolbar %s when the stored state is %s', async (_name, stored) => {
+      if (stored !== undefined) await setHidden(stored);
+      await start();
+
+      expect(toolbar().hasAttribute('hidden')).toBe(stored === true);
+    });
+
+    it('follows the stored state without a reload and keeps the overlay mounted', async () => {
+      await start();
+      const [host] = hosts();
+
+      await setHidden(true);
+      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(true));
+      expect(hosts()).toEqual([host]);
+
+      await setHidden(false);
+      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(false));
+    });
+
+    it('ignores a hidden-state change from another storage area', async () => {
+      await start();
+
+      await fakeBrowser.storage.onChanged.trigger({ 'ui:toolbar-hidden': { newValue: true } }, 'sync');
+
+      expect(toolbar().hasAttribute('hidden')).toBe(false);
+    });
+
+    it('closes an open list or scan panel when the toolbar hides', async () => {
+      await start();
+      trustedClick(button('View all'));
+      await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotations on this page'));
+
+      await setHidden(true);
+      await vi.waitFor(() => expect(panel().hasAttribute('aria-label')).toBe(false));
+      expect(button('View all').getAttribute('aria-expanded')).toBe('false');
+
+      await setHidden(false);
+      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(false));
+      trustedClick(button('Scan'));
+      await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Page scan'));
+      await setHidden(true);
+      await vi.waitFor(() => expect(panel().hasAttribute('aria-label')).toBe(false));
+    });
+
+    it('still toggles capture and opens the note panel for a selected element while hidden', async () => {
+      await setHidden(true);
+      await start();
+      const target = document.body.appendChild(document.createElement('div'));
+      target.id = 'target';
+      const host = hosts()[0]!;
+
+      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+      expect(host.hasAttribute('data-annotation-active')).toBe(true);
+      dispatchTrusted(target, new PointerEvent('pointerdown', { bubbles: true, cancelable: true, composed: true, button: 0 }));
+      await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotation note'));
+      expect(host.hasAttribute('data-annotation-active')).toBe(false);
+
+      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+      expect(host.hasAttribute('data-annotation-active')).toBe(true);
+      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+      expect(host.hasAttribute('data-annotation-active')).toBe(false);
+      expect(toolbar().hasAttribute('hidden')).toBe(true);
+    });
+
+    it('keeps a hidden toolbar hidden through a collapse and a move, and shows it as it was', async () => {
+      await start();
+      trustedClick(button('Hide'));
+      await vi.waitFor(async () => expect((await browser.storage.local.get('ui:toolbar'))['ui:toolbar']).toEqual({ position: null, collapsed: true }));
+      await setHidden(true);
+      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await expect(browser.storage.local.get('ui:toolbar')).resolves.toEqual({ 'ui:toolbar': { position: null, collapsed: true } });
+
+      dispatchTrusted(button('⠿'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await vi.waitFor(async () => expect((await storedToolbar()).position).not.toBeNull());
+      trustedClick(button('Show'));
+      await vi.waitFor(async () => expect((await storedToolbar()).collapsed).toBe(false));
+
+      await expect(browser.storage.local.get('ui:toolbar-hidden')).resolves.toEqual({ 'ui:toolbar-hidden': true });
+      expect(toolbar().hasAttribute('hidden')).toBe(true);
+
+      const stored = await storedToolbar();
+      await setHidden(false);
+      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(false));
+      expect(await storedToolbar()).toEqual(stored);
+      expect(toolbar().hasAttribute('data-collapsed')).toBe(false);
+      expect(toolbar().style.left).toBe(`${stored.position?.x}px`);
+      expect(toolbar().style.top).toBe(`${stored.position?.y}px`);
+    });
   });
 });

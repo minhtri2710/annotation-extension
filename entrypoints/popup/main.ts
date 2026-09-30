@@ -9,12 +9,14 @@ import { createBlobStore } from '../../lib/blob-store';
 import { exportAllPages } from '../../lib/export/all-pages';
 import { productionExportDelivery } from '../../lib/export/delivery';
 import { PAGE_STYLES } from '../../lib/ui/page-styles';
+import { readToolbarHidden, writeToolbarHidden } from '../../lib/ui/ui-prefs';
 
 const pageStyle = document.createElement('style');
 pageStyle.textContent = PAGE_STYLES;
 document.head.append(pageStyle);
 
 const toggleButton = document.querySelector<HTMLButtonElement>('#toggle');
+const toolbarToggleButton = document.querySelector<HTMLButtonElement>('#toolbar-toggle');
 const exportButton = document.querySelector<HTMLButtonElement>('#export');
 const exportMarkdownButton = document.querySelector<HTMLButtonElement>('#export-markdown');
 const importButton = document.querySelector<HTMLButtonElement>('#import');
@@ -26,8 +28,21 @@ const shortcutHint = document.querySelector<HTMLParagraphElement>('#shortcut-hin
 const blobStore = createBlobStore();
 const UNAVAILABLE_STATUS = 'Annotations are not available on this page. If it was open before the extension loaded, reload it.';
 
+let toolbarHidden = false;
+
 void showTabState();
 void showShortcutHint();
+void showToolbarState();
+
+toolbarToggleButton?.addEventListener('click', async () => {
+  try {
+    await writeToolbarHidden(!toolbarHidden);
+  } catch {
+    setStatus('The toolbar setting could not be saved.');
+    return;
+  }
+  window.close();
+});
 
 toggleButton?.addEventListener('click', async () => {
   try {
@@ -106,6 +121,18 @@ async function showTabState(): Promise<void> {
   } catch {
     setStatus(UNAVAILABLE_STATUS);
   }
+}
+
+// The setting is global, so the button does not depend on the tab; an unreadable setting counts as shown.
+async function showToolbarState(): Promise<void> {
+  try {
+    toolbarHidden = await readToolbarHidden();
+  } catch {
+    toolbarHidden = false;
+  }
+  if (!toolbarToggleButton) return;
+  toolbarToggleButton.textContent = toolbarHidden ? 'Show toolbar' : 'Hide toolbar';
+  toolbarToggleButton.disabled = false;
 }
 
 async function showShortcutHint(): Promise<void> {

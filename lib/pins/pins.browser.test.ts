@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { page as browserPage, userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import { buildSelector } from '../capture/selector';
-import { buildOverlayShell, type OverlayShell } from '../ui/shell';
+import { buildOverlayShell, setToolbarHidden, type OverlayShell } from '../ui/shell';
 import { createToolbarControls, type ToolbarControls } from '../ui/toolbar-controls';
 import type { ToolbarPrefs } from '../ui/ui-prefs';
 import { createPinsController, type PinsController, placeTooltip } from './pins';
@@ -486,6 +486,36 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
       expect(bar.width).toBeCloseTo(expanded.width);
       const pin = marker.getBoundingClientRect();
       expect(overlaps(pin, bar), `${JSON.stringify(pin)} overlaps ${JSON.stringify(bar)}`).toBe(false);
+    });
+
+    it('takes a hidden toolbar out of layout and focus, and puts a pin it had pushed aside back on its own centre', async () => {
+      const shell = mountToolbar();
+      await controls!.ready;
+      const { marker, own } = annotateBeside(shell, (bar) => ({ x: bar.left + 20, y: bar.top + bar.height / 2 }));
+      await frames();
+      const shown = shell.toolbar.getBoundingClientRect();
+      const pushed = center(marker.getBoundingClientRect());
+      expect(Math.abs(pushed.x - own.x) + Math.abs(pushed.y - own.y)).toBeGreaterThan(1);
+
+      setToolbarHidden(shell.toolbar, true);
+      await frames();
+
+      expect(shell.toolbar.getBoundingClientRect()).toMatchObject({ width: 0, height: 0 });
+      expect(getComputedStyle(shell.toolbar).display).toBe('none');
+      const shadow = shell.root.getRootNode() as ShadowRoot;
+      for (const control of shell.toolbar.querySelectorAll('button')) {
+        control.focus();
+        expect(shadow.activeElement).toBeNull();
+      }
+      expect(center(marker.getBoundingClientRect()).x).toBeCloseTo(own.x, 0);
+      expect(center(marker.getBoundingClientRect()).y).toBeCloseTo(own.y, 0);
+
+      setToolbarHidden(shell.toolbar, false);
+      await frames();
+
+      const bar = shell.toolbar.getBoundingClientRect();
+      expect([bar.left, bar.top, bar.width]).toEqual([shown.left, shown.top, shown.width]);
+      expect(overlaps(marker.getBoundingClientRect(), bar)).toBe(false);
     });
 
     it('moves a pin off the toolbar once a stored position that covers it is applied', async () => {
