@@ -111,7 +111,7 @@ export function registerBackgroundMessageHandlers(
   });
 }
 
-function reply(result: Promise<unknown>, sendResponse: (response: unknown) => void): true {
+export function reply(result: Promise<unknown>, sendResponse: (response: unknown) => void): true {
   void result.then(sendResponse, (error) => sendResponse(createAnnotationErrorResponse(error)));
   return true;
 }

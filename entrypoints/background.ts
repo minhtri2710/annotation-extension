@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
 import { registerBackgroundMessageHandlers } from '../lib/wiring/background-messages';
+import { registerToolbarTabHandlers } from '../lib/wiring/toolbar-tabs';
 import { CAPTURE_TOGGLE_MESSAGE } from '../lib/capture';
 
 export default defineBackground(() => {
@@ -13,4 +14,5 @@ export default defineBackground(() => {
   });
 
   registerBackgroundMessageHandlers();
+  registerToolbarTabHandlers();
 });

@@ -1,7 +1,6 @@
 import { browser } from 'wxt/browser';
 
 export const TOOLBAR_PREFS_STORAGE_KEY = 'ui:toolbar';
-export const TOOLBAR_HIDDEN_STORAGE_KEY = 'ui:toolbar-hidden';
 export const ONBOARDING_OPEN_STORAGE_KEY = 'ui:onboarding-open';
 
 export interface ToolbarPrefs {
@@ -20,17 +19,6 @@ export async function readToolbarPrefs(): Promise<ToolbarPrefs> {
 
 export function writeToolbarPrefs(prefs: ToolbarPrefs): Promise<void> {
   return browser.storage.local.set({ [TOOLBAR_PREFS_STORAGE_KEY]: prefs });
-}
-
-// Kept apart from ui:toolbar: every tab writes that whole object from its own copy, so a hidden flag inside
-// it could be overwritten by another tab's collapse or move, and hiding could overwrite theirs.
-export async function readToolbarHidden(): Promise<boolean> {
-  const stored = await browser.storage.local.get(TOOLBAR_HIDDEN_STORAGE_KEY);
-  return stored[TOOLBAR_HIDDEN_STORAGE_KEY] === true;
-}
-
-export function writeToolbarHidden(hidden: boolean): Promise<void> {
-  return browser.storage.local.set({ [TOOLBAR_HIDDEN_STORAGE_KEY]: hidden });
 }
 
 export async function readOnboardingOpen(): Promise<boolean> {

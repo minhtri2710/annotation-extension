@@ -9,7 +9,7 @@ import { createBlobStore } from '../../lib/blob-store';
 import { exportAllPages } from '../../lib/export/all-pages';
 import { productionExportDelivery } from '../../lib/export/delivery';
 import { PAGE_STYLES } from '../../lib/ui/page-styles';
-import { readToolbarHidden, writeToolbarHidden } from '../../lib/ui/ui-prefs';
+import { readToolbarTab, setToolbarTab } from '../../lib/wiring/toolbar-tab-messages';
 
 const pageStyle = document.createElement('style');
 pageStyle.textContent = PAGE_STYLES;
@@ -28,15 +28,16 @@ const shortcutHint = document.querySelector<HTMLParagraphElement>('#shortcut-hin
 const blobStore = createBlobStore();
 const UNAVAILABLE_STATUS = 'Annotations are not available on this page. If it was open before the extension loaded, reload it.';
 
-let toolbarHidden = false;
+let toolbarTabId: number | undefined;
+let toolbarOn = false;
 
 void showTabState();
 void showShortcutHint();
-void showToolbarState();
 
 toolbarToggleButton?.addEventListener('click', async () => {
+  if (toolbarTabId === undefined) return;
   try {
-    await writeToolbarHidden(!toolbarHidden);
+    await setToolbarTab(!toolbarOn, toolbarTabId);
   } catch {
     setStatus('The toolbar setting could not be saved.');
     return;
@@ -118,20 +119,22 @@ async function showTabState(): Promise<void> {
     if (!toggleButton) return;
     toggleButton.textContent = reply.active ? 'Stop annotating' : 'Start annotating';
     toggleButton.disabled = false;
+    await showToolbarState(tab.id);
   } catch {
     setStatus(UNAVAILABLE_STATUS);
   }
 }
 
-// The setting is global, so the button does not depend on the tab; an unreadable setting counts as shown.
-async function showToolbarState(): Promise<void> {
+// Runs only where Start annotating is offered, so the button is enabled under the same condition; an unreadable state counts as off.
+async function showToolbarState(tabId: number): Promise<void> {
+  toolbarTabId = tabId;
   try {
-    toolbarHidden = await readToolbarHidden();
+    toolbarOn = await readToolbarTab(tabId);
   } catch {
-    toolbarHidden = false;
+    toolbarOn = false;
   }
   if (!toolbarToggleButton) return;
-  toolbarToggleButton.textContent = toolbarHidden ? 'Show toolbar' : 'Hide toolbar';
+  toolbarToggleButton.textContent = toolbarOn ? 'Hide toolbar' : 'Show toolbar';
   toolbarToggleButton.disabled = false;
 }
 

@@ -487,7 +487,7 @@ describe('popup layout', () => {
     await page.viewport(1280, 720);
   });
 
-  it('puts the page count first, then Start annotating and Hide toolbar on one row with the primary first, then a small muted shortcut hint', () => {
+  it('puts the page count first, then Start annotating and the toolbar button on one row with the primary first, then a small muted shortcut hint', () => {
     const { byId } = mountLayout();
     const count = byId('page-count').getBoundingClientRect();
     const toggle = byId('toggle').getBoundingClientRect();

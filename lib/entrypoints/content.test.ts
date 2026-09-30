@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
+import background from '../../entrypoints/background';
 import contentScript from '../../entrypoints/content';
 import { addAnnotation } from '../annotation-storage';
 import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
@@ -100,6 +101,7 @@ const panel = () => shadow().querySelector<HTMLElement>('[role="region"]')!;
 const toolbarButtons = () => [...shadow().querySelectorAll('[role="toolbar"] button')].map((b) => b.textContent);
 
 const start = () => contentScript.main(ctx);
+const pushToolbar = (on: unknown) => fakeBrowser.runtime.onMessage.trigger({ type: 'toolbar.changed', on }, {}, () => {});
 
 describe('content script entrypoint', () => {
   it('registers page listeners at document_start and mounts the overlay only once the DOM is ready', async () => {
@@ -180,6 +182,7 @@ describe('content script entrypoint', () => {
 
   it('ignores an untrusted Escape at the window but accepts a trusted Escape while capture is active', async () => {
     await start();
+    await pushToolbar(true);
     await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
     const host = hosts()[0]!;
 
@@ -381,6 +384,7 @@ describe('content script entrypoint', () => {
   it('Start annotating keeps an active capture on', async () => {
     await start();
     const [host] = hosts();
+    await pushToolbar(true);
     await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
     expect(host!.hasAttribute('data-annotation-active')).toBe(true);
     trustedClick(button('View all'));
@@ -432,6 +436,7 @@ describe('content script entrypoint', () => {
 
   it('toggles capture only for a capture-toggle runtime message', async () => {
     await start();
+    await pushToolbar(true);
     const [host] = hosts();
 
     await fakeBrowser.runtime.onMessage.trigger({ type: 'capture.start' }, {}, () => {});
@@ -446,6 +451,7 @@ describe('content script entrypoint', () => {
   it('answers a capture-state message through sendResponse and never for a toggle message', async () => {
     const messageListeners = vi.spyOn(browser.runtime.onMessage, 'addListener');
     await start();
+    await pushToolbar(true);
     const [listener] = messageListeners.mock.calls.map(([added]) => added);
     const sendResponse = vi.fn();
 
@@ -548,126 +554,252 @@ describe('content script entrypoint', () => {
     expect({ top: panel().style.top, left: panel().style.left }).toEqual(anchored);
   });
 
-  describe('whole-toolbar hidden setting', () => {
+  describe('per-tab toolbar', () => {
+    const TAB = 9;
+    const TAB_KEY = `ui:toolbar-tab:${TAB}`;
     const toolbar = () => shadow().querySelector<HTMLElement>('[role="toolbar"]')!;
-    const setHidden = (hidden: boolean) => fakeBrowser.storage.local.set({ 'ui:toolbar-hidden': hidden });
+    const isHidden = () => toolbar().hasAttribute('hidden');
+    const isAnnotating = () => hosts()[0]!.hasAttribute('data-annotation-active');
     const storedToolbar = async () => (await browser.storage.local.get('ui:toolbar'))['ui:toolbar'] as ToolbarPrefs;
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const requests = (send: { mock: { calls: unknown[][] } }, type: string) =>
+      send.mock.calls.map(([message]) => message).filter((message) => (message as { type?: string }).type === type);
 
-    it.each([
-      ['hidden', true],
-      ['shown', false],
-      ['absent', undefined],
-    ])('mounts with the toolbar %s when the stored state is %s', async (_name, stored) => {
-      if (stored !== undefined) await setHidden(stored);
+    // Stub: the real background answers the content script as its own tab (fakeBrowser sends no sender), and its
+    // tab messages reach the content script's runtime listeners.
+    function routeToBackground() {
+      background.main();
+      vi.spyOn(browser.tabs, 'sendMessage').mockImplementation(((_tabId: number, message: unknown) =>
+        fakeBrowser.runtime.onMessage.trigger(message, {}, () => {})) as never);
+      return vi.spyOn(browser.runtime, 'sendMessage').mockImplementation(((message: unknown) =>
+        new Promise((resolve) => { void fakeBrowser.runtime.onMessage.trigger(message, { tab: { id: TAB } } as never, resolve); })) as never);
+    }
+
+    // Stub: answers the content script's first state read through `answer`.
+    const stubRead = (answer: () => Promise<unknown>) =>
+      vi.spyOn(browser.runtime, 'sendMessage').mockImplementation((() => answer()) as never);
+
+    const addPinnedAnnotation = async () => {
+      const target = document.body.appendChild(document.createElement('div'));
+      target.id = 'target';
+      await addAnnotation(location.href, {
+        note: 'Pinned note',
+        selector: '#target',
+        elementContext: {
+          selector: '#target', tagName: 'div', id: 'target', classList: [], text: '',
+          boundingBox: { x: 0, y: 0, width: 10, height: 10 }, url: location.href,
+          viewport: { width: 800, height: 600 }, sourcePath: null,
+        },
+      });
+      return target;
+    };
+    const pin = () => shadow().querySelector<HTMLElement>('.annotation-pin')!;
+
+    it('mounts with the toolbar hidden and the pins shown when the tab has no stored state', async () => {
+      const send = routeToBackground();
+      await addPinnedAnnotation();
       await start();
 
-      expect(toolbar().hasAttribute('hidden')).toBe(stored === true);
+      await vi.waitFor(() => expect(shadow().querySelector('.annotation-pin')).not.toBeNull());
+      await settle();
+      expect(isHidden()).toBe(true);
+      expect(requests(send, 'toolbar.get')).toEqual([{ type: 'toolbar.get' }]);
     });
 
-    it('follows the stored state without a reload and keeps the overlay mounted', async () => {
+    it.each([
+      ['a rejected read', () => Promise.reject(new Error('Receiving end does not exist.'))],
+      ['no answer', () => Promise.resolve(undefined)],
+      ['a malformed answer', () => Promise.resolve({ on: 'yes' })],
+    ])('leaves the toolbar hidden after %s', async (_name, answer) => {
+      const read = stubRead(answer);
+      await start();
+      await settle();
+
+      expect(requests(read, 'toolbar.get')).toEqual([{ type: 'toolbar.get' }]);
+      expect(isHidden()).toBe(true);
+    });
+
+    it('keeps the toolbar hidden until the background answers, then follows the answer', async () => {
+      let answer: (state: unknown) => void = () => undefined;
+      stubRead(() => new Promise((resolve) => { answer = resolve; }));
+      await start();
+      await settle();
+      expect(isHidden()).toBe(true);
+
+      answer({ on: true });
+
+      await vi.waitFor(() => expect(isHidden()).toBe(false));
+    });
+
+    it('turns the toolbar on and off from a change message without a reload and keeps the overlay mounted', async () => {
       await start();
       const [host] = hosts();
 
-      await setHidden(true);
-      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(true));
+      await pushToolbar(true);
+      expect(isHidden()).toBe(false);
+      await pushToolbar('yes');
+      await pushToolbar(undefined);
+      expect(isHidden()).toBe(false);
+      await pushToolbar(false);
+      expect(isHidden()).toBe(true);
       expect(hosts()).toEqual([host]);
-
-      await setHidden(false);
-      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(false));
     });
 
-    // Stub: answers the first read of the hidden setting through `read`; every other key goes to fakeBrowser storage.
-    const stubHiddenRead = (read: () => Promise<Record<string, unknown>>) => {
-      const get = browser.storage.local.get.bind(browser.storage.local);
-      return vi.spyOn(browser.storage.local, 'get').mockImplementation(((keys: string) =>
-        keys === 'ui:toolbar-hidden' ? read() : get(keys)) as never);
-    };
+    it('lets a change that arrives during the first read win over the value that read returns', async () => {
+      let answer: (state: unknown) => void = () => undefined;
+      const read = stubRead(() => new Promise((resolve) => { answer = resolve; }));
+      await start();
+      await vi.waitFor(() => expect(requests(read, 'toolbar.get')).toHaveLength(1));
 
-    it('lets a hidden-state change that arrives during the first read win over the value that read returns', async () => {
-      let answer: (stored: Record<string, unknown>) => void = () => undefined;
-      const read = stubHiddenRead(() => new Promise((resolve) => { answer = resolve; }));
-      const running = start();
-      await vi.waitFor(() => expect(read.mock.calls.some(([keys]) => keys === 'ui:toolbar-hidden')).toBe(true));
+      await pushToolbar(true);
+      answer({ on: false });
+      await settle();
 
-      await fakeBrowser.storage.onChanged.trigger({ 'ui:toolbar-hidden': { newValue: true } }, 'local');
-      answer({ 'ui:toolbar-hidden': false });
-      await running;
-
-      expect(toolbar().hasAttribute('hidden')).toBe(true);
+      expect(isHidden()).toBe(false);
     });
 
-    it('mounts with the toolbar shown when the first read of the setting rejects', async () => {
-      stubHiddenRead(() => Promise.reject(new Error('Storage failed')));
+    it('reads the tab state again when the page is restored from the back/forward cache, and removes that listener with the context', async () => {
+      routeToBackground();
+      const removed = vi.spyOn(window, 'removeEventListener');
+      await start();
+      await settle();
+      expect(isHidden()).toBe(true);
+      const pageshow = (persisted: boolean) => {
+        const event = new Event('pageshow');
+        Object.defineProperty(event, 'persisted', { value: persisted });
+        window.dispatchEvent(event);
+      };
+
+      await fakeBrowser.storage.session.set({ [TAB_KEY]: true });
+      pageshow(false);
+      await settle();
+      expect(isHidden()).toBe(true);
+      pageshow(true);
+      await vi.waitFor(() => expect(isHidden()).toBe(false));
+
+      await fakeBrowser.storage.session.remove(TAB_KEY);
+      pageshow(true);
+      await vi.waitFor(() => expect(isHidden()).toBe(true));
+
+      ctx.notifyInvalidated();
+      expect(removed.mock.calls.some(([type]) => type === 'pageshow')).toBe(true);
+    });
+
+    it('turns its own tab on in the background and then starts annotating on a capture toggle while the toolbar is off', async () => {
+      routeToBackground();
+      await start();
+      await settle();
+      expect(isHidden()).toBe(true);
+
+      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+
+      await vi.waitFor(() => expect(isAnnotating()).toBe(true));
+      expect(isHidden()).toBe(false);
+      await expect(fakeBrowser.storage.session.get(null)).resolves.toEqual({ [TAB_KEY]: true });
+      await expect(fakeBrowser.storage.local.get('ui:toolbar')).resolves.toEqual({});
+    });
+
+    it('does not start annotating when the background cannot turn the tab on', async () => {
+      const send = stubRead(() => Promise.reject(new Error('Storage failed')));
       await start();
 
-      expect(toolbar().hasAttribute('hidden')).toBe(false);
+      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+      await settle();
+
+      expect(requests(send, 'toolbar.set')).toEqual([{ type: 'toolbar.set', on: true }]);
+      expect(isAnnotating()).toBe(false);
+      expect(isHidden()).toBe(true);
     });
 
-    it('ignores a hidden-state change from another storage area', async () => {
+    it('toggles annotating on a capture toggle while the toolbar is on, without asking the background again', async () => {
+      const send = routeToBackground();
       await start();
+      await pushToolbar(true);
+      send.mockClear();
 
-      await fakeBrowser.storage.onChanged.trigger({ 'ui:toolbar-hidden': { newValue: true } }, 'sync');
+      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+      expect(isAnnotating()).toBe(true);
+      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+      expect(isAnnotating()).toBe(false);
 
-      expect(toolbar().hasAttribute('hidden')).toBe(false);
+      expect(requests(send, 'toolbar.set')).toEqual([]);
     });
 
-    it('closes an open list or scan panel when the toolbar hides', async () => {
+    it('stops annotating when the toolbar turns off', async () => {
       await start();
+      await pushToolbar(true);
+      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+      expect(isAnnotating()).toBe(true);
+
+      await pushToolbar(false);
+
+      expect(isAnnotating()).toBe(false);
+      expect(button('Annotate').getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('closes an open list or scan panel when the toolbar turns off', async () => {
+      await start();
+      await pushToolbar(true);
       trustedClick(button('View all'));
       await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotations on this page'));
 
-      await setHidden(true);
-      await vi.waitFor(() => expect(panel().hasAttribute('aria-label')).toBe(false));
+      await pushToolbar(false);
+      expect(panel().hasAttribute('aria-label')).toBe(false);
       expect(button('View all').getAttribute('aria-expanded')).toBe('false');
 
-      await setHidden(false);
-      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(false));
+      await pushToolbar(true);
       trustedClick(button('Scan'));
       await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Page scan'));
-      await setHidden(true);
-      await vi.waitFor(() => expect(panel().hasAttribute('aria-label')).toBe(false));
+      await pushToolbar(false);
+      expect(panel().hasAttribute('aria-label')).toBe(false);
     });
 
-    it('still toggles capture and opens the note panel for a selected element while hidden', async () => {
-      await setHidden(true);
+    it('keeps an open note panel when the toolbar turns off', async () => {
       await start();
+      await pushToolbar(true);
       const target = document.body.appendChild(document.createElement('div'));
       target.id = 'target';
-      const host = hosts()[0]!;
-
       await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
-      expect(host.hasAttribute('data-annotation-active')).toBe(true);
       dispatchTrusted(target, new PointerEvent('pointerdown', { bubbles: true, cancelable: true, composed: true, button: 0 }));
       await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotation note'));
-      expect(host.hasAttribute('data-annotation-active')).toBe(false);
 
-      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
-      expect(host.hasAttribute('data-annotation-active')).toBe(true);
-      await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
-      expect(host.hasAttribute('data-annotation-active')).toBe(false);
-      expect(toolbar().hasAttribute('hidden')).toBe(true);
+      await pushToolbar(false);
+
+      expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+      expect(isHidden()).toBe(true);
     });
 
-    it('keeps a hidden toolbar hidden through a collapse and a move, and shows it as it was', async () => {
+    it('opens the note panel from a pin while the toolbar is off', async () => {
+      routeToBackground();
+      await addPinnedAnnotation();
       await start();
+      await vi.waitFor(() => expect(shadow().querySelector('.annotation-pin')).not.toBeNull());
+
+      trustedClick(pin());
+
+      await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotation note'));
+      expect(isHidden()).toBe(true);
+    });
+
+    it('keeps the stored collapse and position through turning the toolbar off and on', async () => {
+      await start();
+      await pushToolbar(true);
       trustedClick(button('Hide'));
       await vi.waitFor(async () => expect((await browser.storage.local.get('ui:toolbar'))['ui:toolbar']).toEqual({ position: null, collapsed: true }));
-      await setHidden(true);
-      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(true));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await pushToolbar(false);
+      expect(isHidden()).toBe(true);
+      await settle();
       await expect(browser.storage.local.get('ui:toolbar')).resolves.toEqual({ 'ui:toolbar': { position: null, collapsed: true } });
 
       dispatchTrusted(button('⠿'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
       await vi.waitFor(async () => expect((await storedToolbar()).position).not.toBeNull());
       trustedClick(button('Show'));
       await vi.waitFor(async () => expect((await storedToolbar()).collapsed).toBe(false));
-
-      await expect(browser.storage.local.get('ui:toolbar-hidden')).resolves.toEqual({ 'ui:toolbar-hidden': true });
-      expect(toolbar().hasAttribute('hidden')).toBe(true);
+      expect(isHidden()).toBe(true);
 
       const stored = await storedToolbar();
-      await setHidden(false);
-      await vi.waitFor(() => expect(toolbar().hasAttribute('hidden')).toBe(false));
+      await pushToolbar(true);
+      expect(isHidden()).toBe(false);
       expect(await storedToolbar()).toEqual(stored);
       expect(toolbar().hasAttribute('data-collapsed')).toBe(false);
       expect(toolbar().style.left).toBe(`${stored.position?.x}px`);

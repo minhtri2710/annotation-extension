@@ -8,6 +8,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { addAnnotation, listAnnotations } from '../annotation-storage';
 import type { Annotation } from '../annotation';
 import { IMPORT_CHUNK_LENGTH, IMPORT_PORT_NAME } from '../json-io';
+import background from '../../entrypoints/background';
 import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
 import { buildInspectExpression } from '../devtools/devtools';
 import { readPolicy, SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
@@ -117,7 +118,7 @@ describe('popup page', () => {
     expect(allPages?.querySelector('h2')?.nextElementSibling?.className).toBe('annotation-page__actions');
     expect([...document.querySelectorAll('.annotation-page__actions button')].map((button) => button.textContent)).toEqual([
       'Start annotating',
-      'Hide toolbar',
+      'Show toolbar',
       'Export JSON',
       'Export Markdown',
       'Import JSON',
@@ -338,38 +339,44 @@ describe('popup page', () => {
     const TOOLBAR_SAVE_ERROR = 'The toolbar setting could not be saved.';
     const toolbarToggle = () => byId<HTMLButtonElement>('toolbar-toggle');
 
-    it.each([
-      ['absent', undefined, 'Hide toolbar'],
-      ['shown', false, 'Hide toolbar'],
-      ['hidden', true, 'Show toolbar'],
-    ])('labels the button for a stored state that is %s', async (_name, stored, label) => {
-      if (stored !== undefined) await fakeBrowser.storage.local.set({ 'ui:toolbar-hidden': stored });
-      stubTab(PAGE, async () => ({ active: false }));
-      await openPopup();
+    const TAB_KEY = 'ui:toolbar-tab:11';
+    // The real background answers the popup, which names the active tab by its id.
+    const startBackground = () => background.main();
 
-      await vi.waitFor(() => expect(toolbarToggle().textContent).toBe(label));
-      expect(toolbarToggle().disabled).toBe(false);
-      expect(toolbarToggle().hasAttribute('data-variant')).toBe(false);
-      expect(toolbarToggle().parentElement).toBe(byId('toggle').parentElement);
-    });
-
-    it('reads an unreadable setting as shown: the button says Hide toolbar and is enabled', async () => {
-      const get = browser.storage.local.get.bind(browser.storage.local);
-      // Stub: only the hidden-setting read fails; the policy and annotation reads go to fakeBrowser storage.
-      vi.spyOn(browser.storage.local, 'get').mockImplementation(((keys: string) =>
-        keys === 'ui:toolbar-hidden' ? Promise.reject(new Error('Storage failed')) : get(keys)) as never);
+    it.each<[string, Record<string, boolean>, string]>([
+      ['off', { 'ui:toolbar-tab:12': true }, 'Show toolbar'],
+      ['on', { [TAB_KEY]: true }, 'Hide toolbar'],
+    ])('labels the button for the active tab whose toolbar is %s', async (_name, session, label) => {
+      startBackground();
+      await fakeBrowser.storage.session.set(session);
       stubTab(PAGE, async () => ({ active: false }));
       await openPopup();
 
       await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
-      expect(toolbarToggle().textContent).toBe('Hide toolbar');
+      expect(toolbarToggle().textContent).toBe(label);
+      expect(toolbarToggle().hasAttribute('data-variant')).toBe(false);
+      expect(toolbarToggle().parentElement).toBe(byId('toggle').parentElement);
     });
 
     it.each([
-      ['absent', undefined, true],
-      ['hidden', true, false],
-    ])('flips a stored state that is %s, then closes the popup', async (_name, stored, saved) => {
-      if (stored !== undefined) await fakeBrowser.storage.local.set({ 'ui:toolbar-hidden': stored });
+      ['a rejected read', () => Promise.reject(new Error('Storage failed'))],
+      ['a malformed answer', () => Promise.resolve({ on: 'yes' })],
+    ])('reads the state as off after %s: the button says Show toolbar and is enabled', async (_name, answer) => {
+      const send = vi.spyOn(browser.runtime, 'sendMessage').mockImplementation((() => answer()) as never);
+      stubTab(PAGE, async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
+      expect(send.mock.calls).toEqual([[{ type: 'toolbar.get', tabId: 11 }]]);
+      expect(toolbarToggle().textContent).toBe('Show toolbar');
+    });
+
+    it.each([
+      ['off', undefined, { [TAB_KEY]: true }],
+      ['on', { [TAB_KEY]: true }, {}],
+    ])('sets the active tab when its toolbar is %s to the other state, then closes the popup', async (_name, session, saved) => {
+      startBackground();
+      if (session) await fakeBrowser.storage.session.set(session);
       stubTab(PAGE, async () => ({ active: false }));
       // Stub: happy-dom's window.close would tear the test window down.
       const close = vi.spyOn(window, 'close').mockImplementation(() => {});
@@ -379,35 +386,41 @@ describe('popup page', () => {
       toolbarToggle().click();
 
       await vi.waitFor(() => expect(close).toHaveBeenCalled());
-      await expect(fakeBrowser.storage.local.get('ui:toolbar-hidden')).resolves.toEqual({ 'ui:toolbar-hidden': saved });
+      await expect(fakeBrowser.storage.session.get(null)).resolves.toEqual(saved);
+      await expect(fakeBrowser.storage.local.get(null)).resolves.toEqual({});
       expect(byId('status').textContent).toBe('');
     });
 
-    it('keeps the popup open and says so when the write is rejected', async () => {
+    it('keeps the popup open and says so when the set is rejected', async () => {
+      startBackground();
       stubTab(PAGE, async () => ({ active: false }));
       const close = vi.spyOn(window, 'close').mockImplementation(() => {});
       await openPopup();
       await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
-      vi.spyOn(browser.storage.local, 'set').mockRejectedValue(new Error('Storage failed'));
+      vi.spyOn(browser.storage.session, 'set').mockRejectedValue(new Error('Storage failed'));
 
       toolbarToggle().click();
 
       await vi.waitFor(() => expect(byId('status').textContent).toBe(TOOLBAR_SAVE_ERROR));
       expect(close).not.toHaveBeenCalled();
-      expect(toolbarToggle().textContent).toBe('Hide toolbar');
+      expect(toolbarToggle().textContent).toBe('Show toolbar');
     });
 
     it.each([
-      ['a browser page', 'chrome://extensions/', "Annotations can't run on this page."],
-      ['a site turned off in Options', PAGE, 'Annotations are turned off for this site in Options.'],
-    ])('stays enabled on %s while Start annotating is disabled', async (_name, url, status) => {
-      await writePolicy({ enabled: true, allowlist: ['other.example'] });
-      stubTab(url, async () => ({ active: false }));
+      ['a browser page', 'chrome://extensions/', [], async () => ({ active: false }), "Annotations can't run on this page."],
+      ['a site turned off in Options', PAGE, ['other.example'], async () => ({ active: false }), 'Annotations are turned off for this site in Options.'],
+      ['a page whose content script does not answer', PAGE, [], () => Promise.reject(new Error('Receiving end does not exist.')), RELOAD],
+    ])('stays disabled on %s, where Start annotating is disabled, and reads no state', async (_name, url, allowlist, reply, status) => {
+      await writePolicy({ enabled: true, allowlist });
+      const send = vi.spyOn(browser.runtime, 'sendMessage');
+      stubTab(url, reply);
       await openPopup();
 
       await vi.waitFor(() => expect(byId('status').textContent).toBe(status));
-      await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(toolbarToggle().disabled).toBe(true);
       expect(byId<HTMLButtonElement>('toggle').disabled).toBe(true);
+      expect(send).not.toHaveBeenCalled();
     });
   });
 

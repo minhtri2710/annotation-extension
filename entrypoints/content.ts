@@ -12,7 +12,8 @@ import { watchRoute } from '../lib/wiring/route-watch';
 import { buildOverlayShell, createPanelAnchor, raiseOverlay, setToolbarHidden, type PanelAnchor } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
 import { createToolbarControls } from '../lib/ui/toolbar-controls';
-import { readToolbarHidden, readToolbarPrefs, TOOLBAR_HIDDEN_STORAGE_KEY, writeToolbarPrefs } from '../lib/ui/ui-prefs';
+import { readToolbarPrefs, writeToolbarPrefs } from '../lib/ui/ui-prefs';
+import { isToolbarChangedMessage, readToolbarTab, setToolbarTab } from '../lib/wiring/toolbar-tab-messages';
 import { watchColorScheme } from '../lib/ui/theme';
 import { pageKey } from '../utils/page-key';
 import { isEnabledForUrl } from '../lib/options/policy';
@@ -57,10 +58,32 @@ export default defineContentScript({
     let stopColorScheme: (() => void) | undefined;
     let toolbarControls: ReturnType<typeof createToolbarControls> | undefined;
     let stopOverlayGuard: (() => void) | undefined;
-    // The whole-toolbar setting is global and kept apart from ui:toolbar. It is read before the first mount,
-    // so an overlay mounts with the bar already hidden and never shows it for a frame.
-    let toolbarHidden = false;
-    let applyToolbarHidden: ((hidden: boolean) => void) | undefined;
+    // The bar belongs to the tab and is off until the background says this tab turned it on, so an overlay
+    // mounts with the bar hidden and never shows it for a frame. A later change wins over a read still pending.
+    let toolbarOn = false;
+    let toolbarSequence = 0;
+    let applyToolbar: ((on: boolean) => void) | undefined;
+    const showToolbar = (on: boolean) => {
+      toolbarSequence++;
+      toolbarOn = on;
+      applyToolbar?.(on);
+    };
+    // Annotating is never active in a tab whose bar is off: the background turns this tab on first, and a
+    // failed turn-on starts nothing.
+    const toggleCapture = () => {
+      if (toolbarOn) {
+        controller?.toggle();
+        return;
+      }
+      void setToolbarTab(true).then(
+        () => {
+          if (ctx.isInvalid) return;
+          showToolbar(true);
+          controller?.activate();
+        },
+        () => undefined,
+      );
+    };
 
     const ui = await createShadowRootUi(ctx, {
       name: 'annotation-extension-root',
@@ -176,13 +199,17 @@ export default defineContentScript({
             if (mode === 'list' || mode === 'scan') activePanelAnchor.place(anchorToToolbar);
           },
         });
-        // The overlay stays mounted while the bar is hidden; only a list or scan panel, which anchor to the bar, close.
-        applyToolbarHidden = (hidden) => {
-          const mode = panels.mode();
-          if (hidden && (mode === 'list' || mode === 'scan')) panels.close();
-          setToolbarHidden(shell.toolbar, hidden);
+        // The overlay stays mounted while the bar is off. Annotating never runs without the bar, and only a
+        // list or scan panel, which anchor to the bar, close; an open note panel stays.
+        applyToolbar = (on) => {
+          if (!on) {
+            controller?.deactivate();
+            const mode = panels.mode();
+            if (mode === 'list' || mode === 'scan') panels.close();
+          }
+          setToolbarHidden(shell.toolbar, !on);
         };
-        applyToolbarHidden(toolbarHidden);
+        applyToolbar(toolbarOn);
         let pinsSequence = 0;
         const refreshPins = async () => {
           const sequence = ++pinsSequence;
@@ -215,7 +242,7 @@ export default defineContentScript({
         shell.root.append(activeController.live);
         runtimeMessageListener = (message, _sender, sendResponse) => {
           if (isCaptureStateMessage(message)) sendResponse({ active: controller?.active ?? false });
-          if (isCaptureToggleMessage(message)) controller?.toggle();
+          if (isCaptureToggleMessage(message)) toggleCapture();
         };
         browser.runtime.onMessage.addListener(runtimeMessageListener);
         unsubscribeCaptureState = bus.on('capture:active', (active) => {
@@ -259,7 +286,7 @@ export default defineContentScript({
         panelAnchor = undefined;
         notePanel?.teardown();
         notePanel = undefined;
-        applyToolbarHidden = undefined;
+        applyToolbar = undefined;
         toolbarControls?.destroy();
         toolbarControls = undefined;
         pins?.destroy();
@@ -284,24 +311,38 @@ export default defineContentScript({
         ui.remove();
       }
     };
-    let hiddenSequence = 0;
     const settingsChanged: StorageListener = (changes, areaName) => {
       if (areaName !== 'local') return;
       if (SITE_POLICY_STORAGE_KEY in changes) void applyPolicy();
-      const hidden = changes[TOOLBAR_HIDDEN_STORAGE_KEY];
-      if (hidden) {
-        hiddenSequence++;
-        toolbarHidden = hidden.newValue === true;
-        applyToolbarHidden?.(toolbarHidden);
-      }
     };
     browser.storage.onChanged.addListener(settingsChanged);
     ctx.onInvalidated(() => browser.storage.onChanged.removeListener(settingsChanged));
-    // A change that arrives during the first read is newer than the read.
-    const readSequence = hiddenSequence;
-    const storedHidden = await readToolbarHidden().catch(() => false);
-    if (readSequence === hiddenSequence) toolbarHidden = storedHidden;
     await applyPolicy();
+
+    // The tab's state is tracked whether or not the overlay is mounted, so an overlay the site policy mounts later shows it.
+    const toolbarChanged = (message: unknown) => {
+      if (isToolbarChangedMessage(message)) showToolbar(message.on);
+    };
+    browser.runtime.onMessage.addListener(toolbarChanged);
+    ctx.onInvalidated(() => browser.runtime.onMessage.removeListener(toolbarChanged));
+    // A change that arrives during a read is newer than the read. An unreadable state stays off.
+    const readToolbarState = () => {
+      const readSequence = toolbarSequence;
+      void readToolbarTab().then(
+        (on) => {
+          if (readSequence === toolbarSequence && !ctx.isInvalid) showToolbar(on);
+        },
+        () => undefined,
+      );
+    };
+    readToolbarState();
+    // A page restored from the back/forward cache keeps the state it left with, and no message reaches a cached
+    // document, so the tab's current state is read again.
+    const pageShown = (event: PageTransitionEvent) => {
+      if (event.persisted) readToolbarState();
+    };
+    window.addEventListener('pageshow', pageShown);
+    ctx.onInvalidated(() => window.removeEventListener('pageshow', pageShown));
   },
 });
 

@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import {
   readOnboardingOpen,
-  readToolbarHidden,
   readToolbarPrefs,
   writeOnboardingOpen,
-  writeToolbarHidden,
   writeToolbarPrefs,
 } from './ui-prefs';
 
@@ -42,23 +40,6 @@ describe('ui prefs', () => {
   ])('returns the whole default for invalid stored toolbar prefs %#', async (value) => {
     await fakeBrowser.storage.local.set({ 'ui:toolbar': value });
     await expect(readToolbarPrefs()).resolves.toEqual({ position: null, collapsed: false });
-  });
-
-  it('keeps the whole-toolbar hidden state under its own key, so a toolbar prefs write cannot overwrite it', async () => {
-    await expect(readToolbarHidden()).resolves.toBe(false);
-    await writeToolbarHidden(true);
-    await expect(fakeBrowser.storage.local.get('ui:toolbar-hidden')).resolves.toEqual({ 'ui:toolbar-hidden': true });
-    await expect(readToolbarHidden()).resolves.toBe(true);
-
-    await writeToolbarPrefs({ position: { x: 5, y: 6 }, collapsed: true });
-    await expect(readToolbarHidden()).resolves.toBe(true);
-    await writeToolbarHidden(false);
-    await expect(readToolbarPrefs()).resolves.toEqual({ position: { x: 5, y: 6 }, collapsed: true });
-  });
-
-  it('reads a non-boolean stored hidden state as shown', async () => {
-    await fakeBrowser.storage.local.set({ 'ui:toolbar-hidden': 'true' });
-    await expect(readToolbarHidden()).resolves.toBe(false);
   });
 
   it('defaults onboarding to open and round-trips it under ui:onboarding-open', async () => {
