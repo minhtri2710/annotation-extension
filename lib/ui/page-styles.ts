@@ -126,6 +126,33 @@ body.annotation-page--popup .annotation-page__card {
   color: var(--annotation-color-surface);
 }
 
+/* Popup layout: the two top buttons and the two exports each share a row; Import is a quieter row of its own. */
+body.annotation-page--popup .annotation-page__actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body.annotation-page--popup .annotation-page__actions > button[data-variant="quiet"] {
+  grid-column: 1 / -1;
+  border-color: transparent;
+  background: transparent;
+  color: var(--annotation-color-text-muted);
+}
+
+body.annotation-page--popup .annotation-page__actions > button[data-variant="quiet"]:hover {
+  border-color: var(--annotation-color-border);
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-text);
+}
+
+body.annotation-page--popup .annotation-page__actions + .annotation-page__status {
+  margin-top: var(--annotation-space-2);
+  font-size: var(--annotation-font-size-caption);
+}
+
+body.annotation-page--popup .annotation-page__group {
+  margin-top: var(--annotation-space-3);
+}
+
 .annotation-page__card button:disabled,
 .annotation-page__card button:disabled:hover,
 .annotation-page__card button:disabled:active {

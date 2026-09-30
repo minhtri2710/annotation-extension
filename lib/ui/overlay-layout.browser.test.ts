@@ -7,7 +7,7 @@ import { createAnnotationList } from '../annotation-list/annotation-list';
 import { createNotePanel } from '../notes/note-panel';
 import { createPinsController } from '../pins/pins';
 import { createLocateHighlight } from './locate-highlight';
-import { buildOverlayShell, createPanelAnchor, raiseOverlay } from './shell';
+import { buildOverlayShell, createPanelAnchor, raiseOverlay, setToolbarHidden } from './shell';
 import { createToolbarControls } from './toolbar-controls';
 
 declare module 'vitest' {
@@ -206,6 +206,149 @@ describe('overlay layout on hostile pages (real browser)', () => {
 
     expect(host.matches(':popover-open')).toBe(true);
     expect(document.elementFromPoint(point.x, point.y)).toBe(host);
+  });
+});
+
+// The overlay shell with nothing in the toolbar yet, for tests that add the production controls themselves.
+function mountShell() {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const shadow = host.attachShadow({ mode: 'open' });
+  const reset = document.createElement('style');
+  reset.textContent = ':host{all:initial !important;}';
+  const container = document.createElement('div');
+  shadow.append(reset, container);
+  const shell = buildOverlayShell(container);
+  raiseOverlay(host);
+  return { host, shadow, shell };
+}
+
+function addToolbarButtons(toolbar: HTMLElement, labels: string[]): HTMLButtonElement[] {
+  return labels.map((label) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    toolbar.append(button);
+    return button;
+  });
+}
+
+const noPrefs = { read: async () => ({ position: null, collapsed: false }), write: async () => undefined };
+
+describe('toolbar layout (real browser)', () => {
+  it('lays every control and the count out on one row at one height, with the count text unchanged, also collapsed', async () => {
+    await page.viewport(1280, 720);
+    const { shell } = mountShell();
+    addToolbarButtons(shell.toolbar, ['Scan', 'View all', 'Annotate']);
+    const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    cleanups.push(() => pins.destroy());
+    pins.setAnnotations([annotation('a1', 'One'), annotation('a2', 'Two')]);
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: noPrefs,
+      onCollapsedChange: () => undefined,
+      onPositionChange: () => undefined,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+    // The badge pops in with a scale animation; boxes are measured once it has finished.
+    const settled = async () => {
+      await nextFrame();
+      await Promise.all(shell.root.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    };
+    await settled();
+
+    const parts = () => [...shell.toolbar.children].filter((child) => getComputedStyle(child).display !== 'none') as HTMLElement[];
+    const expectOneRowOneHeight = (expected: number) => {
+      expect(parts()).toHaveLength(expected);
+      const rects = parts().map((part) => part.getBoundingClientRect());
+      for (const rect of rects) {
+        expect(Math.abs(rect.height - rects[0]!.height)).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(rect.top - rects[0]!.top)).toBeLessThanOrEqual(0.5);
+      }
+      const gaps = rects.slice(1).map((rect, index) => rect.left - rects[index]!.right);
+      for (const gap of gaps) expect(Math.abs(gap - gaps[0]!)).toBeLessThanOrEqual(0.5);
+    };
+    const badge = shell.toolbar.querySelector<HTMLElement>('[data-annotation-badge]')!;
+    expectOneRowOneHeight(6);
+    expect(badge.textContent).toBe('2 annotations');
+
+    shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!.click();
+    await settled();
+    expectOneRowOneHeight(3);
+    expect(badge.textContent).toBe('2 annotations');
+  });
+
+  it('shows a bar that was hidden during a window shrink fully inside the viewport', async () => {
+    await page.viewport(1280, 720);
+    const { shell } = mountShell();
+    addToolbarButtons(shell.toolbar, ['Scan', 'View all', 'Annotate']);
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: { read: async () => ({ position: { x: 700, y: 100 }, collapsed: false }), write: async () => undefined },
+      onCollapsedChange: () => undefined,
+      onPositionChange: () => undefined,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+    expectInsideViewport(shell.toolbar.getBoundingClientRect());
+
+    setToolbarHidden(shell.toolbar, true);
+    await page.viewport(600, 400);
+    await nextFrame();
+    setToolbarHidden(shell.toolbar, false);
+    await nextFrame();
+    expectInsideViewport(shell.toolbar.getBoundingClientRect());
+  });
+
+  it('leaves no focused control inside a bar that hides', async () => {
+    const { shadow, shell } = mountShell();
+    const [scan] = addToolbarButtons(shell.toolbar, ['Scan', 'View all']);
+    scan!.focus();
+    expect(shadow.activeElement).toBe(scan);
+
+    setToolbarHidden(shell.toolbar, true);
+    expect(shadow.activeElement === null || !shell.toolbar.contains(shadow.activeElement)).toBe(true);
+    expect(shell.toolbar.contains(document.activeElement)).toBe(false);
+  });
+});
+
+describe('pin stacking (real browser)', () => {
+  it('paints an open panel and the toolbar over a pin whose position falls under them, and keeps the pin over the page elsewhere', async () => {
+    await page.viewport(1280, 720);
+    const targets = [['under-panel', 1000, 150], ['under-toolbar', 1100, 680], ['free', 100, 300]] as const;
+    for (const [id, left, top] of targets) {
+      const target = document.createElement('div');
+      target.id = id;
+      target.style.cssText = `position: absolute; left: ${left}px; top: ${top}px; width: 60px; height: 30px; background: #ddd;`;
+      document.body.append(target);
+    }
+    const { shadow, shell } = mountShell();
+    addToolbarButtons(shell.toolbar, ['Scan', 'View all', 'Annotate']);
+    const notePanel = notePanelFor(shell.panel, [annotation('a1', 'First note'), annotation('a2', 'Second note')]);
+    cleanups.push(() => notePanel.teardown());
+    await notePanel.render(context());
+    // A toolbar with no box that the pins can be laid out against, so no pin is moved off the real toolbar.
+    const noBox = document.createElement('div');
+    document.body.append(noBox);
+    const pins = createPinsController({ document, container: shell.root, toolbar: noBox });
+    cleanups.push(() => pins.destroy());
+    pins.setAnnotations([annotation('p1', 'Under the panel', '#under-panel'), annotation('p2', 'Under the toolbar', '#under-toolbar'), annotation('p3', 'Free', '#free')]);
+    pins.reanchor();
+    await nextFrame();
+
+    const [underPanel, underToolbar, free] = [...shell.root.querySelectorAll<HTMLElement>('.annotation-pin')].map((pin) => center(pin.getBoundingClientRect()));
+    const inside = (rect: DOMRect, point: { x: number; y: number }) =>
+      point.x > rect.left && point.x < rect.right && point.y > rect.top && point.y < rect.bottom;
+    expect(inside(shell.panel.getBoundingClientRect(), underPanel!)).toBe(true);
+    expect(inside(shell.toolbar.getBoundingClientRect(), underToolbar!)).toBe(true);
+    expect(inside(shell.panel.getBoundingClientRect(), free!) || inside(shell.toolbar.getBoundingClientRect(), free!)).toBe(false);
+
+    expect(shell.panel.contains(shadow.elementFromPoint(underPanel!.x, underPanel!.y))).toBe(true);
+    expect(shell.toolbar.contains(shadow.elementFromPoint(underToolbar!.x, underToolbar!.y))).toBe(true);
+    expect(shadow.elementFromPoint(free!.x, free!.y)?.classList.contains('annotation-pin')).toBe(true);
   });
 });
 

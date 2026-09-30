@@ -47,6 +47,12 @@ ${ANNOTATION_DARK_TOKENS}
   max-width: calc(100% - 2 * var(--annotation-space-4));
 }
 
+/* Every toolbar control, the count included, is one 32px high box on one line. */
+[data-annotation-shell] [data-annotation-mount="toolbar"] > * {
+  height: 32px;
+  white-space: nowrap;
+}
+
 [data-annotation-shell] [data-annotation-toolbar-grip] {
   cursor: grab;
   touch-action: none;
@@ -94,7 +100,15 @@ ${ANNOTATION_DARK_TOKENS}
 }
 
 [data-annotation-shell] [data-annotation-badge] {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--annotation-space-2);
+  border-radius: var(--annotation-radius-md);
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-text);
   font-weight: var(--annotation-font-weight-medium);
+  white-space: nowrap;
 }
 
 @keyframes annotation-badge-pop {
@@ -181,6 +195,34 @@ ${ANNOTATION_DARK_TOKENS}
   outline-offset: 2px;
 }
 
+/* Row 1 is Save note and Resolve; the ::after break starts row 2 (Capture, Attach, Delete), and DOM order stays the visual order. */
+[data-annotation-shell] [data-annotation-note-actions]::after {
+  content: "";
+  order: 1;
+  flex-basis: 100%;
+  height: 0;
+}
+
+[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-capture-screenshot],
+[data-annotation-shell] [data-annotation-note-actions] > label[data-annotation-attach],
+[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-attach-name],
+[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-delete],
+[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-delete-prompt] {
+  order: 2;
+}
+
+[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-delete] {
+  margin-left: auto;
+}
+
+[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-delete-prompt] {
+  flex-basis: 100%;
+}
+
+[data-annotation-shell] [data-annotation-attach-name]:empty {
+  display: none;
+}
+
 [data-annotation-shell] [data-annotation-attachment-input] {
   position: absolute;
   width: 1px;
@@ -222,6 +264,11 @@ ${ANNOTATION_DARK_TOKENS}
   width: 100%;
   min-height: calc(3 * 1.4em + 2 * var(--annotation-space-1) + 2px);
   resize: vertical;
+}
+
+/* The note is the main field of its card, so it is taller than the CSS and repro fields, which keep the 3-line floor above. */
+[data-annotation-shell] textarea[data-annotation-edit-note] {
+  min-height: calc(4 * 1.4em + 2 * var(--annotation-space-1) + 2px);
 }
 
 [data-annotation-shell] [data-annotation-mount="panel"] > form {
@@ -367,6 +414,38 @@ ${ANNOTATION_DARK_TOKENS}
 [data-annotation-shell] [data-annotation-mount] button[data-variant="danger"]:active {
   border-color: var(--annotation-color-danger);
   color: var(--annotation-color-danger);
+}
+
+/* Quiet: an action beside the main ones, with no border until it is hovered. */
+[data-annotation-shell] [data-annotation-mount] button[data-variant="quiet"],
+[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+}
+
+[data-annotation-shell] [data-annotation-mount] button[data-variant="quiet"]:hover,
+[data-annotation-shell] [data-annotation-mount] button[data-variant="quiet"]:active,
+[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover {
+  border-color: var(--annotation-color-border);
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-text);
+}
+
+/* Add a note is the second way to save on a card that already has Save note, so it is outlined, not filled. */
+[data-annotation-shell] [data-annotation-mount] button[data-annotation-save][data-variant="primary"],
+[data-annotation-shell] [data-annotation-mount] button[data-annotation-save][data-variant="primary"]:hover,
+[data-annotation-shell] [data-annotation-mount] button[data-annotation-save][data-variant="primary"]:active {
+  border-color: var(--annotation-color-border);
+  background: var(--annotation-color-surface);
+  color: var(--annotation-color-text);
+  font-weight: var(--annotation-font-weight-regular);
+}
+
+[data-annotation-shell] [data-annotation-mount] button[data-annotation-save][data-variant="primary"]:hover {
+  border-color: var(--annotation-color-accent);
+  background: var(--annotation-color-surface-raised);
 }
 
 [data-annotation-shell] [data-annotation-mount] input:focus-visible,
@@ -579,8 +658,65 @@ ${ANNOTATION_DARK_TOKENS}
 }
 
 [data-annotation-shell] [data-annotation-list-footer] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--annotation-space-2);
+  align-items: center;
   padding-top: var(--annotation-space-3);
   border-top: 1px solid var(--annotation-color-border);
+}
+
+/* The export buttons and Clear all are one row of the footer; Clear all sits at the far end. */
+[data-annotation-shell] [data-annotation-list-footer] [data-annotation-export],
+[data-annotation-shell] [data-annotation-list-footer] [data-annotation-export-actions] {
+  display: contents;
+}
+
+[data-annotation-shell] [data-annotation-list-footer] > [data-annotation-clear] {
+  margin-left: auto;
+}
+
+[data-annotation-shell] [data-annotation-list-footer] > [data-annotation-clear-prompt] {
+  flex-basis: 100%;
+}
+
+[data-annotation-shell] [data-annotation-rows] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--annotation-space-2);
+}
+
+/* Number, note and status share the first line; the element label is one muted line under the note, then the actions. */
+[data-annotation-shell] article[data-annotation-row] {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: var(--annotation-space-2);
+  row-gap: var(--annotation-space-1);
+  align-items: center;
+  padding: var(--annotation-space-2) var(--annotation-space-3);
+  border: 1px solid var(--annotation-color-border);
+  border-radius: var(--annotation-radius-md);
+}
+
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-note] {
+  margin: 0;
+}
+
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-hint] {
+  grid-column: 2 / -1;
+}
+
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-row-actions],
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-locate-missing] {
+  grid-column: 1 / -1;
+}
+
+[data-annotation-shell] [data-annotation-row-actions] > [data-annotation-delete] {
+  margin-left: auto;
+}
+
+[data-annotation-shell] [data-annotation-row-actions] > [data-annotation-delete-prompt] {
+  flex-basis: 100%;
 }
 
 [data-annotation-shell] [data-annotation-clear-prompt] {

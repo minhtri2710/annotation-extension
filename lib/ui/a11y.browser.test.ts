@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { userEvent } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import popupHtml from '../../entrypoints/popup/index.html?raw';
 import { renderCaptureShortcutHint } from '../capture/activation';
 import { contrastRatio, parseColor, type Rgba } from '../lint/color';
@@ -174,6 +174,49 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
       expect(Number.parseFloat(style.outlineWidth)).toBeGreaterThanOrEqual(2);
       expect(contrastRatio(color(style.outlineColor), color(getComputedStyle(shell.panel).backgroundColor))).toBeGreaterThanOrEqual(3);
       field.remove();
+    }
+  });
+
+  it('keeps the count badge, quiet Capture and Attach and the secondary Add note at 4.5:1 or more at rest and on hover', async () => {
+    const { shell } = mountOverlay(theme);
+    const badge = document.createElement('span');
+    badge.dataset.annotationBadge = '';
+    badge.textContent = '2 annotations';
+    shell.toolbar.append(badge);
+    const actions = document.createElement('div');
+    actions.dataset.annotationNoteActions = '';
+    const capture = document.createElement('button');
+    capture.type = 'button';
+    capture.dataset.variant = 'quiet';
+    capture.textContent = 'Capture screenshot';
+    const attach = document.createElement('label');
+    attach.dataset.annotationAttach = '';
+    attach.textContent = 'Attach image';
+    actions.append(capture, attach);
+    const form = document.createElement('form');
+    const addNote = document.createElement('button');
+    addNote.type = 'button';
+    addNote.dataset.variant = 'primary';
+    addNote.textContent = 'Add note';
+    form.append(addNote);
+    shell.panel.append(actions, form);
+
+    const surface = color(getComputedStyle(shell.panel).backgroundColor);
+    const settle = (element: HTMLElement) => Promise.allSettled(element.getAnimations().map((animation) => animation.finished));
+    const check = (name: string, element: HTMLElement) => {
+      const style = getComputedStyle(element);
+      const background = color(style.backgroundColor).a === 0 ? surface : color(style.backgroundColor);
+      expect(contrastRatio(color(style.color), background), name).toBeGreaterThanOrEqual(4.5);
+    };
+    check('badge', badge);
+    for (const [name, element] of [['quiet button', capture], ['quiet label', attach], ['Add note', addNote]] as const) {
+      await userEvent.unhover(element);
+      await settle(element);
+      check(`${name} at rest`, element);
+      await userEvent.hover(element);
+      await vi.waitFor(() => expect(element.matches(':hover')).toBe(true));
+      await settle(element);
+      check(`${name} on hover`, element);
     }
   });
 });
@@ -406,4 +449,93 @@ describe('popup shortcut hint', () => {
       expect(described[0]!.textContent!.trim()).not.toBe('');
     },
   );
+});
+
+describe('popup layout', () => {
+  // Loads the real popup markup; only the runtime-filled page count and shortcut hint are set here.
+  function mountLayout(scheme: 'light' | 'dark' = 'light') {
+    const parsed = new DOMParser().parseFromString(popupHtml, 'text/html');
+    const style = document.createElement('style');
+    style.textContent = PAGE_STYLES;
+    const darkTokens = document.createElement('style');
+    if (scheme === 'dark') darkTokens.textContent = `:root {\n${ANNOTATION_DARK_TOKENS}\n}`;
+    document.head.append(style, darkTokens);
+    const main = document.importNode(parsed.querySelector('main')!, true);
+    document.body.classList.add('annotation-page--popup');
+    document.body.append(main);
+    cleanups.push(() => {
+      main.remove();
+      style.remove();
+      darkTokens.remove();
+      document.body.classList.remove('annotation-page--popup');
+    });
+    const byId = <T extends HTMLElement>(id: string) => main.querySelector<T>(`#${id}`)!;
+    byId('page-count').textContent = '2 annotations on this page.';
+    renderCaptureShortcutHint(byId<HTMLParagraphElement>('shortcut-hint'), 'Alt+Q');
+    return { main, byId };
+  }
+
+  it('has a fixed width between 320 and 400 px that the viewport does not change', async () => {
+    const { main } = mountLayout();
+    const width = () => document.body.getBoundingClientRect().width;
+    expect(width()).toBeGreaterThanOrEqual(320);
+    expect(width()).toBeLessThanOrEqual(400);
+    expect(main.getBoundingClientRect().width).toBe(width());
+    const fixed = width();
+    await page.viewport(900, 600);
+    expect(width()).toBe(fixed);
+    await page.viewport(1280, 720);
+  });
+
+  it('puts the page count first, then Start annotating and Hide toolbar on one row with the primary first, then a small muted shortcut hint', () => {
+    const { byId } = mountLayout();
+    const count = byId('page-count').getBoundingClientRect();
+    const toggle = byId('toggle').getBoundingClientRect();
+    const toolbar = byId('toolbar-toggle').getBoundingClientRect();
+    const hint = byId('shortcut-hint');
+    expect(count.bottom).toBeLessThanOrEqual(toggle.top);
+    expect(Math.abs(toggle.top - toolbar.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(toggle.height - toolbar.height)).toBeLessThanOrEqual(1);
+    expect(toggle.right).toBeLessThanOrEqual(toolbar.left);
+    expect(hint.getBoundingClientRect().top).toBeGreaterThanOrEqual(toggle.bottom);
+    const style = getComputedStyle(hint);
+    const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(`--annotation-${name}`).trim();
+    expect(style.fontSize).toBe(token('font-size-caption'));
+    expect(color(style.color)).toEqual(color(token('color-text-muted')));
+  });
+
+  it('names the exports and import by format, puts the two exports on one row, and sets Import JSON below them with a quieter look', () => {
+    const { byId } = mountLayout();
+    const json = byId('export');
+    const markdown = byId('export-markdown');
+    const upload = byId('import');
+    expect([json, markdown, upload].map((button) => button.textContent)).toEqual(['Export JSON', 'Export Markdown', 'Import JSON']);
+    const [jsonRect, markdownRect, importRect] = [json, markdown, upload].map((button) => button.getBoundingClientRect());
+    expect(Math.abs(jsonRect!.top - markdownRect!.top)).toBeLessThanOrEqual(1);
+    expect(jsonRect!.right).toBeLessThanOrEqual(markdownRect!.left);
+    expect(importRect!.top).toBeGreaterThanOrEqual(jsonRect!.bottom);
+    expect(color(getComputedStyle(json).borderTopColor).a).toBe(1);
+    expect(color(getComputedStyle(markdown).borderTopColor).a).toBe(1);
+    expect(color(getComputedStyle(upload).borderTopColor).a).toBe(0);
+  });
+
+  it.each(['light', 'dark'] as const)('keeps every popup button look and the shortcut hint at 4.5:1 or more in the %s scheme', async (scheme) => {
+    const { main, byId } = mountLayout(scheme);
+    const settle = (button: HTMLElement) => Promise.allSettled(button.getAnimations().map((animation) => animation.finished));
+    for (const id of ['toolbar-toggle', 'export', 'export-markdown', 'import']) {
+      const button = byId<HTMLButtonElement>(id);
+      button.disabled = false;
+      for (const hover of [false, true]) {
+        if (hover) await userEvent.hover(button);
+        else await userEvent.unhover(button);
+        await vi.waitFor(() => expect(button.matches(':hover')).toBe(hover));
+        await settle(button);
+        const style = getComputedStyle(button);
+        const background = color(style.backgroundColor).a === 0 ? color(getComputedStyle(main).backgroundColor) : color(style.backgroundColor);
+        expect(contrastRatio(color(style.color), background), `${id} hover=${hover}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+    const surface = color(getComputedStyle(main).backgroundColor);
+    expect(contrastRatio(color(getComputedStyle(byId('shortcut-hint')).color), surface)).toBeGreaterThanOrEqual(4.5);
+  });
 });

@@ -118,8 +118,8 @@ describe('popup page', () => {
     expect([...document.querySelectorAll('.annotation-page__actions button')].map((button) => button.textContent)).toEqual([
       'Start annotating',
       'Hide toolbar',
-      'Export JSON (all pages)',
-      'Export Markdown (all pages)',
+      'Export JSON',
+      'Export Markdown',
       'Import JSON',
     ]);
   });

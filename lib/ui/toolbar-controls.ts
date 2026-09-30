@@ -77,12 +77,24 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     event.preventDefault();
     shown[next]!.focus();
   };
-  const observer = new MutationObserver(syncTabStop);
+  let wasHidden = toolbar.hidden;
+  const observer = new MutationObserver(() => {
+    syncTabStop();
+    if (wasHidden === toolbar.hidden) return;
+    wasHidden = toolbar.hidden;
+    if (!wasHidden) refit();
+  });
 
   const persist = () => prefs.write({ position, collapsed }).catch(() => undefined);
 
   const clamp = (next: Position) => {
+    // A bar left past the right edge wraps narrower than it is, so its size is measured from the left edge.
+    const { left, right } = toolbar.style;
+    toolbar.style.left = '0px';
+    toolbar.style.right = 'auto';
     const { width, height } = toolbar.getBoundingClientRect();
+    toolbar.style.left = left;
+    toolbar.style.right = right;
     const { clientWidth, clientHeight } = toolbar.ownerDocument.documentElement;
     return clampToolbarPosition(next, { width, height }, { width: clientWidth, height: clientHeight });
   };
@@ -157,11 +169,16 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     void persist();
   };
 
-  const onResize = () => {
+  function refit(): void {
     if (!position) return;
     const { x, y } = position;
     place(position);
     if (position.x !== x || position.y !== y) options.onPositionChange();
+  }
+
+  // A hidden bar has no box to measure, so a resize leaves its position alone and it is fitted to the viewport when it shows again.
+  const onResize = () => {
+    if (!toolbar.hidden) refit();
   };
 
   const onCollapseClick = () => {

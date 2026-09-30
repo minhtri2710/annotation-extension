@@ -45,9 +45,10 @@ export const RERESOLVE_MAX_WAIT_MS = 1000;
 export const RERESOLVE_BACKOFF_CAP_MS = 30_000;
 // Same budget as the lint engine's SCAN_SLICE_MS.
 export const RESOLVE_SLICE_MS = 12;
+// Below the note, list and scan panel (2147483645) and the toolbar (2147483646) so neither is painted over, above the page.
 const MARKER_STYLE = [
   'position: fixed',
-  'z-index: 2147483647',
+  'z-index: 2147483642',
   `width: ${PIN_SIZE}px`,
   `height: ${PIN_SIZE}px`,
   'padding: 0',

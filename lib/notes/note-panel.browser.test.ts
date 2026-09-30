@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
+import { formatElementContext } from '../export/format';
 import { buildOverlayShell } from '../ui/shell';
 import { createNotePanel } from './note-panel';
 import { contrastRatio, parseColor } from '../lint/color';
@@ -182,6 +183,57 @@ describe('note panel in a real browser', () => {
       const field = shell.panel.querySelector<HTMLTextAreaElement>(selector)!;
       expect(field.labels?.[0]?.getBoundingClientRect().height).toBeGreaterThan(0);
     }
+  });
+
+  const LONG_TEXT = 'A long visible text inside the annotated element that cannot fit on one line of the panel '.repeat(3).trim();
+  const rect = (element: Element) => element.getBoundingClientRect();
+  const alpha = (value: string) => parseColor(value)!.a;
+
+  it('names the element on one truncated line with its full label on hover', async () => {
+    const { shadow, shell } = mountShadowPanel();
+    const long: ElementContext = { ...context, text: LONG_TEXT };
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => [], sendAnnotationWrite: vi.fn(), captureScreenshot: vi.fn(), readBlob: vi.fn(),
+      addAttachment: vi.fn(), deleteAttachment: vi.fn(), applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    await notePanel.render(long);
+    const hint = shell.panel.querySelector<HTMLElement>('[data-annotation-hint]')!;
+    const style = getComputedStyle(hint);
+    expect(rect(hint).height).toBeLessThan(Number.parseFloat(style.lineHeight) * 1.5);
+    expect(style.textOverflow).toBe('ellipsis');
+    expect(hint.scrollWidth).toBeGreaterThan(hint.clientWidth);
+    const label = formatElementContext(long)!;
+    expect(hint.textContent).toBe(label);
+    const hovered = shadow.elementFromPoint(rect(hint).left + 8, rect(hint).top + rect(hint).height / 2);
+    expect(hovered?.closest('[title]')?.getAttribute('title')).toContain(label);
+  });
+
+  it('sets Save note and Resolve as the main row, Capture screenshot and Attach image as a quieter row, Delete apart, shorter CSS and repro fields, and Add a note below as the secondary form', async () => {
+    const { shell } = await rendered('light');
+    for (const group of shell.panel.querySelectorAll('details')) group.open = true;
+    const part = (selector: string) => shell.panel.querySelector<HTMLElement>(selector)!;
+    const [save, resolve, capture, attach, remove] = ['[data-annotation-edit]', '[data-annotation-status-toggle]', '[data-annotation-capture-screenshot]', '[data-annotation-attach]', '[data-annotation-delete]'].map(part);
+    const actions = part('[data-annotation-note-actions]');
+    expect(Math.abs(rect(save!).top - rect(resolve!).top)).toBeLessThanOrEqual(1);
+    expect(rect(save!).right).toBeLessThanOrEqual(rect(resolve!).left);
+    expect(rect(capture!).top).toBeGreaterThanOrEqual(rect(save!).bottom);
+    expect(Math.abs(rect(capture!).top - rect(attach!).top)).toBeLessThanOrEqual(1);
+    expect(rect(capture!).right).toBeLessThanOrEqual(rect(attach!).left);
+    expect(alpha(getComputedStyle(save!).borderTopColor)).toBe(1);
+    expect(alpha(getComputedStyle(resolve!).borderTopColor)).toBe(1);
+    expect(alpha(getComputedStyle(capture!).borderTopColor)).toBe(0);
+    expect(alpha(getComputedStyle(attach!).borderTopColor)).toBe(0);
+    expect(rect(remove!).left - rect(attach!).right).toBeGreaterThanOrEqual(24);
+    expect(rect(actions).right - rect(remove!).right).toBeLessThanOrEqual(1);
+
+    const note = part('[data-annotation-edit-note]');
+    for (const selector of ['[data-annotation-css-decls]', '[data-annotation-repro-steps]', '[data-annotation-repro-expected]', '[data-annotation-repro-actual]']) {
+      expect(rect(part(selector)).height, selector).toBeLessThan(rect(note).height);
+    }
+
+    const accent = parseColor(getComputedStyle(shell.root).getPropertyValue('--annotation-color-accent').trim());
+    expect(parseColor(getComputedStyle(save!).backgroundColor)).toEqual(accent);
+    expect(parseColor(getComputedStyle(part('[data-annotation-save]')).backgroundColor)).not.toEqual(accent);
   });
 
   it('starts an emptied CSS group closed after the real initial toggle event of its content-opened render', async () => {

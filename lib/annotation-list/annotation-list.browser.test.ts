@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
+import { formatElementContext } from '../export/format';
 import { parseColor } from '../lint/color';
 import { buildOverlayShell } from '../ui/shell';
 import { createAnnotationList } from './annotation-list';
@@ -85,7 +86,7 @@ describe('annotation list in a real browser', () => {
     const rows = shell.panel.querySelector<HTMLElement>('[data-annotation-rows]')!;
     const footer = shell.panel.querySelector<HTMLElement>('[data-annotation-list-footer]')!;
     const clear = footer.querySelector<HTMLButtonElement>('[data-annotation-clear]')!;
-    expect(shell.panel.lastElementChild).toBe(footer);
+    expect(footer.previousElementSibling).toBe(rows);
     expect(footer.getBoundingClientRect().top).toBeGreaterThan(rows.getBoundingClientRect().bottom);
     const footerStyle = getComputedStyle(footer);
     expect(footerStyle.borderTopWidth).toBe('1px');
@@ -93,6 +94,83 @@ describe('annotation list in a real browser', () => {
     const clearStyle = getComputedStyle(clear);
     expect(clearStyle.borderTopColor).toBe(clearStyle.borderBottomColor);
     expect(clear.getBoundingClientRect().height).toBe(shell.panel.querySelector<HTMLButtonElement>('[data-annotation-row-actions] [data-annotation-locate]')!.getBoundingClientRect().height);
+    list.clear();
+  });
+
+  // A panel in a real shadow root over a page that has the annotated element, so no row is flagged missing.
+  async function renderedList(annotations: Annotation[], onboardingOpen: boolean) {
+    const target = document.createElement('p');
+    target.id = 'labelled';
+    target.textContent = 'Target';
+    const host = document.createElement('div');
+    document.body.append(target, host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const container = document.createElement('div');
+    shadow.append(container);
+    const shell = buildOverlayShell(container);
+    const list = createAnnotationList(shell.panel, pageUrl, {
+      listAnnotations: async () => annotations,
+      sendAnnotationWrite: vi.fn(), readBlob: vi.fn(),
+      readOnboardingOpen: async () => onboardingOpen, writeOnboardingOpen: async () => undefined,
+      readCaptureShortcut: async () => 'Alt+Q',
+    });
+    await list.render();
+    return { shadow, shell, list };
+  }
+
+  const LONG_TEXT = 'A long visible text inside the annotated element that cannot fit on one line of the panel '.repeat(3).trim();
+  const longLabelled = (id: string): Annotation => {
+    const base = annotation(id, '#labelled');
+    return { ...base, elementContext: { ...base.elementContext, tagName: 'DIV', id: 'labelled', text: LONG_TEXT } };
+  };
+  const rect = (element: Element) => element.getBoundingClientRect();
+  const sharesLine = (a: Element, b: Element) => rect(a).top < rect(b).bottom && rect(b).top < rect(a).bottom;
+
+  it('orders the header and filter, the rows, a footer with the export and Clear all buttons, then How it works with its stored open state', async () => {
+    for (const open of [true, false]) {
+      const { shell, list } = await renderedList([annotation('a1', '#labelled'), annotation('a2', '#labelled')], open);
+      const part = (selector: string) => shell.panel.querySelector<HTMLElement>(selector)!;
+      const heading = part('h2');
+      const filter = part('[data-annotation-filter]');
+      const rows = part('[data-annotation-rows]');
+      const footer = part('[data-annotation-list-footer]');
+      const onboarding = shell.panel.querySelector<HTMLDetailsElement>('[data-annotation-onboarding]')!;
+      expect(rect(heading).bottom).toBeLessThanOrEqual(rect(filter).top);
+      expect(rect(filter).bottom).toBeLessThanOrEqual(rect(rows).top);
+      expect(rect(rows).bottom).toBeLessThanOrEqual(rect(footer).top);
+      expect(rect(footer).bottom).toBeLessThanOrEqual(rect(onboarding).top);
+      expect([...footer.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['Copy Markdown', 'Download Markdown', 'Clear all']);
+      expect(onboarding.open).toBe(open);
+      list.clear();
+      document.body.replaceChildren();
+    }
+  });
+
+  it('puts a row number, note and status on one line, the element label on one truncated line with its full text on hover, and Delete apart from Locate and Edit', async () => {
+    const { shadow, shell, list } = await renderedList([longLabelled('a1')], false);
+    const row = shell.panel.querySelector<HTMLElement>('[data-annotation-row]')!;
+    const number = row.querySelector('[data-annotation-position]')!;
+    const note = row.querySelector('[data-annotation-note]')!;
+    const status = row.querySelector('[data-annotation-status]')!;
+    expect(sharesLine(number, note) && sharesLine(note, status)).toBe(true);
+    expect(rect(number).right).toBeLessThanOrEqual(rect(note).left);
+    expect(rect(note).right).toBeLessThanOrEqual(rect(status).left);
+
+    const hint = row.querySelector<HTMLElement>('[data-annotation-hint]')!;
+    const style = getComputedStyle(hint);
+    expect(rect(hint).top).toBeGreaterThanOrEqual(rect(note).bottom);
+    expect(rect(hint).height).toBeLessThan(Number.parseFloat(style.lineHeight) * 1.5);
+    expect(style.textOverflow).toBe('ellipsis');
+    expect(hint.scrollWidth).toBeGreaterThan(hint.clientWidth);
+    const label = formatElementContext(longLabelled('a1').elementContext)!;
+    expect(hint.textContent).toBe(label);
+    const hovered = shadow.elementFromPoint(rect(hint).left + 8, rect(hint).top + rect(hint).height / 2);
+    expect(hovered?.closest('[title]')?.getAttribute('title')).toContain(label);
+
+    const [locate, edit, remove] = ['[data-annotation-locate]', '[data-annotation-row-edit]', '[data-annotation-delete]'].map((selector) => rect(row.querySelector(selector)!));
+    const normalGap = edit!.left - locate!.right;
+    expect(normalGap).toBeGreaterThanOrEqual(8);
+    expect(remove!.left - edit!.right).toBeGreaterThanOrEqual(3 * normalGap);
     list.clear();
   });
 

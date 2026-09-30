@@ -322,13 +322,13 @@ describe('annotation list', () => {
     expect(delivery.downloadAsset).not.toHaveBeenCalled();
   });
 
-  it('renders a How it works section right after the heading with the five steps', async () => {
+  it('renders a How it works section as the last part of the panel with the five steps', async () => {
     const panel = document.createElement('div');
     const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'Note')]));
     await list.render();
     const onboarding = panel.querySelector<HTMLDetailsElement>('details[data-annotation-onboarding]');
     expect(onboarding).not.toBeNull();
-    expect(onboarding!.previousElementSibling?.tagName).toBe('H2');
+    expect(panel.lastElementChild).toBe(onboarding);
     expect(panel.firstElementChild?.tagName).toBe('H2');
     expect(onboarding!.open).toBe(true);
     expect(onboarding!.querySelector('summary')?.textContent).toBe('How it works');
@@ -761,12 +761,13 @@ describe('annotation list confirmation, row actions, focus and live status', () 
       .toEqual(['Locate', 'Edit', 'Delete']);
     expect(rows[0]?.querySelector<HTMLButtonElement>('[data-annotation-row-edit]')?.dataset.variant).toBe('primary');
     expect(rows[0]?.querySelector<HTMLButtonElement>('[data-annotation-delete]')?.dataset.variant).toBe('danger');
-    expect([...panel.children].map((child) => child.tagName)).toEqual(['H2', 'DETAILS', 'SECTION', 'DIV', 'P', 'DIV', 'DIV']);
-    expect(panel.lastElementChild?.hasAttribute('data-annotation-list-footer')).toBe(true);
-    expect(panel.lastElementChild?.querySelector('[data-annotation-clear]')).not.toBeNull();
+    expect([...panel.children].map((child) => child.tagName)).toEqual(['H2', 'DIV', 'P', 'DIV', 'DIV', 'DETAILS']);
+    const footer = panel.querySelector('[data-annotation-list-footer]');
+    expect(footer?.nextElementSibling).toBe(panel.lastElementChild);
+    expect(footer?.querySelector('[data-annotation-clear]')).not.toBeNull();
     expect([...panel.querySelectorAll('[data-annotation-export-actions] button')].map((button) => button.textContent))
       .toEqual(['Copy Markdown', 'Download Markdown']);
-    expect(panel.querySelector('[data-annotation-export-actions]')?.previousElementSibling?.tagName).toBe('H3');
+    expect(panel.querySelector('[data-annotation-export-actions]')?.parentElement).toBe(footer?.firstElementChild);
     expect(rows[1]?.querySelector('[data-annotation-locate]')?.getAttribute('aria-label')).toBe('Locate annotation 2');
     expect(rows[1]?.querySelector('[data-annotation-row-edit]')?.getAttribute('aria-label')).toBe('Edit annotation 2');
     expect(rows[0]?.querySelector('[data-annotation-locate]')?.getAttribute('aria-label')).toBe('Locate annotation 1');
@@ -950,14 +951,14 @@ describe('annotation list status filter', () => {
     return empty && !empty.hidden ? empty.textContent : null;
   };
 
-  it('renders All, Open and Resolved chips with counts between export and rows, All pressed by default', async () => {
+  it('renders All, Open and Resolved chips with counts between the heading and rows, All pressed by default', async () => {
     const panel = document.createElement('div');
     const list = createAnnotationList(panel, pageUrl, persistence([annotation('a', 'One'), annotation('b', 'Two')]));
     await list.render();
     const group = panel.querySelector('[data-annotation-filter]')!;
     expect(group.getAttribute('role')).toBe('group');
     expect(group.getAttribute('aria-label')).toBe('Filter by status');
-    expect(group.previousElementSibling?.hasAttribute('data-annotation-export')).toBe(true);
+    expect(group.previousElementSibling?.tagName).toBe('H2');
     expect(group.compareDocumentPosition(panel.querySelector('[data-annotation-rows]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const buttons = [...group.querySelectorAll('button')];
     expect(buttons.map((button) => button.textContent)).toEqual(['All (2)', 'Open (2)', 'Resolved (0)']);

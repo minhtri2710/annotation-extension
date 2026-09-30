@@ -12,6 +12,7 @@ import { readOnboardingOpen, writeOnboardingOpen } from '../ui/ui-prefs';
 import { resolveSelector } from '../capture/selector';
 import { CAPTURE_SHORTCUT_UNSET_HINT, readCaptureShortcut, SHORTCUT_SETTINGS } from '../capture/activation';
 import { createLocateHighlight } from '../ui/locate-highlight';
+import { createElementHint } from '../ui/element-hint';
 import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/shell';
 
 export interface AnnotationListPersistence {
@@ -100,7 +101,7 @@ export function createAnnotationList(
     const heading = document.createElement('h2');
     heading.textContent = 'All annotations';
     heading.tabIndex = -1;
-    panel.append(heading, createOnboarding(document, onboardingOpen, shortcut));
+    panel.append(heading);
     document.addEventListener('visibilitychange', refreshShortcut);
     document.defaultView?.addEventListener('focus', refreshShortcut);
     announce(statusMessage ?? '');
@@ -122,12 +123,16 @@ export function createAnnotationList(
       start.addEventListener('click', () => panel.dispatchEvent(new CustomEvent(ANNOTATION_START_EVENT)));
       panel.append(empty, start);
     } else {
-      panel.append(createExportSection(document, annotations));
       const rows = document.createElement('div');
       rows.dataset.annotationRows = '';
       annotations.forEach((annotation, index) => rows.append(createRow(document, annotation, index + 1)));
-      panel.append(createStatusFilter(document, annotations, rows), rows, createClearAll(document, annotations.length));
+      panel.append(
+        createStatusFilter(document, annotations, rows),
+        rows,
+        createFooter(document, annotations),
+      );
     }
+    panel.append(createOnboarding(document, onboardingOpen, shortcut));
     restoreFocus();
   }
 
@@ -143,9 +148,14 @@ export function createAnnotationList(
   }
 
   // Clear all deletes nothing by itself; it swaps in an inline prompt, and only its Delete all clears.
-  function createClearAll(document: Document, count: number): HTMLDivElement {
+  function createFooter(document: Document, annotations: Annotation[]): HTMLDivElement {
     const footer = document.createElement('div');
     footer.dataset.annotationListFooter = '';
+    footer.append(createExportSection(document, annotations), createClearAll(document, annotations.length));
+    return footer;
+  }
+
+  function createClearAll(document: Document, count: number): HTMLButtonElement {
     const clear = document.createElement('button');
     clear.type = 'button';
     clear.dataset.annotationClear = '';
@@ -159,8 +169,7 @@ export function createAnnotationList(
       onConfirm: () => void mutate({ type: 'annotation.clear', pageUrl }),
       dataPrefix: 'annotation-clear',
     });
-    footer.append(clear);
-    return footer;
+    return clear;
   }
 
   // Filtering hides rows in place, so rows keep their pin numbers and the pressed chip keeps focus.
@@ -225,9 +234,6 @@ export function createAnnotationList(
     const section = document.createElement('section');
     section.dataset.annotationExport = '';
 
-    const heading = document.createElement('h3');
-    heading.textContent = 'Export';
-
     const markdown = () => format(annotations, pageUrl);
 
     const copy = document.createElement('button');
@@ -289,7 +295,7 @@ export function createAnnotationList(
     const actions = document.createElement('div');
     actions.dataset.annotationExportActions = '';
     actions.append(copy, download);
-    section.append(heading, actions);
+    section.append(actions);
     return section;
   }
 
@@ -306,10 +312,7 @@ export function createAnnotationList(
     note.dataset.annotationNote = '';
     note.textContent = annotation.note;
 
-    const hint = document.createElement('p');
-    hint.dataset.annotationHint = '';
-    hint.textContent = formatElementContext(annotation.elementContext) ?? annotation.selector;
-    hint.title = annotation.selector;
+    const hint = createElementHint(document, formatElementContext(annotation.elementContext) ?? annotation.selector, annotation.selector);
 
     const status = document.createElement('p');
     status.dataset.annotationStatus = annotation.status;
@@ -364,7 +367,7 @@ export function createAnnotationList(
     const actions = document.createElement('div');
     actions.dataset.annotationRowActions = '';
     actions.append(locate, edit, remove);
-    row.append(number, note, hint, status, actions);
+    row.append(number, note, status, hint, actions);
     if (!resolveSelector(document, annotation.selector)) flagMissing(document, row);
     return row;
   }

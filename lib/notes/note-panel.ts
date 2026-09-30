@@ -13,6 +13,7 @@ import { attachmentKey, screenshotKey } from '../blob-store';
 import type { ElementContext } from '../capture/context';
 import { formatElementContext } from '../export/format';
 import { createNotePanelPersistence, type NotePanelPersistence } from './persistence';
+import { createElementHint } from '../ui/element-hint';
 import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/shell';
 import { ScreenshotCaptureError } from '../screenshot/messages';
 
@@ -101,10 +102,7 @@ export function createNotePanel(
     const heading = document.createElement('h2');
     heading.textContent = 'Notes';
     heading.tabIndex = -1;
-    const hint = document.createElement('p');
-    hint.dataset.annotationHint = '';
-    hint.textContent = formatElementContext(context) ?? context.selector;
-    hint.title = context.selector;
+    const hint = createElementHint(document, formatElementContext(context) ?? context.selector, context.selector);
     const close = document.createElement('button');
     close.type = 'button';
     close.dataset.annotationClose = '';
@@ -452,6 +450,7 @@ export function createNotePanel(
     const capture = document.createElement('button');
     capture.type = 'button';
     capture.dataset.annotationCaptureScreenshot = '';
+    capture.dataset.variant = 'quiet';
     capture.textContent = 'Capture screenshot';
     capture.addEventListener('click', () => {
       void whileWriting(async () => {

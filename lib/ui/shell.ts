@@ -104,7 +104,12 @@ export function raiseOverlay(host: HTMLElement): void {
 }
 
 // A hidden toolbar takes no layout box and none of its controls can take focus (display: none in styles).
+// Focus on one of its controls is released first, so it is not left on an element that no longer renders.
 export function setToolbarHidden(toolbar: HTMLElement, hidden: boolean): void {
+  if (hidden) {
+    const active = (toolbar.getRootNode() as Document | ShadowRoot).activeElement;
+    if (active && toolbar.contains(active)) (active as HTMLElement).blur();
+  }
   toolbar.hidden = hidden;
 }
 
