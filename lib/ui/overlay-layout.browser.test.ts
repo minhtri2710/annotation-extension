@@ -339,6 +339,70 @@ describe('toolbar layout (real browser)', () => {
     expectInsideViewport(shell.toolbar.getBoundingClientRect());
   });
 
+  it('shows a bar stored near the right edge as one full-width row after a shrink while hidden, not a squeezed column', async () => {
+    await page.viewport(1280, 720);
+    const { shell } = mountShell();
+    addToolbarButtons(shell.toolbar, ['Scan', 'View all', 'Annotate', 'Export', 'Import']);
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: { read: async () => ({ position: { x: 600, y: 100 }, collapsed: false }), write: async () => undefined },
+      onCollapsedChange: () => undefined,
+      onPositionChange: () => undefined,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+    const oneRow = shell.toolbar.getBoundingClientRect();
+    const buttons = () => [...shell.toolbar.children].map((child) => child.getBoundingClientRect());
+    expect(new Set(buttons().map((rect) => Math.round(rect.top))).size).toBe(1);
+
+    setToolbarHidden(shell.toolbar, true);
+    await page.viewport(800, 500);
+    await nextFrame();
+    setToolbarHidden(shell.toolbar, false);
+    await nextFrame();
+
+    const shown = shell.toolbar.getBoundingClientRect();
+    expectInsideViewport(shown);
+    expect(Math.abs(shown.height - oneRow.height)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(shown.width - oneRow.width)).toBeLessThanOrEqual(0.5);
+    expect(new Set(buttons().map((rect) => Math.round(rect.top))).size).toBe(1);
+  });
+
+  it('leaves the stored position alone when the window resizes while the bar is hidden', async () => {
+    await page.viewport(1280, 720);
+    const { shell } = mountShell();
+    addToolbarButtons(shell.toolbar, ['Scan', 'View all', 'Annotate']);
+    const onPositionChange = vi.fn();
+    const write = vi.fn(async () => undefined);
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: { read: async () => ({ position: { x: 600, y: 100 }, collapsed: false }), write },
+      onCollapsedChange: () => undefined,
+      onPositionChange,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+    const before = shell.toolbar.getBoundingClientRect();
+
+    setToolbarHidden(shell.toolbar, true);
+    await page.viewport(500, 300);
+    await nextFrame();
+    await page.viewport(1280, 720);
+    await nextFrame();
+    expect(onPositionChange).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+
+    setToolbarHidden(shell.toolbar, false);
+    await nextFrame();
+    const after = shell.toolbar.getBoundingClientRect();
+    expect(after.left).toBeCloseTo(before.left, 0);
+    expect(after.top).toBeCloseTo(before.top, 0);
+    expect(onPositionChange).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
   it('leaves no focused control inside a bar that hides', async () => {
     const { shadow, shell } = mountShell();
     const [scan] = addToolbarButtons(shell.toolbar, ['Scan', 'View all']);
