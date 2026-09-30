@@ -280,6 +280,42 @@ describe('toolbar layout (real browser)', () => {
     expect(badge.textContent).toBe('2 annotations');
   });
 
+  it('renders a word space between the count number and its unit for one and several annotations, also collapsed', async () => {
+    await page.viewport(1280, 720);
+    const { shell } = mountShell();
+    const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    cleanups.push(() => pins.destroy());
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: noPrefs,
+      onCollapsedChange: () => undefined,
+      onPositionChange: () => undefined,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+
+    // A space that layout drops has no width, so the first character of the unit is measured as rendered.
+    const renderedSpaceWidth = () => {
+      const unit = shell.toolbar.querySelector('[data-annotation-badge-unit]')!;
+      const range = document.createRange();
+      range.setStart(unit.firstChild!, 0);
+      range.setEnd(unit.firstChild!, 1);
+      return range.getBoundingClientRect().width;
+    };
+    const collapse = shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!;
+
+    pins.setAnnotations([annotation('a1', 'One')]);
+    expect(renderedSpaceWidth()).toBeGreaterThan(1);
+    pins.setAnnotations([annotation('a1', 'One'), annotation('a2', 'Two'), annotation('a3', 'Three')]);
+    expect(renderedSpaceWidth()).toBeGreaterThan(1);
+
+    collapse.click();
+    expect(renderedSpaceWidth()).toBeGreaterThan(1);
+    pins.setAnnotations([annotation('a1', 'One')]);
+    expect(renderedSpaceWidth()).toBeGreaterThan(1);
+  });
+
   it('shows a bar that was hidden during a window shrink fully inside the viewport', async () => {
     await page.viewport(1280, 720);
     const { shell } = mountShell();

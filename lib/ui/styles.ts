@@ -111,6 +111,11 @@ ${ANNOTATION_DARK_TOKENS}
   white-space: nowrap;
 }
 
+/* The badge is a flex container, which strips the unit's leading space unless it is preserved. */
+[data-annotation-shell] [data-annotation-badge-unit] {
+  white-space: pre;
+}
+
 @keyframes annotation-badge-pop {
   from { opacity: 0; transform: scale(0.6); }
   to { opacity: 1; transform: none; }
