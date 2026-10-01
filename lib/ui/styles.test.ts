@@ -110,10 +110,21 @@ ${ANNOTATION_DARK_TOKENS}
   it('gives overlay buttons hover, focus-visible and active states from tokens', () => {
     const button = '[data-annotation-shell] [data-annotation-mount] button';
     const secondaryHover = `${button}:hover,\n[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover`;
-    expect(ruleBody(`${secondaryHover} {`)).toContain('border-color: var(--annotation-color-accent)');
+    expect(ruleBody(`${secondaryHover} {`)).toContain('background: var(--annotation-color-hover)');
     expect(ruleBody(`${button}:focus-visible {`)).toMatch(/outline: [^;]*solid var\(--annotation-color-accent\)/);
     expect(ruleBody(`${button}:active {`)).toContain('transform:');
     expect(ruleBody(`${button} {`)).toMatch(/transition: /);
+  });
+
+  it('gives secondary and ghost buttons no border and fills only the primary and the confirm with a colour', () => {
+    const button = '[data-annotation-shell] [data-annotation-mount]';
+    const base = OVERLAY_STYLES.slice(OVERLAY_STYLES.indexOf(':where('));
+    expect(base.slice(0, base.indexOf('}'))).toContain('border: 0;');
+    const withBorder = [...OVERLAY_STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selector, body]) => /button|label\[data-annotation-attach\]/.test(selector ?? '') && /(?:^|[\s;])border(?:-color)?: /.test(body ?? '') && !/border: 0;/.test(body ?? ''));
+    expect(withBorder.map(([, selector]) => selector?.trim())).toEqual([]);
+    expect(ruleBody(`${button} button[data-variant="primary"],`)).toContain('background: var(--annotation-color-accent)');
+    expect(ruleBody(`${button} button[data-variant="danger"],`)).toContain('background: transparent');
   });
 
   it('gives pins hover, focus-visible and active states without !important', () => {
@@ -213,9 +224,9 @@ ${ANNOTATION_DARK_TOKENS}
     expect(filter).toContain('flex-wrap: wrap');
     expect(filter).toContain('gap: var(--annotation-space-2)');
     const pressed = ruleBody('[data-annotation-shell] [data-annotation-filter] button[aria-pressed="true"] {');
-    expect(pressed).toContain('border-color: var(--annotation-color-accent)');
-    expect(pressed).toContain('background: var(--annotation-color-surface-raised)');
-    expect(pressed).toContain('color: var(--annotation-color-text)');
+    expect(pressed).toContain('box-shadow: inset 0 0 0 1px var(--annotation-color-accent)');
+    expect(pressed).toContain('background: var(--annotation-color-surface)');
+    expect(pressed).toContain('color: var(--annotation-color-accent)');
     expect(pressed).toContain('font-weight: var(--annotation-font-weight-medium)');
     for (const body of [heading, filter, pressed]) expect(body).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
     expect(noPreferenceBlocks(OVERLAY_STYLES)).not.toContain('data-annotation-filter');

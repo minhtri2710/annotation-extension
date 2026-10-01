@@ -91,14 +91,15 @@ const trustedClick = (target: EventTarget) => dispatchTrusted(
   target,
   new MouseEvent('click', { bubbles: true, cancelable: true, composed: true }),
 );
-const button = (text: string) => {
+const nameOf = (control: Element) => control.getAttribute('aria-label') ?? control.textContent;
+const button = (name: string) => {
   const match = [...shadow().querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')]
-    .find((candidate) => candidate.textContent === text);
-  if (!match) throw new Error(`no toolbar button "${text}"`);
+    .find((candidate) => nameOf(candidate) === name);
+  if (!match) throw new Error(`no toolbar button "${name}"`);
   return match;
 };
 const panel = () => shadow().querySelector<HTMLElement>('[role="region"]')!;
-const toolbarButtons = () => [...shadow().querySelectorAll('[role="toolbar"] button')].map((b) => b.textContent);
+const toolbarButtons = () => [...shadow().querySelectorAll('[role="toolbar"] button')].map(nameOf);
 
 const start = () => contentScript.main(ctx);
 const pushToolbar = (on: unknown) => fakeBrowser.runtime.onMessage.trigger({ type: 'toolbar.changed', on }, {}, () => {});
@@ -118,7 +119,19 @@ describe('content script entrypoint', () => {
     await running;
 
     expect(hosts()).toHaveLength(1);
-    expect(toolbarButtons().filter((text) => text !== '⠿').slice(0, 3)).toEqual(['Scan', 'View all', 'Annotate']);
+    expect(toolbarButtons().filter((text) => text !== 'Move toolbar').slice(0, 3)).toEqual(['Scan', 'View all', 'Annotate']);
+  });
+
+  it('draws Scan, View all, the collapse control and the grip as icons with a name and a title, and keeps Annotate as text', async () => {
+    await start();
+    const iconOnly = ['Scan', 'View all', 'Hide annotation toolbar', 'Move toolbar'].map(button);
+    for (const control of iconOnly) {
+      expect(control.textContent).toBe('');
+      expect(control.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+      expect(control.title).toBe(control.getAttribute('aria-label'));
+    }
+    expect(button('Annotate').textContent).toBe('Annotate');
+    expect(button('Annotate').querySelector('svg')).toBeNull();
   });
 
   it('uses a closed shadow root that page script cannot reach', async () => {
@@ -566,7 +579,7 @@ describe('content script entrypoint', () => {
     const anchored = { top: panel().style.top, left: panel().style.left };
     expect(anchored).toEqual({ top: '192px', left: '10px' });
 
-    dispatchTrusted(button('⠿'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    dispatchTrusted(button('Move toolbar'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 
     expect({ top: panel().style.top, left: panel().style.left }).toEqual(anchored);
   });
@@ -801,16 +814,16 @@ describe('content script entrypoint', () => {
     it('keeps the stored collapse and position through turning the toolbar off and on', async () => {
       await start();
       await pushToolbar(true);
-      trustedClick(button('Hide'));
+      trustedClick(button('Hide annotation toolbar'));
       await vi.waitFor(async () => expect((await browser.storage.local.get('ui:toolbar'))['ui:toolbar']).toEqual({ position: null, collapsed: true }));
       await pushToolbar(false);
       expect(isHidden()).toBe(true);
       await settle();
       await expect(browser.storage.local.get('ui:toolbar')).resolves.toEqual({ 'ui:toolbar': { position: null, collapsed: true } });
 
-      dispatchTrusted(button('⠿'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      dispatchTrusted(button('Move toolbar'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
       await vi.waitFor(async () => expect((await storedToolbar()).position).not.toBeNull());
-      trustedClick(button('Show'));
+      trustedClick(button('Show annotation toolbar'));
       await vi.waitFor(async () => expect((await storedToolbar()).collapsed).toBe(false));
       expect(isHidden()).toBe(true);
 

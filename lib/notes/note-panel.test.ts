@@ -233,7 +233,7 @@ describe('note panel', () => {
 
     (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value =
       '  color: red  \n\ninvalid line\n margin : 1rem: extra \n : missing-property \n padding:   ';
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
     expect(apply).toHaveBeenCalledWith(existing, [
@@ -250,7 +250,7 @@ describe('note panel', () => {
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
   });
 
-  it('says which CSS declarations were not applied on Save CSS', async () => {
+  it('says which CSS declarations were not applied when Save sends the CSS', async () => {
     const panel = document.createElement('div');
     const existing = annotation('CSS target');
     const colorEdit = { property: 'color', value: 'red', original: 'rgb(0, 0, 0)' };
@@ -264,7 +264,7 @@ describe('note panel', () => {
 
     (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value =
       'color: red\nbackground-image: url(a.png)\n--hero: "b.png"';
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
     expect(sendAnnotationWrite).toHaveBeenCalledWith({
@@ -350,7 +350,7 @@ describe('note panel', () => {
     });
 
     (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value = 'color: red';
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await Promise.resolve();
 
     expect(sendAnnotationWrite).not.toHaveBeenCalled();
@@ -433,7 +433,7 @@ describe('note panel', () => {
 
     (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value =
       '\nblank only\n: missing property\nproperty:   ';
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await Promise.resolve();
 
     expect(apply).not.toHaveBeenCalled();
@@ -457,7 +457,7 @@ describe('note panel', () => {
       ' Dialog opens ';
     (panel.querySelector('[data-annotation-repro-actual]') as HTMLTextAreaElement).value =
       ' Nothing happens ';
-    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
     expect(sendAnnotationWrite).toHaveBeenCalledWith({
@@ -505,7 +505,7 @@ describe('note panel', () => {
       captureScreenshot: vi.fn(),
     });
 
-    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await Promise.resolve();
 
     expect(sendAnnotationWrite).not.toHaveBeenCalled();
@@ -940,7 +940,7 @@ describe('note panel screenshot outcome, fresh status, labels, announcements and
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
     const { panel } = await failThen({ sendAnnotationWrite });
     (panel.querySelector('[data-annotation-repro-steps]') as HTMLTextAreaElement).value = 'Open page';
-    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
     await cleared(panel);
 
@@ -1039,7 +1039,7 @@ describe('note panel text caps', () => {
 
     const css = panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement;
     css.value = `color: ${long}`;
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
 
     await vi.waitFor(() =>
       expect(panel.querySelector('[data-annotation-status]')?.textContent).toContain('The CSS edits are not valid'),
@@ -1418,26 +1418,26 @@ describe('note panel drafts', () => {
     expect((panel.querySelector('[data-annotation-repro-group]') as HTMLDetailsElement).open).toBe(true);
   });
 
-  it('keeps repro text when this panel saves CSS on the same note', async () => {
+  it('keeps repro text that is not a change when this panel saves CSS on the same note', async () => {
     const panel = document.createElement('div');
     const { listAnnotations } = await render(panel, [annotation('Existing')], {
       applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: 'red', original: 'blue' }], refused: [] }),
     });
-    type(reproField(panel, 'steps'), 'Open the menu');
+    type(reproField(panel, 'steps'), '  ');
     type(cssDecls(panel), 'color: red');
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
-    expect(reproField(panel, 'steps').value).toBe('Open the menu');
+    expect(reproField(panel, 'steps').value).toBe('  ');
     expect((panel.querySelector('[data-annotation-repro-group]') as HTMLDetailsElement).open).toBe(true);
   });
 
-  it('drops the CSS draft once Save CSS succeeds', async () => {
+  it('drops the CSS draft once Save succeeds with a CSS change', async () => {
     const panel = document.createElement('div');
     const { notePanel, listAnnotations, sendAnnotationWrite } = await render(panel, [annotation('Existing')], {
       applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: 'red', original: 'blue' }], refused: [] }),
     });
     type(cssDecls(panel), 'color: red');
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
     await reopen(panel, notePanel);
@@ -1445,7 +1445,7 @@ describe('note panel drafts', () => {
     expect(statusText(panel)).toBeUndefined();
   });
 
-  it('keeps the CSS draft when Save CSS finds the note deleted elsewhere', async () => {
+  it('keeps the CSS draft when Save finds the note deleted elsewhere', async () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(null);
     const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], {
@@ -1453,7 +1453,7 @@ describe('note panel drafts', () => {
       applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: 'red', original: 'blue' }], refused: [] }),
     });
     type(cssDecls(panel), 'color: red');
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
     await reopen(panel, notePanel);
@@ -1461,11 +1461,11 @@ describe('note panel drafts', () => {
     expect(statusText(panel)).toBe('Draft restored.');
   });
 
-  it('drops the three repro drafts once Save repro succeeds', async () => {
+  it('drops the three repro drafts once Save succeeds with a repro change', async () => {
     const panel = document.createElement('div');
     const { notePanel, listAnnotations, sendAnnotationWrite } = await render(panel, [annotation('Existing')]);
     for (const name of reproFields) type(reproField(panel, name), `Typed ${name}`);
-    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
     await reopen(panel, notePanel);
@@ -1519,14 +1519,14 @@ describe('note panel drafts', () => {
     expect(statusText(panel)).toBeUndefined();
   });
 
-  it('keeps the CSS draft when Save CSS rejects, after the refresh and after a reopen', async () => {
+  it('keeps the CSS draft when Save rejects, after the refresh and after a reopen', async () => {
     const panel = document.createElement('div');
     const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], {
       sendAnnotationWrite: vi.fn().mockRejectedValue(new Error('write failed')),
       applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: 'red', original: 'blue' }], refused: [] }),
     });
     type(cssDecls(panel), 'color: red');
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
     expect(statusText(panel)).toBe('write failed');
     expect(cssDecls(panel).value).toBe('color: red');
@@ -1535,13 +1535,13 @@ describe('note panel drafts', () => {
     expect(statusText(panel)).toBe('Draft restored.');
   });
 
-  it('keeps the three repro drafts when Save repro rejects, after the refresh and after a reopen', async () => {
+  it('keeps the three repro drafts when Save rejects, after the refresh and after a reopen', async () => {
     const panel = document.createElement('div');
     const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], {
       sendAnnotationWrite: vi.fn().mockRejectedValue(new Error('write failed')),
     });
     for (const name of reproFields) type(reproField(panel, name), `Typed ${name}`);
-    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
     expect(statusText(panel)).toBe('write failed');
     for (const name of reproFields) expect(reproField(panel, name).value).toBe(`Typed ${name}`);
@@ -1557,10 +1557,10 @@ describe('note panel drafts', () => {
       applyCssEdits: vi.fn().mockReturnValue({ edits: [{ property: 'color', value: long, original: 'blue' }], refused: [] }),
     });
     type(cssDecls(panel), 'color: red');
-    (panel.querySelector('[data-annotation-css-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     expect(statusText(panel)).toContain('The CSS edits are not valid');
     for (const name of reproFields) type(reproField(panel, name), name === 'expected' ? long : `Typed ${name}`);
-    (panel.querySelector('[data-annotation-repro-save]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     expect(statusText(panel)).toContain('The reproduction steps are not valid');
     expect(sendAnnotationWrite).not.toHaveBeenCalled();
     await reopen(panel, notePanel);
@@ -1673,13 +1673,13 @@ describe('note panel layout', () => {
     expect(submit.dataset.variant).toBe('primary');
   });
 
-  it('labels the edit save button Save note', async () => {
+  it('labels the edit save button Save', async () => {
     const panel = document.createElement('div');
     await render(panel, [annotation('Existing')]);
-    expect(panel.querySelector('[data-annotation-edit]')?.textContent).toBe('Save note');
+    expect(panel.querySelector('[data-annotation-edit]')?.textContent).toBe('Save');
   });
 
-  it('saves an edit with Ctrl+Enter and Cmd+Enter exactly like Save note, and never a blank one', async () => {
+  it('saves an edit with Ctrl+Enter and Cmd+Enter exactly like the Save button, and never a blank one', async () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(annotation('x'));
     const { listAnnotations } = await render(panel, [annotation('Existing')], { sendAnnotationWrite });
@@ -1778,7 +1778,7 @@ describe('note panel layout', () => {
     expect(cssGroup(panel).open).toBe(false);
   });
 
-  it('orders an item as note, Unsaved changes, one actions row, groups, then previews', async () => {
+  it('orders an item as note, media row, groups, previews, then the footer', async () => {
     const panel = document.createElement('div');
     await render(panel, [{
       ...annotation('Full'),
@@ -1792,21 +1792,24 @@ describe('note panel layout', () => {
       child.getAttributeNames().find((name) => name.startsWith('data-annotation-')) ?? child.tagName;
     expect(Array.from(item.children, nameOf)).toEqual([
       'data-annotation-edit-note',
-      'data-annotation-unsaved',
-      'data-annotation-note-actions',
+      'data-annotation-media-actions',
       'data-annotation-css-group',
       'data-annotation-repro-group',
       'data-annotation-screenshot',
       'data-annotation-attachment',
+      'data-annotation-note-actions',
     ]);
-    const actions = item.querySelector('[data-annotation-note-actions]')!;
-    expect(Array.from(actions.children, nameOf)).toEqual([
-      'data-annotation-edit',
-      'data-annotation-status-toggle',
+    expect(Array.from(item.querySelector('[data-annotation-media-actions]')!.children, nameOf)).toEqual([
       'data-annotation-capture-screenshot',
       'data-annotation-attach',
       'data-annotation-attach-name',
+    ]);
+    const actions = item.querySelector('[data-annotation-note-actions]')!;
+    expect(Array.from(actions.children, nameOf)).toEqual([
       'data-annotation-delete',
+      'data-annotation-unsaved',
+      'data-annotation-status-toggle',
+      'data-annotation-edit',
     ]);
     expect(actions.querySelector('[data-annotation-edit]')?.getAttribute('data-variant')).toBe('primary');
     expect(actions.querySelector('[data-annotation-delete]')?.getAttribute('data-variant')).toBe('danger');
@@ -1821,11 +1824,189 @@ describe('note panel layout', () => {
       'LABEL',
       'LABEL',
       'LABEL',
-      'data-annotation-group-actions',
       'data-annotation-repro',
     ]);
-    expect(cssGroup(panel).querySelector('[data-annotation-group-actions] [data-annotation-css-save]')).not.toBeNull();
     expect(cssGroup(panel).querySelector('[data-annotation-group-actions] [data-annotation-css-clear]')).not.toBeNull();
-    expect(reproGroup(panel).querySelector('[data-annotation-group-actions] [data-annotation-repro-save]')).not.toBeNull();
+  });
+});
+
+describe('note panel one Save', () => {
+  const type = (field: HTMLTextAreaElement, value: string) => {
+    field.value = value;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const keyEnter = (target: HTMLElement, init: KeyboardEventInit) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }));
+  const field = (panel: HTMLElement, name: string) => panel.querySelector(`[data-annotation-${name}]`) as HTMLTextAreaElement;
+  const colorEdit = { property: 'color', value: 'red', original: 'blue' };
+  const stored = () => ({
+    ...annotation('Stored'),
+    repro: { steps: ['Click'], expected: 'Opens', actual: 'Nothing' },
+  });
+  const save = (panel: HTMLElement) => (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
+  const updates = (sendAnnotationWrite: ReturnType<typeof vi.fn>) =>
+    sendAnnotationWrite.mock.calls.filter(([message]) => message.type === 'annotation.update');
+
+  it('sends one update holding the note, the CSS and the repro when all three changed', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn().mockReturnValue({ edits: [colorEdit], refused: [] });
+    await render(panel, [stored()], { sendAnnotationWrite, applyCssEdits });
+    type(field(panel, 'edit-note'), '  New note ');
+    type(field(panel, 'css-decls'), 'color: red');
+    type(field(panel, 'repro-steps'), 'Open\nClick');
+    type(field(panel, 'repro-expected'), 'Works');
+    save(panel);
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(sendAnnotationWrite).toHaveBeenCalledWith({
+      type: 'annotation.update',
+      pageUrl,
+      id: 'annotation-1',
+      changes: {
+        note: 'New note',
+        cssEdits: [colorEdit],
+        repro: { steps: ['Open', 'Click'], expected: 'Works', actual: 'Nothing' },
+      },
+    } satisfies AnnotationWriteMessage);
+  });
+
+  it('sends only the CSS when only the CSS changed, and nothing when nothing changed', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn().mockReturnValue({ edits: [colorEdit], refused: [] });
+    await render(panel, [stored()], { sendAnnotationWrite, applyCssEdits });
+    save(panel);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    type(field(panel, 'css-decls'), 'color: red');
+    save(panel);
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(sendAnnotationWrite.mock.calls[0]![0].changes).toEqual({ cssEdits: [colorEdit] });
+  });
+
+  it('does not count an empty note, all-empty repro fields or a CSS text with no declaration as changes', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn();
+    await render(panel, [stored()], { sendAnnotationWrite, applyCssEdits });
+    type(field(panel, 'edit-note'), '   ');
+    type(field(panel, 'css-decls'), 'not a declaration');
+    for (const name of ['repro-steps', 'repro-expected', 'repro-actual']) type(field(panel, name), '');
+    save(panel);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    expect(applyCssEdits).not.toHaveBeenCalled();
+  });
+
+  it('runs the same merged save on Ctrl+Enter and Cmd+Enter in the note field', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn().mockReturnValue({ edits: [colorEdit], refused: [] });
+    await render(panel, [stored()], { sendAnnotationWrite, applyCssEdits });
+    type(field(panel, 'edit-note'), 'Edited');
+    type(field(panel, 'css-decls'), 'color: red');
+    keyEnter(field(panel, 'edit-note'), { ctrlKey: true });
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(sendAnnotationWrite.mock.calls[0]![0].changes).toEqual({ note: 'Edited', cssEdits: [colorEdit] });
+  });
+
+  it('sends nothing, note included, and says the element was not found when the CSS cannot be applied', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn().mockReturnValue(null);
+    await render(panel, [stored()], { sendAnnotationWrite, applyCssEdits });
+    type(field(panel, 'edit-note'), 'Edited');
+    type(field(panel, 'css-decls'), 'color: red');
+    save(panel);
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')?.textContent)
+      .toBe('Element not found on this page; CSS tweaks were not saved.'));
+    expect(updates(sendAnnotationWrite)).toHaveLength(0);
+  });
+
+  it('keeps one Save per note item, Clear tweaks as the only CSS button and no repro button, and Clear tweaks still clears', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const revertCssEdits = vi.fn();
+    await render(panel, [{ ...stored(), cssEdits: [colorEdit] }], { sendAnnotationWrite, applyCssEdits: vi.fn().mockReturnValue({ edits: [colorEdit], refused: [] }), revertCssEdits });
+    const buttons = (selector: string) => [...panel.querySelectorAll(`${selector} button`)].map((button) => button.textContent);
+    expect(buttons('[data-annotation-css-group]')).toEqual(['Clear tweaks']);
+    expect(buttons('[data-annotation-repro-group]')).toEqual([]);
+    expect(panel.querySelectorAll('[data-annotation-note-card]')).toHaveLength(1);
+    expect(panel.querySelectorAll('[data-annotation-note-card] [data-annotation-edit]')).toHaveLength(1);
+    const bare = document.createElement('div');
+    await render(bare, [stored()], {});
+    expect(bare.querySelectorAll('[data-annotation-css-group] button')).toHaveLength(0);
+    (panel.querySelector('[data-annotation-css-clear]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    expect(revertCssEdits).toHaveBeenCalledTimes(1);
+    expect(sendAnnotationWrite.mock.calls[0]![0].changes).toEqual({ cssEdits: [] });
+  });
+
+  it.each(['css-decls', 'repro-steps', 'repro-expected', 'repro-actual'])(
+    'shows Unsaved changes while the %s field differs from its stored text and hides it once the stored text is back',
+    async (name) => {
+      const panel = document.createElement('div');
+      await render(panel, [stored()], {});
+      const unsaved = panel.querySelector<HTMLElement>('[data-annotation-unsaved]')!;
+      const target = field(panel, name);
+      expect(unsaved.hidden).toBe(true);
+      type(target, `${target.defaultValue} changed`);
+      expect(unsaved.hidden).toBe(false);
+      expect(unsaved.textContent).toBe('Unsaved changes');
+      type(target, target.defaultValue);
+      expect(unsaved.hidden).toBe(true);
+    },
+  );
+});
+
+describe('note panel Add another note', () => {
+  const form = (panel: HTMLElement) => panel.querySelector('form') as HTMLFormElement;
+  const addAnother = (panel: HTMLElement) => panel.querySelector<HTMLButtonElement>('[data-annotation-add-another]');
+
+  it('folds the new-note form behind one button while the element holds a note, and a click reveals and focuses it', async () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    await render(panel, [annotation('Stored')]);
+    expect(form(panel).hidden).toBe(true);
+    expect(addAnother(panel)?.textContent).toBe('Add another note');
+    addAnother(panel)!.click();
+    expect(form(panel).hidden).toBe(false);
+    expect(addAnother(panel)?.hidden ?? true).toBe(true);
+    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-new-note]'));
+    panel.remove();
+  });
+
+  it('marks Save as the one primary of a note footer, with Resolve, Reopen and the folded Add another note not primary', async () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    await render(panel, [annotation('Open'), { ...annotation('Done'), id: 'b', status: 'resolved' }]);
+    const footers = [...panel.querySelectorAll<HTMLElement>('[data-annotation-note-actions]')];
+    expect(footers.map((footer) => footer.querySelector('[data-annotation-status-toggle]')?.textContent)).toEqual(['Resolve', 'Reopen']);
+    for (const footer of footers) {
+      expect(footer.querySelector<HTMLElement>('[data-annotation-status-toggle]')!.dataset.variant).toBeUndefined();
+      expect(footer.querySelector<HTMLElement>('[data-annotation-edit]')!.dataset.variant).toBe('primary');
+      expect(footer.querySelector<HTMLElement>('[data-annotation-delete]')!.dataset.variant).toBe('danger');
+    }
+    expect(addAnother(panel)!.dataset.variant).toBe('quiet');
+    expect(panel.querySelectorAll('[data-variant="primary"]')).toHaveLength(2);
+    panel.remove();
+  });
+
+  it('shows the form directly with no note, and with a new-note draft', async () => {
+    const empty = document.createElement('div');
+    await render(empty);
+    expect(form(empty).hidden).toBe(false);
+    expect(addAnother(empty)).toBeNull();
+
+    const panel = document.createElement('div');
+    const { notePanel } = await render(panel, [annotation('Stored')]);
+    addAnother(panel)!.click();
+    const field = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+    field.value = 'Draft';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(form(panel).hidden).toBe(false);
+    expect(addAnother(panel)?.hidden ?? true).toBe(true);
   });
 });

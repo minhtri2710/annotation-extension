@@ -7,19 +7,21 @@
   </head>
   <body class="annotation-page--popup">
     <main class="annotation-page__card">
-      <h1 style="position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0">Annotation Extension</h1>
-      <p id="page-count" class="annotation-page__status"></p>
-      <div class="annotation-page__actions">
-        <button id="toggle" type="button" data-variant="primary" disabled>Start annotating</button>
-        <button id="toolbar-toggle" type="button" disabled>Show toolbar</button>
-      </div>
+      <header class="annotation-page__header">
+        <h1>Annotations</h1>
+        <p id="page-count" class="annotation-page__status"></p>
+      </header>
+      <button id="toggle" type="button" data-variant="primary" disabled>Start annotating</button>
       <p id="shortcut-hint" class="annotation-page__status" hidden></p>
+      <button id="toolbar-toggle" type="button" role="switch" aria-checked="false" class="annotation-page__switch" disabled><span>Show toolbar on this tab</span><span class="annotation-page__switch-track" aria-hidden="true"></span></button>
       <section class="annotation-page__group">
-        <h2>All pages</h2>
+        <div class="annotation-page__group-head">
+          <h2>All pages</h2>
+          <button id="import" type="button" data-variant="quiet" aria-label="Import JSON">Import</button>
+        </div>
         <div class="annotation-page__actions">
-          <button id="export" type="button">Export JSON</button>
-          <button id="export-markdown" type="button">Export Markdown</button>
-          <button id="import" type="button" data-variant="quiet">Import JSON</button>
+          <button id="export" type="button" aria-label="Export JSON">JSON</button>
+          <button id="export-markdown" type="button" aria-label="Export Markdown">Markdown</button>
         </div>
       </section>
       <input id="import-file" type="file" accept="application/json,.json" hidden />

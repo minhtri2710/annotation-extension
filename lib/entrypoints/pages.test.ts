@@ -108,20 +108,26 @@ describe('popup page', () => {
   it('names the popup exports and import by format and scope', () => {
     loadPage('popup');
     const card = document.querySelector('.annotation-page__card')!;
-    expect([...card.children].map((child) => child.tagName)).toEqual(['H1', 'P', 'DIV', 'P', 'SECTION', 'INPUT', 'P']);
-    const [toggleActions, hint, allPages] = [...card.children].slice(2, 5);
-    expect(toggleActions?.querySelectorAll('button')).toHaveLength(2);
-    expect(toggleActions?.querySelector('button')?.id).toBe('toggle');
+    expect([...card.children].map((child) => child.tagName)).toEqual(['HEADER', 'BUTTON', 'P', 'BUTTON', 'SECTION', 'INPUT', 'P']);
+    const [, toggle, hint, , allPages] = [...card.children];
+    expect(toggle?.id).toBe('toggle');
     expect(byId('toggle').dataset.variant).toBe('primary');
     expect(hint?.id).toBe('shortcut-hint');
     expect(allPages?.querySelector('h2')?.textContent).toBe('All pages');
-    expect(allPages?.querySelector('h2')?.nextElementSibling?.className).toBe('annotation-page__actions');
-    expect([...document.querySelectorAll('.annotation-page__actions button')].map((button) => button.textContent)).toEqual([
-      'Start annotating',
-      'Show toolbar',
+    expect(allPages?.querySelector('.annotation-page__group-head')?.nextElementSibling?.className).toBe('annotation-page__actions');
+    expect([...document.querySelectorAll('.annotation-page__actions button')].map((button) => button.getAttribute('aria-label'))).toEqual([
       'Export JSON',
       'Export Markdown',
-      'Import JSON',
+    ]);
+  });
+
+  it('shows the export and import buttons as JSON, Markdown and Import with their full accessible names', () => {
+    loadPage('popup');
+    const names = ['export', 'export-markdown', 'import'].map((id) => [byId(id).textContent, byId(id).getAttribute('aria-label')]);
+    expect(names).toEqual([
+      ['JSON', 'Export JSON'],
+      ['Markdown', 'Export Markdown'],
+      ['Import', 'Import JSON'],
     ]);
   });
 
@@ -344,31 +350,59 @@ describe('popup page', () => {
     const startBackground = () => background.main();
 
     it.each<[string, Record<string, boolean>, string]>([
-      ['off', { 'ui:toolbar-tab:12': true }, 'Show toolbar'],
-      ['on', { [TAB_KEY]: true }, 'Hide toolbar'],
-    ])('labels the button for the active tab whose toolbar is %s', async (_name, session, label) => {
+      ['off', { 'ui:toolbar-tab:12': true }, 'false'],
+      ['on', { [TAB_KEY]: true }, 'true'],
+    ])('marks the button for the active tab whose toolbar is %s', async (_name, session, checked) => {
       startBackground();
       await fakeBrowser.storage.session.set(session);
       stubTab(PAGE, async () => ({ active: false }));
       await openPopup();
 
       await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
-      expect(toolbarToggle().textContent).toBe(label);
+      expect(toolbarToggle().getAttribute('aria-checked')).toBe(checked);
       expect(toolbarToggle().hasAttribute('data-variant')).toBe(false);
       expect(toolbarToggle().parentElement).toBe(byId('toggle').parentElement);
+    });
+
+    it.each<[string, Record<string, boolean>, string]>([
+      ['off', { 'ui:toolbar-tab:12': true }, 'false'],
+      ['on', { [TAB_KEY]: true }, 'true'],
+    ])('is a switch with a fixed label whose aria-checked follows the active tab whose toolbar is %s', async (_name, session, checked) => {
+      startBackground();
+      await fakeBrowser.storage.session.set(session);
+      stubTab(PAGE, async () => ({ active: false }));
+      await openPopup();
+
+      await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
+      expect(toolbarToggle().getAttribute('role')).toBe('switch');
+      expect(toolbarToggle().getAttribute('aria-checked')).toBe(checked);
+      expect(toolbarToggle().textContent).toBe('Show toolbar on this tab');
+    });
+
+    it('reads aria-checked false while the state is unread and after a failed set', async () => {
+      startBackground();
+      stubTab(PAGE, async () => ({ active: false }));
+      vi.spyOn(window, 'close').mockImplementation(() => {});
+      await openPopup();
+      expect(toolbarToggle().getAttribute('aria-checked')).toBe('false');
+      await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
+      vi.spyOn(browser.storage.session, 'set').mockRejectedValue(new Error('Storage failed'));
+      toolbarToggle().click();
+      await vi.waitFor(() => expect(byId('status').textContent).toBe(TOOLBAR_SAVE_ERROR));
+      expect(toolbarToggle().getAttribute('aria-checked')).toBe('false');
     });
 
     it.each([
       ['a rejected read', () => Promise.reject(new Error('Storage failed'))],
       ['a malformed answer', () => Promise.resolve({ on: 'yes' })],
-    ])('reads the state as off after %s: the button says Show toolbar and is enabled', async (_name, answer) => {
+    ])('reads the state as off after %s: the switch is off and enabled', async (_name, answer) => {
       const send = vi.spyOn(browser.runtime, 'sendMessage').mockImplementation((() => answer()) as never);
       stubTab(PAGE, async () => ({ active: false }));
       await openPopup();
 
       await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
       expect(send.mock.calls).toEqual([[{ type: 'toolbar.get', tabId: 11 }]]);
-      expect(toolbarToggle().textContent).toBe('Show toolbar');
+      expect(toolbarToggle().getAttribute('aria-checked')).toBe('false');
     });
 
     it.each([
@@ -403,7 +437,7 @@ describe('popup page', () => {
 
       await vi.waitFor(() => expect(byId('status').textContent).toBe(TOOLBAR_SAVE_ERROR));
       expect(close).not.toHaveBeenCalled();
-      expect(toolbarToggle().textContent).toBe('Show toolbar');
+      expect(toolbarToggle().getAttribute('aria-checked')).toBe('false');
     });
 
     it.each([

@@ -33,7 +33,7 @@ body.annotation-page--options {
 .annotation-page__card {
   margin: var(--annotation-space-4);
   padding: var(--annotation-space-4);
-  border: 1px solid var(--annotation-color-border);
+  border: 1px solid var(--annotation-color-divider);
   border-radius: var(--annotation-radius-lg);
   background: var(--annotation-color-surface);
   box-shadow: 0 0.75rem 2rem color-mix(in srgb, var(--annotation-color-text) 14%, transparent);
@@ -53,6 +53,24 @@ body.annotation-page--popup .annotation-page__card {
   line-height: 1.2;
 }
 
+.annotation-page__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--annotation-space-2);
+  margin-bottom: var(--annotation-space-3);
+}
+
+.annotation-page__header h1 {
+  margin: 0;
+}
+
+.annotation-page__header .annotation-page__status {
+  min-height: 0;
+  margin: 0;
+  font-size: var(--annotation-font-size-caption);
+}
+
 .annotation-page__actions {
   display: grid;
   gap: var(--annotation-space-2);
@@ -61,12 +79,21 @@ body.annotation-page--popup .annotation-page__card {
 .annotation-page__group {
   margin-top: var(--annotation-space-4);
   padding-top: var(--annotation-space-3);
-  border-top: 1px solid var(--annotation-color-border);
+  border-top: 1px solid var(--annotation-color-divider);
+}
+
+.annotation-page__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--annotation-space-2);
+  margin-bottom: var(--annotation-space-2);
 }
 
 .annotation-page__group h2 {
-  margin: 0 0 var(--annotation-space-2);
-  font-size: var(--annotation-font-size-title);
+  margin: 0;
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
   font-weight: var(--annotation-font-weight-medium);
   line-height: 1.2;
 }
@@ -92,7 +119,22 @@ body.annotation-page--popup .annotation-page__card {
   flex: 1 1 12rem;
 }
 
-.annotation-page__card button,
+/* Secondary is the base tier: a neutral fill and no border. */
+.annotation-page__card button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--annotation-space-2);
+  min-height: 2.25rem;
+  padding: var(--annotation-space-2) var(--annotation-space-3);
+  border: 0;
+  border-radius: var(--annotation-radius-md);
+  color: var(--annotation-color-text);
+  background: var(--annotation-color-surface-raised);
+  font: inherit;
+  cursor: pointer;
+}
+
 .annotation-page__card input[type='text'] {
   min-height: 2.25rem;
   padding: var(--annotation-space-2) var(--annotation-space-3);
@@ -103,54 +145,94 @@ body.annotation-page--popup .annotation-page__card {
   font: inherit;
 }
 
-.annotation-page__card button {
-  cursor: pointer;
-}
-
 .annotation-page__card button:hover {
-  border-color: var(--annotation-color-accent);
-  background: var(--annotation-color-surface-raised);
+  background: var(--annotation-color-hover);
 }
 
+/* Primary: the one accent fill of the page. */
 .annotation-page__card button[data-variant="primary"],
 .annotation-page__card button[data-variant="primary"]:active {
-  border-color: var(--annotation-color-accent);
   background: var(--annotation-color-accent);
-  color: var(--annotation-color-surface);
+  color: var(--annotation-color-on-accent);
   font-weight: var(--annotation-font-weight-medium);
 }
 
 .annotation-page__card button[data-variant="primary"]:hover {
-  border-color: var(--annotation-color-text);
   background: var(--annotation-color-accent);
-  color: var(--annotation-color-surface);
+  color: var(--annotation-color-on-accent);
+  filter: brightness(0.92);
 }
 
-/* Popup layout: the two top buttons and the two exports each share a row; Import is a quieter row of its own. */
-body.annotation-page--popup .annotation-page__actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-body.annotation-page--popup .annotation-page__actions > button[data-variant="quiet"] {
-  grid-column: 1 / -1;
-  border-color: transparent;
+/* Ghost: transparent and muted until hovered. */
+.annotation-page__card button[data-variant="quiet"] {
+  min-height: 2rem;
+  padding: var(--annotation-space-1) var(--annotation-space-2);
   background: transparent;
   color: var(--annotation-color-text-muted);
 }
 
-body.annotation-page--popup .annotation-page__actions > button[data-variant="quiet"]:hover {
-  border-color: var(--annotation-color-border);
-  background: var(--annotation-color-surface-raised);
+.annotation-page__card button[data-variant="quiet"]:hover {
+  background: var(--annotation-color-hover);
   color: var(--annotation-color-text);
 }
 
-body.annotation-page--popup .annotation-page__actions + .annotation-page__status {
+/* Popup layout: Start annotating is the full-width primary, then the tab switch, then the exports on one row. */
+body.annotation-page--popup .annotation-page__card > button[data-variant="primary"] {
+  width: 100%;
+}
+
+body.annotation-page--popup .annotation-page__actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body.annotation-page--popup #shortcut-hint {
+  min-height: 0;
+  margin: var(--annotation-space-1) 0 0;
+  font-size: var(--annotation-font-size-caption);
+  text-align: center;
+}
+
+body.annotation-page--popup #status {
   margin-top: var(--annotation-space-2);
   font-size: var(--annotation-font-size-caption);
 }
 
 body.annotation-page--popup .annotation-page__group {
   margin-top: var(--annotation-space-3);
+}
+
+.annotation-page__card button.annotation-page__switch {
+  width: 100%;
+  margin-top: var(--annotation-space-3);
+  justify-content: space-between;
+}
+
+.annotation-page__switch-track {
+  position: relative;
+  flex: none;
+  width: 2rem;
+  height: 1.125rem;
+  border-radius: 999px;
+  background: var(--annotation-color-border);
+}
+
+.annotation-page__switch-track::after {
+  content: "";
+  position: absolute;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  background: var(--annotation-color-on-accent);
+}
+
+.annotation-page__switch[aria-checked="true"] .annotation-page__switch-track {
+  background: var(--annotation-color-accent);
+}
+
+.annotation-page__switch[aria-checked="true"] .annotation-page__switch-track::after {
+  left: 1.1875rem;
 }
 
 .annotation-page__card button:disabled,
@@ -162,15 +244,14 @@ body.annotation-page--popup .annotation-page__group {
 
 .annotation-page__card button:disabled:hover,
 .annotation-page__card button:disabled:active {
-  border-color: var(--annotation-color-border);
-  background: var(--annotation-color-surface);
+  background: var(--annotation-color-surface-raised);
 }
 
 .annotation-page__card button[data-variant="primary"]:disabled:hover,
 .annotation-page__card button[data-variant="primary"]:disabled:active {
-  border-color: var(--annotation-color-accent);
   background: var(--annotation-color-accent);
-  color: var(--annotation-color-surface);
+  color: var(--annotation-color-on-accent);
+  filter: none;
 }
 
 .annotation-page__card button:focus-visible,
@@ -193,7 +274,7 @@ body.annotation-page--popup .annotation-page__group {
   justify-content: space-between;
   gap: var(--annotation-space-2);
   padding: var(--annotation-space-2) 0;
-  border-bottom: 1px solid var(--annotation-color-border);
+  border-bottom: 1px solid var(--annotation-color-divider);
   overflow-wrap: anywhere;
 }
 
@@ -222,11 +303,15 @@ body.annotation-page--popup .annotation-page__group {
 
 @media (prefers-reduced-motion: no-preference) {
   .annotation-page__card button {
-    transition: background 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
+    transition: background 120ms ease-out, transform 120ms ease-out;
   }
 
   .annotation-page__card button:not(:disabled):active {
     transform: translateY(1px);
+  }
+
+  .annotation-page__switch-track {
+    transition: background 120ms ease-out;
   }
 }
 `;

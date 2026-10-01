@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import popupHtml from '../../entrypoints/popup/index.html?raw';
+import { createAnnotationList } from '../annotation-list/annotation-list';
+import type { Annotation } from '../annotation';
 import { renderCaptureShortcutHint } from '../capture/activation';
+import type { ElementContext } from '../capture/context';
 import { contrastRatio, parseColor, type Rgba } from '../lint/color';
+import { createNotePanel } from '../notes/note-panel';
+import { setIconButton } from './icons';
 import { ANNOTATION_DARK_TOKENS } from './tokens';
 import { PAGE_STYLES } from './page-styles';
 import { buildOverlayShell, raiseOverlay } from './shell';
@@ -66,10 +71,10 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
       const style = getComputedStyle(scan!);
       return contrastRatio(color(style.color), color(style.backgroundColor));
     };
-    const raised = getComputedStyle(scan!.closest('[data-annotation-shell]')!).getPropertyValue('--annotation-color-surface-raised').trim();
+    const hover = getComputedStyle(scan!.closest('[data-annotation-shell]')!).getPropertyValue('--annotation-color-hover').trim();
     await userEvent.hover(scan!);
     expect(scan!.matches(':hover')).toBe(true);
-    await vi.waitFor(() => expect(color(getComputedStyle(scan!).backgroundColor)).toEqual(color(raised)));
+    await vi.waitFor(() => expect(color(getComputedStyle(scan!).backgroundColor)).toEqual(color(hover)));
     expect(ratio()).toBeGreaterThanOrEqual(4.5);
   });
 
@@ -97,14 +102,18 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
     const token = (name: string) => getComputedStyle(shell.root).getPropertyValue(`--annotation-${name}`).trim();
     const rest = getComputedStyle(scan!);
     expect(rest.appearance).toBe('none');
-    expect(color(rest.backgroundColor)).toEqual(color(token('color-surface')));
+    expect(color(rest.backgroundColor).a).toBe(0);
+    expect(rest.borderTopWidth).toBe('0px');
     expect(rest.borderTopLeftRadius).toBe(token('radius-md'));
-    expect(unit.getBoundingClientRect().width).toBeGreaterThan(1);
+    // The badge shows the number only; the unit stays in its text for assistive technology.
+    expect(unit.getBoundingClientRect().width).toBeLessThanOrEqual(1);
+    expect(badge.textContent).toBe('2 annotations');
     expect(getComputedStyle(grip).cursor).toBe('grab');
 
     const accent = color(token('color-accent'));
     const danger = color(token('color-danger'));
-    const look = (style: CSSStyleDeclaration) => [style.backgroundColor, style.borderTopColor].join(' ');
+    const surface = color(getComputedStyle(shell.panel).backgroundColor);
+    const look = (style: CSSStyleDeclaration) => [style.backgroundColor, style.borderTopColor, style.filter].join(' ');
     for (const [button, fill, text] of [[annotate!, accent, undefined], [remove, undefined, danger]] as const) {
       let restLook = '';
       for (const hover of [false, true]) {
@@ -116,7 +125,8 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
           const style = getComputedStyle(button);
           if (fill) expect(color(style.backgroundColor), `${button.textContent} hover=${hover}`).toEqual(fill);
           if (text) expect(color(style.color), `${button.textContent} hover=${hover}`).toEqual(text);
-          expect(contrastRatio(color(style.color), color(style.backgroundColor)), `${button.textContent} hover=${hover}`).toBeGreaterThanOrEqual(4.5);
+          const background = color(style.backgroundColor).a === 0 ? surface : color(style.backgroundColor);
+          expect(contrastRatio(color(style.color), background), `${button.textContent} hover=${hover}`).toBeGreaterThanOrEqual(4.5);
           if (hover) expect(look(style), `${button.textContent} shows its hover`).not.toBe(restLook);
           else restLook = look(style);
         });
@@ -157,8 +167,8 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
     filter.append(chip);
     shell.panel.append(filter);
     const style = getComputedStyle(chip);
-    const raised = getComputedStyle(shell.panel).getPropertyValue('--annotation-color-surface-raised').trim();
-    expect(color(style.backgroundColor)).toEqual(color(raised));
+    const surface = getComputedStyle(shell.panel).getPropertyValue('--annotation-color-surface').trim();
+    expect(color(style.backgroundColor)).toEqual(color(surface));
     const ratio = contrastRatio(color(style.color), color(style.backgroundColor));
     console.info(`pressed filter chip contrast (${theme}): ${ratio.toFixed(2)}`);
     expect(ratio).toBeGreaterThanOrEqual(4.5);
@@ -285,33 +295,30 @@ describe('toolbar keyboard model', () => {
 });
 
 describe('popup heading', () => {
-  it('has one h1 naming the extension, one All pages heading, and the same visible layout as without it', () => {
+  it('has one visible h1 titling the popup, one All pages heading, and a header row with the page count', () => {
     const parsed = new DOMParser().parseFromString(popupHtml, 'text/html');
     const headings = [...parsed.querySelectorAll('h1')];
-    expect(headings.map((heading) => heading.textContent)).toEqual(['Annotation Extension']);
+    expect(headings.map((heading) => heading.textContent)).toEqual(['Annotations']);
     expect([...parsed.querySelectorAll('h2, h3, h4, h5, h6')].map((heading) => heading.textContent)).toEqual(['All pages']);
 
     const style = document.createElement('style');
     style.textContent = PAGE_STYLES;
     document.head.append(style);
-    const render = (withHeading: boolean) => {
-      const main = document.importNode(parsed.querySelector('main')!, true);
-      if (!withHeading) main.querySelector('h1')!.remove();
-      document.body.classList.add('annotation-page--popup');
-      document.body.append(main);
-      const rects = [...main.querySelectorAll('button, p')].map((element) => element.getBoundingClientRect().toJSON());
-      const heading = main.querySelector('h1')?.getBoundingClientRect();
-      main.remove();
-      return { rects, heading };
-    };
+    const main = document.importNode(parsed.querySelector('main')!, true);
+    document.body.classList.add('annotation-page--popup');
+    document.body.append(main);
     cleanups.push(() => {
+      main.remove();
       style.remove();
       document.body.classList.remove('annotation-page--popup');
     });
-    const withHeading = render(true);
-    expect(withHeading.rects).toEqual(render(false).rects);
-    expect(withHeading.heading!.width).toBeLessThanOrEqual(1);
-    expect(withHeading.heading!.height).toBeLessThanOrEqual(1);
+    main.querySelector('#page-count')!.textContent = '3 annotations on this page.';
+    const heading = main.querySelector('h1')!.getBoundingClientRect();
+    const count = main.querySelector('#page-count')!.getBoundingClientRect();
+    expect(heading.width).toBeGreaterThan(1);
+    expect(heading.height).toBeGreaterThan(1);
+    expect(Math.abs((heading.top + heading.height / 2) - (count.top + count.height / 2))).toBeLessThanOrEqual(8);
+    expect(heading.right).toBeLessThanOrEqual(count.left);
   });
 });
 
@@ -487,36 +494,38 @@ describe('popup layout', () => {
     await page.viewport(1280, 720);
   });
 
-  it('puts the page count first, then Start annotating and the toolbar button on one row with the primary first, then a small muted shortcut hint', () => {
-    const { byId } = mountLayout();
+  it('puts the page count in the header, then Start annotating at full width, a small muted shortcut hint and the toolbar switch', () => {
+    const { main, byId } = mountLayout();
     const count = byId('page-count').getBoundingClientRect();
     const toggle = byId('toggle').getBoundingClientRect();
     const toolbar = byId('toolbar-toggle').getBoundingClientRect();
     const hint = byId('shortcut-hint');
+    const card = main.getBoundingClientRect();
     expect(count.bottom).toBeLessThanOrEqual(toggle.top);
-    expect(Math.abs(toggle.top - toolbar.top)).toBeLessThanOrEqual(1);
-    expect(Math.abs(toggle.height - toolbar.height)).toBeLessThanOrEqual(1);
-    expect(toggle.right).toBeLessThanOrEqual(toolbar.left);
+    expect(toggle.width).toBeGreaterThanOrEqual(card.width - 2 * 16 - 1);
+    expect(toolbar.width).toBeGreaterThanOrEqual(card.width - 2 * 16 - 1);
     expect(hint.getBoundingClientRect().top).toBeGreaterThanOrEqual(toggle.bottom);
+    expect(toolbar.top).toBeGreaterThanOrEqual(hint.getBoundingClientRect().bottom);
     const style = getComputedStyle(hint);
     const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(`--annotation-${name}`).trim();
     expect(style.fontSize).toBe(token('font-size-caption'));
     expect(color(style.color)).toEqual(color(token('color-text-muted')));
   });
 
-  it('names the exports and import by format, puts the two exports on one row, and sets Import JSON below them with a quieter look', () => {
+  it('shows the exports as JSON and Markdown on one row with their full names, and Import as a quiet button in the All pages heading row', () => {
     const { byId } = mountLayout();
     const json = byId('export');
     const markdown = byId('export-markdown');
     const upload = byId('import');
-    expect([json, markdown, upload].map((button) => button.textContent)).toEqual(['Export JSON', 'Export Markdown', 'Import JSON']);
+    expect([json, markdown, upload].map((button) => button.textContent)).toEqual(['JSON', 'Markdown', 'Import']);
+    expect([json, markdown, upload].map((button) => button.getAttribute('aria-label'))).toEqual(['Export JSON', 'Export Markdown', 'Import JSON']);
     const [jsonRect, markdownRect, importRect] = [json, markdown, upload].map((button) => button.getBoundingClientRect());
     expect(Math.abs(jsonRect!.top - markdownRect!.top)).toBeLessThanOrEqual(1);
     expect(jsonRect!.right).toBeLessThanOrEqual(markdownRect!.left);
-    expect(importRect!.top).toBeGreaterThanOrEqual(jsonRect!.bottom);
-    expect(color(getComputedStyle(json).borderTopColor).a).toBe(1);
-    expect(color(getComputedStyle(markdown).borderTopColor).a).toBe(1);
-    expect(color(getComputedStyle(upload).borderTopColor).a).toBe(0);
+    expect(importRect!.bottom).toBeLessThanOrEqual(jsonRect!.top);
+    for (const button of [json, markdown, upload]) expect(getComputedStyle(button).borderTopWidth).toBe('0px');
+    expect(color(getComputedStyle(json).backgroundColor).a).toBe(1);
+    expect(color(getComputedStyle(upload).backgroundColor).a).toBe(0);
   });
 
   it.each(['light', 'dark'] as const)('keeps every popup button look and the shortcut hint at 4.5:1 or more in the %s scheme', async (scheme) => {
@@ -537,5 +546,303 @@ describe('popup layout', () => {
     }
     const surface = color(getComputedStyle(main).backgroundColor);
     expect(contrastRatio(color(getComputedStyle(byId('shortcut-hint')).color), surface)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+// Quiet light and dark palette, read from computed styles on the real surfaces.
+describe.each<ThemeMode>(['light', 'dark'])('button tiers and palette on the real surfaces in the %s scheme', (theme) => {
+  const pageUrl = 'https://example.com/article';
+  const context: ElementContext = {
+    selector: '#target', tagName: 'BUTTON', id: 'target', classList: [], text: 'Target',
+    boundingBox: { x: 0, y: 0, width: 10, height: 10 }, url: pageUrl,
+    viewport: { width: 1280, height: 720 }, sourcePath: null,
+  };
+  const stored = (id: string, selector = '#target'): Annotation => ({
+    id, pageUrl, note: `Note ${id}`, selector, elementContext: context,
+    createdAt: '2024-01-01T00:00:00.000Z', updatedAt: '2024-01-01T00:00:00.000Z', status: 'open',
+  });
+  const CONTROLS = 'button, label[data-annotation-attach], input:not([type="file"]):not([type="hidden"]), select';
+
+  function mountPopupPage(): { root: HTMLElement; byId: <T extends HTMLElement>(id: string) => T; surface: Rgba } {
+    const parsed = new DOMParser().parseFromString(popupHtml, 'text/html');
+    const style = document.createElement('style');
+    style.textContent = PAGE_STYLES;
+    const darkTokens = document.createElement('style');
+    if (theme === 'dark') darkTokens.textContent = `:root {\n${ANNOTATION_DARK_TOKENS}\n}`;
+    document.head.append(style, darkTokens);
+    const main = document.importNode(parsed.querySelector('main')!, true);
+    document.body.classList.add('annotation-page--popup');
+    document.body.append(main);
+    cleanups.push(() => {
+      main.remove();
+      style.remove();
+      darkTokens.remove();
+      document.body.classList.remove('annotation-page--popup');
+    });
+    const byId = <T extends HTMLElement>(id: string) => main.querySelector<T>(`#${id}`)!;
+    byId('page-count').textContent = '2 annotations on this page.';
+    renderCaptureShortcutHint(byId<HTMLParagraphElement>('shortcut-hint'), 'Alt+Q');
+    for (const id of ['toggle', 'toolbar-toggle']) byId<HTMLButtonElement>(id).disabled = false;
+    return { root: main, byId, surface: color(getComputedStyle(main).getPropertyValue('--annotation-color-surface').trim()) };
+  }
+
+  async function mountToolbarSurface() {
+    const mounted = mountOverlay(theme);
+    const { shell, buttons } = mounted;
+    for (const button of buttons) button.remove();
+    const scan = document.createElement('button');
+    scan.type = 'button';
+    setIconButton(scan, 'scan', 'Scan');
+    const list = document.createElement('button');
+    list.type = 'button';
+    setIconButton(list, 'list', 'View all');
+    const annotate = document.createElement('button');
+    annotate.type = 'button';
+    annotate.dataset.variant = 'primary';
+    annotate.textContent = 'Annotate';
+    const badge = document.createElement('span');
+    badge.dataset.annotationBadge = '';
+    const unit = document.createElement('span');
+    unit.dataset.annotationBadgeUnit = '';
+    unit.textContent = ' annotations';
+    badge.append('2', unit);
+    shell.toolbar.append(scan, list, annotate, badge);
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: { read: async () => ({ position: null, collapsed: false }), write: async () => undefined },
+      onCollapsedChange: () => undefined,
+      onPositionChange: () => undefined,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+    return { ...mounted, root: shell.toolbar as HTMLElement, surface: color(getComputedStyle(shell.toolbar).backgroundColor) };
+  }
+
+  async function mountNotesSurface(annotations: Annotation[]) {
+    const mounted = mountOverlay(theme);
+    const { shell } = mounted;
+    for (const button of mounted.buttons) button.remove();
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => annotations,
+      sendAnnotationWrite: vi.fn(), captureScreenshot: vi.fn(), readBlob: vi.fn(), addAttachment: vi.fn(), deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    shell.root.append(notePanel.live);
+    await notePanel.render(context);
+    return { ...mounted, notePanel, root: shell.panel as HTMLElement, surface: color(getComputedStyle(shell.panel).backgroundColor) };
+  }
+
+  async function mountListSurface() {
+    const mounted = mountOverlay(theme);
+    const { shell } = mounted;
+    for (const button of mounted.buttons) button.remove();
+    const list = createAnnotationList(shell.panel, pageUrl, {
+      listAnnotations: async () => [stored('a1'), { ...stored('a2'), status: 'resolved' }],
+      sendAnnotationWrite: vi.fn(), readBlob: vi.fn(),
+      readOnboardingOpen: async () => false, writeOnboardingOpen: async () => undefined,
+      readCaptureShortcut: async () => 'Alt+Q',
+    });
+    shell.root.append(list.live);
+    cleanups.push(() => list.clear());
+    await list.render();
+    return { ...mounted, list, root: shell.panel as HTMLElement, surface: color(getComputedStyle(shell.panel).backgroundColor) };
+  }
+
+  const token = (root: Element, name: string) => color(getComputedStyle(root).getPropertyValue(`--annotation-${name}`).trim());
+  const controlsOf = (root: Element) => [...root.querySelectorAll<HTMLElement>(CONTROLS)].filter((element) => element.getBoundingClientRect().width > 0);
+  const tierOf = (element: HTMLElement) => {
+    if (element.getAttribute('role') === 'switch' || element.closest('[data-annotation-filter]')) return 'switch';
+    if (element.dataset.variant === 'primary') return 'primary';
+    if (element.dataset.variant === 'danger') return element.closest('[role="group"]') ? 'confirm' : 'danger';
+    if (element.dataset.variant === 'quiet' || element.matches('label[data-annotation-attach]')) return 'ghost';
+    return 'secondary';
+  };
+  const backgroundBehind = (element: Element, surface: Rgba): Rgba => {
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      const background = color(getComputedStyle(node).backgroundColor);
+      if (background.a === 1) return background;
+    }
+    return surface;
+  };
+  const textContrast = (element: HTMLElement, surface: Rgba) => {
+    const own = color(getComputedStyle(element).backgroundColor);
+    const background = own.a === 1 ? own : backgroundBehind(element, surface);
+    return contrastRatio(color(getComputedStyle(element).color), background);
+  };
+  const hasInk = (element: HTMLElement) => (element.textContent ?? '').trim() !== '' || element.querySelector('svg') !== null;
+
+  async function surfaces() {
+    const popup = mountPopupPage();
+    const toolbar = await mountToolbarSurface();
+    const notes = await mountNotesSurface([stored('n1')]);
+    const noNotes = await mountNotesSurface([]);
+    const list = await mountListSurface();
+    return { popup, toolbar, notes, noNotes, list };
+  }
+
+  it('fills exactly one control with the accent on the popup, the toolbar and a Notes panel with one note and its form folded', async () => {
+    const { popup, toolbar, notes, noNotes } = await surfaces();
+    const accentCount = (root: Element) => controlsOf(root).filter((element) => {
+      const background = color(getComputedStyle(element).backgroundColor);
+      return JSON.stringify(background) === JSON.stringify(token(root, 'color-accent'));
+    });
+    expect(accentCount(popup.root).map((element) => element.id)).toEqual(['toggle']);
+    expect(accentCount(toolbar.root).map((element) => element.textContent)).toEqual(['Annotate']);
+    expect(accentCount(notes.root).map((element) => element.textContent)).toEqual(['Save']);
+    expect(notes.root.querySelector<HTMLElement>('[data-annotation-add-another]')!.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(noNotes.root.querySelectorAll('[data-annotation-edit]')).toHaveLength(0);
+    expect(accentCount(noNotes.root).map((element) => element.textContent)).toEqual(['Add note']);
+  });
+
+  it('keeps exactly one accent control when a Notes panel is rendered again after it was closed', async () => {
+    const { notes } = await surfaces();
+    notes.shell.panel.replaceChildren();
+    await notes.notePanel.render(context);
+    const accent = token(notes.root, 'color-accent');
+    const filled = controlsOf(notes.shell.panel).filter((element) => JSON.stringify(color(getComputedStyle(element).backgroundColor)) === JSON.stringify(accent));
+    expect(filled.map((element) => element.textContent)).toEqual(['Save']);
+    expect(notes.shell.panel.querySelectorAll('[data-annotation-add-another]')).toHaveLength(1);
+  });
+
+  it('draws secondary and ghost buttons with no border and danger as red text on a transparent base, except a confirm button', async () => {
+    const { popup, toolbar, notes, list } = await surfaces();
+    notes.shell.panel.querySelector<HTMLButtonElement>('[data-annotation-delete]')!.click();
+    list.root.querySelector<HTMLButtonElement>('[data-annotation-clear]')!.click();
+    const seen = new Set<string>();
+    for (const root of [popup.root, toolbar.root, notes.root, list.root]) {
+      for (const element of controlsOf(root)) {
+        const tier = tierOf(element);
+        if (tier === 'switch') continue;
+        seen.add(tier);
+        const style = getComputedStyle(element);
+        if (tier !== 'primary' && tier !== 'confirm') {
+          expect([style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth], `${tier} ${element.outerHTML}`).toEqual(['0px', '0px', '0px', '0px']);
+        }
+        if (tier === 'danger') {
+          expect(color(style.backgroundColor).a, element.outerHTML).toBe(0);
+          expect(color(style.color)).toEqual(token(root, 'color-danger'));
+        }
+        if (tier === 'confirm') expect(color(style.backgroundColor)).toEqual(token(root, 'color-danger'));
+        if (tier === 'ghost') expect(color(style.backgroundColor).a, element.outerHTML).toBe(0);
+      }
+    }
+    expect([...seen].sort()).toEqual(['confirm', 'danger', 'ghost', 'primary', 'secondary']);
+  });
+
+  it('keeps primary, secondary, ghost, danger, confirm and muted text at 4.5:1 or more at rest', async () => {
+    const { popup, toolbar, notes, list } = await surfaces();
+    notes.shell.panel.querySelector<HTMLButtonElement>('[data-annotation-delete]')!.click();
+    for (const { root, surface } of [popup, toolbar, notes, list]) {
+      for (const element of controlsOf(root)) {
+        if (!hasInk(element) || (element as HTMLButtonElement).disabled) continue;
+        expect(textContrast(element, surface), `${tierOf(element)} ${element.outerHTML}`).toBeGreaterThanOrEqual(4.5);
+      }
+      const muted = root.querySelectorAll<HTMLElement>('[data-annotation-hint], [data-annotation-attach-name], [data-annotation-unsaved], [data-annotation-list-count], .annotation-page__status, .annotation-page__group h2, [data-annotation-badge]');
+      for (const element of muted) {
+        if (element.getBoundingClientRect().width === 0) continue;
+        expect(textContrast(element, surface), element.outerHTML).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it('keeps one control of each tier at 4.5:1 or more on hover and changes its look', async () => {
+    const release = () => { while (cleanups.length) cleanups.pop()!(); };
+    const seen = new Set<string>();
+    const mounters: (() => Promise<{ root: HTMLElement; surface: Rgba }>)[] = [
+      async () => mountPopupPage(),
+      async () => {
+        const notes = await mountNotesSurface([stored('n1')]);
+        notes.shell.panel.querySelector<HTMLButtonElement>('[data-annotation-delete]')!.click();
+        return notes;
+      },
+      async () => {
+        const list = await mountListSurface();
+        list.root.querySelector<HTMLButtonElement>('[data-annotation-clear]')!.click();
+        return list;
+      },
+    ];
+    for (const mount of mounters) {
+      const { root, surface } = await mount();
+      const picked = new Map<string, HTMLElement>();
+      for (const element of controlsOf(root)) {
+        if (!hasInk(element) || (element as HTMLButtonElement).disabled) continue;
+        const tier = tierOf(element);
+        if (tier !== 'switch' && !picked.has(tier)) picked.set(tier, element);
+      }
+      for (const [tier, element] of picked) {
+        seen.add(tier);
+        const look = () => {
+          const style = getComputedStyle(element);
+          return [style.backgroundColor, style.color, style.filter].join(' ');
+        };
+        await userEvent.unhover(element);
+        await Promise.allSettled(element.getAnimations().map((animation) => animation.finished));
+        const rest = look();
+        await userEvent.hover(element);
+        await vi.waitFor(() => expect(element.matches(':hover')).toBe(true));
+        await Promise.allSettled(element.getAnimations().map((animation) => animation.finished));
+        expect(look(), `${tier} shows its hover`).not.toBe(rest);
+        expect(textContrast(element, surface), `${tier} on hover`).toBeGreaterThanOrEqual(4.5);
+      }
+      release();
+    }
+    expect([...seen].sort()).toEqual(['confirm', 'danger', 'ghost', 'primary', 'secondary']);
+  });
+
+  it('rings a control reached by keyboard with a 2px accent outline', async () => {
+    const notes = await mountNotesSurface([stored('n1')]);
+    const close = notes.shell.panel.querySelector<HTMLButtonElement>('[data-annotation-close]')!;
+    notes.before.focus();
+    for (let step = 0; step < 12 && notes.shadow.activeElement !== close; step += 1) await userEvent.tab();
+    expect(notes.shadow.activeElement).toBe(close);
+    const style = getComputedStyle(close);
+    expect(style.outlineStyle).toBe('solid');
+    expect(style.outlineWidth).toBe('2px');
+    expect(color(style.outlineColor)).toEqual(token(notes.root, 'color-accent'));
+  });
+
+  it('shows the pressed filter segment in the accent and the others muted, and moves the press with the choice', async () => {
+    const { list } = await surfaces();
+    const segments = () => [...list.root.querySelectorAll<HTMLButtonElement>('[data-annotation-filter] button')];
+    const pressed = () => segments().map((segment) => segment.getAttribute('aria-pressed'));
+    const colors = async () => {
+      await Promise.allSettled(segments().flatMap((segment) => segment.getAnimations().map((animation) => animation.finished)));
+      return segments().map((segment) => color(getComputedStyle(segment).color));
+    };
+    const accent = token(list.root, 'color-accent');
+    const muted = token(list.root, 'color-text-muted');
+    expect(pressed()).toEqual(['true', 'false', 'false']);
+    expect(await colors()).toEqual([accent, muted, muted]);
+    expect(getComputedStyle(segments()[0]!).boxShadow).not.toBe('none');
+    segments()[1]!.click();
+    await vi.waitFor(() => expect(pressed()).toEqual(['false', 'true', 'false']));
+    expect(await colors()).toEqual([muted, accent, muted]);
+    for (const segment of segments()) expect(textContrast(segment, list.surface), segment.textContent ?? '').toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('draws the switch off in the neutral track and on in the accent track, both readable against the card', async () => {
+    const { popup } = await surfaces();
+    const toggle = popup.byId<HTMLButtonElement>('toolbar-toggle');
+    const track = toggle.querySelector<HTMLElement>('.annotation-page__switch-track')!;
+    const card = color(getComputedStyle(popup.root).backgroundColor);
+    expect(toggle.getAttribute('role')).toBe('switch');
+    for (const [checked, name] of [['false', 'color-border'], ['true', 'color-accent']] as const) {
+      toggle.setAttribute('aria-checked', checked);
+      await Promise.allSettled(track.getAnimations().map((animation) => animation.finished));
+      const background = color(getComputedStyle(track).backgroundColor);
+      expect(background, checked).toEqual(token(popup.root, name));
+      expect(contrastRatio(background, card), checked).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('keeps the Notes footer and the popup export row each on one row', async () => {
+    const { popup, notes } = await surfaces();
+    const tops = (elements: Element[]) => elements.map((element) => element.getBoundingClientRect().top);
+    const footer = [...notes.root.querySelectorAll('[data-annotation-note-actions] > button')];
+    expect(footer.map((button) => button.textContent)).toEqual(['Delete', 'Resolve', 'Save']);
+    expect(Math.max(...tops(footer)) - Math.min(...tops(footer))).toBeLessThanOrEqual(1);
+    const exports = [popup.byId('export'), popup.byId('export-markdown')];
+    expect(Math.max(...tops(exports)) - Math.min(...tops(exports))).toBeLessThanOrEqual(1);
   });
 });

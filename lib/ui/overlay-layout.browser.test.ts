@@ -501,6 +501,7 @@ describe('panels stay inside small viewports (real browser)', () => {
       cleanups.push(() => anchor.destroy());
       await notePanel.render(context());
       anchor.place(() => ({ x: 40, y: 100, width: 100, height: 30 }));
+      shell.panel.querySelector<HTMLButtonElement>('[data-annotation-add-another]')!.click();
       await nextFrame();
 
       expectInsideViewport(shell.panel.getBoundingClientRect());
@@ -510,7 +511,7 @@ describe('panels stay inside small viewports (real browser)', () => {
         shell.panel.querySelector<HTMLElement>('[data-annotation-close]')!,
         shell.panel.querySelector<HTMLElement>('[data-annotation-new-note]')!,
         shell.panel.querySelector<HTMLElement>('[data-annotation-save]')!,
-        shell.panel.querySelector<HTMLElement>('[data-annotation-repro-save]')!,
+        shell.panel.querySelector<HTMLElement>('[data-annotation-edit]')!,
       ];
       for (const control of controls) expect(control).not.toBeNull();
 

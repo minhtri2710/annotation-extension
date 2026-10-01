@@ -25,6 +25,31 @@ describe('annotation tokens', () => {
       }
     }
   });
+
+  it('keeps every tier text pair at 4.5:1 and the control border at 3:1 in both themes', () => {
+    const pairs = [
+      ['--annotation-color-on-accent', '--annotation-color-accent'],
+      ['--annotation-color-on-accent', '--annotation-color-danger'],
+      ['--annotation-color-text', '--annotation-color-surface-raised'],
+      ['--annotation-color-text', '--annotation-color-hover'],
+      ['--annotation-color-text-muted', '--annotation-color-surface'],
+      ['--annotation-color-text-muted', '--annotation-color-surface-raised'],
+      ['--annotation-color-danger', '--annotation-color-surface'],
+      ['--annotation-color-danger', '--annotation-color-hover'],
+      ['--annotation-color-accent', '--annotation-color-surface-raised'],
+      ['--annotation-color-accent', '--annotation-color-surface'],
+    ] as const;
+    for (const tokens of [ANNOTATION_TOKENS, `${ANNOTATION_TOKENS}\n${ANNOTATION_DARK_TOKENS}`]) {
+      const value = (name: string) => {
+        const all = [...tokens.matchAll(new RegExp(`${name}: ([^;]+);`, 'g'))];
+        return parseColor(all[all.length - 1]?.[1] ?? '')!;
+      };
+      for (const [foreground, background] of pairs) {
+        expect(contrastRatio(value(foreground), value(background)), `${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(contrastRatio(value('--annotation-color-border'), value('--annotation-color-surface'))).toBeGreaterThanOrEqual(3);
+    }
+  });
 });
 
 function tokenValue(tokens: string, name: string): string {

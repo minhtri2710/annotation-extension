@@ -90,7 +90,7 @@ describe('annotation list in a real browser', () => {
     expect(footer.getBoundingClientRect().top).toBeGreaterThan(rows.getBoundingClientRect().bottom);
     const footerStyle = getComputedStyle(footer);
     expect(footerStyle.borderTopWidth).toBe('1px');
-    expect(parseColor(footerStyle.borderTopColor)).toEqual(parseColor(getComputedStyle(shell.root).getPropertyValue('--annotation-color-border')));
+    expect(parseColor(footerStyle.borderTopColor)).toEqual(parseColor(getComputedStyle(shell.root).getPropertyValue('--annotation-color-divider')));
     const clearStyle = getComputedStyle(clear);
     expect(clearStyle.borderTopColor).toBe(clearStyle.borderBottomColor);
     expect(clear.getBoundingClientRect().height).toBe(shell.panel.querySelector<HTMLButtonElement>('[data-annotation-row-actions] [data-annotation-locate]')!.getBoundingClientRect().height);
@@ -126,35 +126,41 @@ describe('annotation list in a real browser', () => {
   const rect = (element: Element) => element.getBoundingClientRect();
   const sharesLine = (a: Element, b: Element) => rect(a).top < rect(b).bottom && rect(b).top < rect(a).bottom;
 
-  it('orders the header and filter, the rows, a footer with the export and Clear all buttons, then How it works with its stored open state', async () => {
+  it('orders the header, How it works with its stored open state, the filter, the rows and a footer with the export and Clear all buttons', async () => {
     for (const open of [true, false]) {
       const { shell, list } = await renderedList([annotation('a1', '#labelled'), annotation('a2', '#labelled')], open);
       const part = (selector: string) => shell.panel.querySelector<HTMLElement>(selector)!;
-      const heading = part('h2');
+      const header = part('[data-annotation-list-header]');
       const filter = part('[data-annotation-filter]');
       const rows = part('[data-annotation-rows]');
       const footer = part('[data-annotation-list-footer]');
-      const onboarding = shell.panel.querySelector<HTMLDetailsElement>('[data-annotation-onboarding]')!;
-      expect(rect(heading).bottom).toBeLessThanOrEqual(rect(filter).top);
+      const onboarding = part('[data-annotation-onboarding]');
+      expect(rect(header).bottom).toBeLessThanOrEqual(rect(filter).top);
+      if (open) {
+        expect(rect(header).bottom).toBeLessThanOrEqual(rect(onboarding).top);
+        expect(rect(onboarding).bottom).toBeLessThanOrEqual(rect(filter).top);
+      }
       expect(rect(filter).bottom).toBeLessThanOrEqual(rect(rows).top);
       expect(rect(rows).bottom).toBeLessThanOrEqual(rect(footer).top);
-      expect(rect(footer).bottom).toBeLessThanOrEqual(rect(onboarding).top);
-      expect([...footer.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['Copy Markdown', 'Download Markdown', 'Clear all']);
-      expect(onboarding.open).toBe(open);
+      expect([...footer.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['Copy Markdown', 'Download', 'Clear all']);
+      expect(onboarding.hidden).toBe(!open);
+      expect(rect(onboarding).height > 0).toBe(open);
       list.clear();
       document.body.replaceChildren();
     }
   });
 
-  it('puts a row number, note and status on one line, the element label on one truncated line with its full text on hover, and Delete apart from Locate and Edit', async () => {
+  it('puts a row number, note and the icon actions on one line, the element label on one truncated line with its full text on hover, and the status under the note', async () => {
     const { shadow, shell, list } = await renderedList([longLabelled('a1')], false);
     const row = shell.panel.querySelector<HTMLElement>('[data-annotation-row]')!;
     const number = row.querySelector('[data-annotation-position]')!;
     const note = row.querySelector('[data-annotation-note]')!;
+    const actions = row.querySelector('[data-annotation-row-actions]')!;
     const status = row.querySelector('[data-annotation-status]')!;
-    expect(sharesLine(number, note) && sharesLine(note, status)).toBe(true);
+    expect(sharesLine(number, note) && sharesLine(note, actions)).toBe(true);
     expect(rect(number).right).toBeLessThanOrEqual(rect(note).left);
-    expect(rect(note).right).toBeLessThanOrEqual(rect(status).left);
+    expect(rect(note).right).toBeLessThanOrEqual(rect(actions).left);
+    expect(rect(status).top).toBeGreaterThanOrEqual(rect(note).bottom);
 
     const hint = row.querySelector<HTMLElement>('[data-annotation-hint]')!;
     const style = getComputedStyle(hint);
@@ -168,9 +174,9 @@ describe('annotation list in a real browser', () => {
     expect(hovered?.closest('[title]')?.getAttribute('title')).toContain(label);
 
     const [locate, edit, remove] = ['[data-annotation-locate]', '[data-annotation-row-edit]', '[data-annotation-delete]'].map((selector) => rect(row.querySelector(selector)!));
-    const normalGap = edit!.left - locate!.right;
-    expect(normalGap).toBeGreaterThanOrEqual(8);
-    expect(remove!.left - edit!.right).toBeGreaterThanOrEqual(3 * normalGap);
+    expect(edit!.left - locate!.right).toBeGreaterThanOrEqual(8);
+    expect(remove!.left - edit!.right).toBeGreaterThanOrEqual(8);
+    for (const box of [locate, edit, remove]) expect([box!.width, box!.height]).toEqual([32, 32]);
     list.clear();
   });
 

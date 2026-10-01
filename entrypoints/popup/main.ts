@@ -134,7 +134,7 @@ async function showToolbarState(tabId: number): Promise<void> {
     toolbarOn = false;
   }
   if (!toolbarToggleButton) return;
-  toolbarToggleButton.textContent = toolbarOn ? 'Hide toolbar' : 'Show toolbar';
+  toolbarToggleButton.setAttribute('aria-checked', String(toolbarOn));
   toolbarToggleButton.disabled = false;
 }
 

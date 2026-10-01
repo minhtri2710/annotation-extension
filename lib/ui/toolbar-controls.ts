@@ -1,3 +1,4 @@
+import { setIconButton } from './icons';
 import { clampToolbarPosition } from './shell';
 import type { ToolbarPrefs } from './ui-prefs';
 
@@ -38,8 +39,7 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
   const grip = document.createElement('button');
   grip.type = 'button';
   grip.dataset.annotationToolbarGrip = '';
-  grip.setAttribute('aria-label', 'Move toolbar');
-  grip.textContent = '⠿';
+  setIconButton(grip, 'grip', 'Move toolbar');
 
   const collapse = document.createElement('button');
   collapse.type = 'button';
@@ -122,8 +122,7 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     collapsed = next;
     toolbar.toggleAttribute('data-collapsed', collapsed);
     collapse.setAttribute('aria-expanded', String(!collapsed));
-    collapse.textContent = collapsed ? 'Show' : 'Hide';
-    collapse.setAttribute('aria-label', `${collapse.textContent} annotation toolbar`);
+    setIconButton(collapse, collapsed ? 'chevron-up' : 'chevron-down', `${collapsed ? 'Show' : 'Hide'} annotation toolbar`);
     syncTabStop();
   };
 

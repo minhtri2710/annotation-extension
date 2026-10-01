@@ -223,6 +223,8 @@ export function keepPanelFocus(panel: HTMLElement): () => void {
   return () => {
     if (panel.contains(root.activeElement)) return;
     const target = selector ? panel.querySelector<HTMLElement>(`${scope}${selector}`) : null;
-    (target ?? panel.querySelector<HTMLElement>('h2'))?.focus();
+    target?.focus();
+    // A matching control that is folded away cannot take focus.
+    if (!panel.contains(root.activeElement)) panel.querySelector<HTMLElement>('h2')?.focus();
   };
 }

@@ -13,6 +13,7 @@ import { resolveSelector } from '../capture/selector';
 import { CAPTURE_SHORTCUT_UNSET_HINT, readCaptureShortcut, SHORTCUT_SETTINGS } from '../capture/activation';
 import { createLocateHighlight } from '../ui/locate-highlight';
 import { createElementHint } from '../ui/element-hint';
+import { setIconButton } from '../ui/icons';
 import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/shell';
 
 export interface AnnotationListPersistence {
@@ -34,6 +35,8 @@ export interface AnnotationList {
 export const ANNOTATION_EDIT_EVENT = 'annotation-edit';
 // Dispatched on the panel mount when the empty list's Start annotating is clicked.
 export const ANNOTATION_START_EVENT = 'annotation-start';
+// Dispatched on the panel mount when the list's Close is clicked.
+export const ANNOTATION_LIST_CLOSE_EVENT = 'annotation-list-close';
 const LOCATE_MISSING_MESSAGE = 'Element not found on this page';
 
 type StatusFilter = 'all' | Annotation['status'];
@@ -101,7 +104,8 @@ export function createAnnotationList(
     const heading = document.createElement('h2');
     heading.textContent = 'All annotations';
     heading.tabIndex = -1;
-    panel.append(heading);
+    const onboarding = createOnboarding(document, onboardingOpen, shortcut);
+    panel.append(createHeader(document, heading, annotations.length, onboarding));
     document.addEventListener('visibilitychange', refreshShortcut);
     document.defaultView?.addEventListener('focus', refreshShortcut);
     announce(statusMessage ?? '');
@@ -111,6 +115,7 @@ export function createAnnotationList(
       status.textContent = statusMessage;
       panel.append(status);
     }
+    panel.append(onboarding);
 
     if (annotations.length === 0) {
       const empty = document.createElement('p');
@@ -132,8 +137,39 @@ export function createAnnotationList(
         createFooter(document, annotations),
       );
     }
-    panel.append(createOnboarding(document, onboardingOpen, shortcut));
     restoreFocus();
+  }
+
+  // The title with the count, the "How it works" toggle and Close.
+  function createHeader(document: Document, heading: HTMLElement, count: number, onboarding: HTMLElement): HTMLElement {
+    const header = document.createElement('header');
+    header.dataset.annotationListHeader = '';
+    const total = document.createElement('span');
+    total.dataset.annotationListCount = '';
+    total.textContent = String(count);
+    const help = document.createElement('button');
+    help.type = 'button';
+    help.dataset.annotationHelp = '';
+    help.dataset.variant = 'quiet';
+    help.textContent = '?';
+    help.setAttribute('aria-label', 'How it works');
+    help.title = 'How it works';
+    help.setAttribute('aria-expanded', String(!onboarding.hidden));
+    help.addEventListener('click', () => {
+      onboarding.hidden = !onboarding.hidden;
+      help.setAttribute('aria-expanded', String(!onboarding.hidden));
+      void persistence.writeOnboardingOpen(!onboarding.hidden).catch(() => undefined);
+    });
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.dataset.annotationClose = '';
+    close.dataset.variant = 'quiet';
+    close.textContent = '×';
+    close.setAttribute('aria-label', 'Close');
+    close.title = 'Close';
+    close.addEventListener('click', () => panel.dispatchEvent(new Event(ANNOTATION_LIST_CLOSE_EVENT)));
+    header.append(heading, total, help, close);
+    return header;
   }
 
   // Coming back from the browser's shortcut settings (the tab becoming visible or its window regaining focus) updates only the first step, so the rest of the list keeps its state.
@@ -212,22 +248,17 @@ export function createAnnotationList(
   }
 
   function createOnboarding(document: Document, open: boolean, shortcut: string | undefined): HTMLElement {
-    const details = document.createElement('details');
-    details.dataset.annotationOnboarding = '';
-    details.open = open;
-    const summary = document.createElement('summary');
-    summary.textContent = 'How it works';
+    const section = document.createElement('section');
+    section.dataset.annotationOnboarding = '';
+    section.hidden = !open;
     const steps = document.createElement('ol');
     for (const step of onboardingSteps(shortcut)) {
       const item = document.createElement('li');
       item.textContent = step;
       steps.append(item);
     }
-    details.append(summary, steps);
-    details.addEventListener('toggle', () => {
-      void persistence.writeOnboardingOpen(details.open).catch(() => undefined);
-    });
-    return details;
+    section.append(steps);
+    return section;
   }
 
   function createExportSection(document: Document, annotations: Annotation[]): HTMLElement {
@@ -258,7 +289,9 @@ export function createAnnotationList(
     const download = document.createElement('button');
     download.type = 'button';
     download.dataset.annotationExportDownload = '';
-    download.textContent = 'Download Markdown';
+    download.dataset.variant = 'quiet';
+    download.textContent = 'Download';
+    download.setAttribute('aria-label', 'Download Markdown');
     download.addEventListener('click', () => {
       const version = clearVersion;
       void (async () => {
@@ -322,8 +355,7 @@ export function createAnnotationList(
     remove.type = 'button';
     remove.dataset.annotationDelete = '';
     remove.dataset.variant = 'danger';
-    remove.setAttribute('aria-label', `Delete annotation ${position}`);
-    remove.textContent = 'Delete';
+    setIconButton(remove, 'trash', `Delete annotation ${position}`);
     const dismissDelete = createInlineConfirm(document, {
       trigger: remove,
       question: `Delete annotation ${position}? This cannot be undone.`,
@@ -339,8 +371,8 @@ export function createAnnotationList(
     const locate = document.createElement('button');
     locate.type = 'button';
     locate.dataset.annotationLocate = '';
-    locate.setAttribute('aria-label', `Locate annotation ${position}`);
-    locate.textContent = 'Locate';
+    locate.dataset.variant = 'quiet';
+    setIconButton(locate, 'locate', `Locate annotation ${position}`);
     locate.addEventListener('click', () => {
       const element = resolveSelector(document, annotation.selector);
       if (element) {
@@ -357,9 +389,8 @@ export function createAnnotationList(
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.dataset.annotationRowEdit = '';
-    edit.dataset.variant = 'primary';
-    edit.setAttribute('aria-label', `Edit annotation ${position}`);
-    edit.textContent = 'Edit';
+    edit.dataset.variant = 'quiet';
+    setIconButton(edit, 'edit', `Edit annotation ${position}`);
     edit.addEventListener('click', () => {
       panel.dispatchEvent(new CustomEvent<Annotation>(ANNOTATION_EDIT_EVENT, { detail: annotation }));
     });
@@ -367,7 +398,7 @@ export function createAnnotationList(
     const actions = document.createElement('div');
     actions.dataset.annotationRowActions = '';
     actions.append(locate, edit, remove);
-    row.append(number, note, status, hint, actions);
+    row.append(number, note, actions, hint, status);
     if (!resolveSelector(document, annotation.selector)) flagMissing(document, row);
     return row;
   }

@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
-import { ANNOTATION_EDIT_EVENT, ANNOTATION_START_EVENT, createAnnotationList } from '../lib/annotation-list/annotation-list';
+import { ANNOTATION_EDIT_EVENT, ANNOTATION_LIST_CLOSE_EVENT, ANNOTATION_START_EVENT, createAnnotationList } from '../lib/annotation-list/annotation-list';
 import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../lib/notes/note-panel';
 import { createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
@@ -11,6 +11,7 @@ import { createPanelMode } from '../lib/wiring/panel-mode';
 import { watchRoute } from '../lib/wiring/route-watch';
 import { buildOverlayShell, createPanelAnchor, raiseOverlay, setToolbarHidden, type PanelAnchor } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
+import { setIconButton } from '../lib/ui/icons';
 import { createToolbarControls } from '../lib/ui/toolbar-controls';
 import { readToolbarPrefs, writeToolbarPrefs } from '../lib/ui/ui-prefs';
 import { isToolbarChangedMessage, readToolbarTab, setToolbarTab } from '../lib/wiring/toolbar-tab-messages';
@@ -121,7 +122,7 @@ export default defineContentScript({
         scanToggle.type = 'button';
         scanToggle.dataset.annotationScanToggle = '';
         scanToggle.setAttribute('aria-expanded', 'false');
-        scanToggle.textContent = 'Scan';
+        setIconButton(scanToggle, 'scan', 'Scan');
         const listToggle = document.createElement('button');
         const panels = createPanelMode({
           panel: shell.panel,
@@ -141,7 +142,7 @@ export default defineContentScript({
         listToggle.type = 'button';
         listToggle.dataset.annotationListToggle = '';
         listToggle.setAttribute('aria-expanded', 'false');
-        listToggle.textContent = 'View all';
+        setIconButton(listToggle, 'list', 'View all');
         listToggle.addEventListener('click', () => panels.toggle('list'));
         shell.toolbar.append(listToggle);
 
@@ -179,6 +180,9 @@ export default defineContentScript({
         });
         shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, () => {
           if (panels.mode() === 'note') panels.close();
+        });
+        shell.panel.addEventListener(ANNOTATION_LIST_CLOSE_EVENT, () => {
+          if (panels.mode() === 'list') panels.close();
         });
         shell.panel.addEventListener('keydown', (event) => {
           if (event.key !== 'Escape' || panels.mode() === 'none') return;

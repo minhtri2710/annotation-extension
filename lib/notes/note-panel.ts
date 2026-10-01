@@ -1,4 +1,4 @@
-import type { Annotation, CssDeclaration } from '../annotation';
+import type { Annotation, AnnotationUpdate, CssDeclaration, Repro } from '../annotation';
 import { errorMessage } from '../guards';
 import { blobToBase64 } from '../base64';
 import { annotationWriteError, MAX_TEXT_LENGTH, type AnnotationWriteMessage } from '../annotation-messages';
@@ -34,6 +34,7 @@ const NOTE_SAVED_MESSAGE = 'Note saved.';
 const DELETED_ELSEWHERE_MESSAGE = 'This annotation was deleted in another tab.';
 const CHANGED_ELSEWHERE_MESSAGE = 'This annotation changed in another tab.';
 const DRAFT_RESTORED_MESSAGE = 'Draft restored.';
+const CSS_ELEMENT_NOT_FOUND_MESSAGE = 'Element not found on this page; CSS tweaks were not saved.';
 
 export function createNotePanel(
   panel: HTMLElement,
@@ -110,7 +111,14 @@ export function createNotePanel(
     close.setAttribute('aria-label', 'Close');
     close.title = 'Close';
     close.addEventListener('click', () => panel.dispatchEvent(new Event(NOTE_PANEL_CLOSE_EVENT)));
-    header.append(heading, close, hint);
+    const firstNote = annotations[0];
+    if (firstNote) {
+      const number = document.createElement('span');
+      number.dataset.annotationPosition = '';
+      number.textContent = String(positions.get(firstNote.id));
+      header.append(number);
+    }
+    header.append(heading, hint, close);
     panel.append(header);
     let status: HTMLParagraphElement | undefined;
     const showStatus = () => {
@@ -157,7 +165,8 @@ export function createNotePanel(
     const save = document.createElement('button');
     save.type = 'submit';
     save.dataset.annotationSave = '';
-    save.dataset.variant = 'primary';
+    // The new-note save is the surface's primary only while it is the only form shown.
+    if (annotations.length === 0) save.dataset.variant = 'primary';
     save.textContent = 'Add note';
     const add = () => {
       const value = note.value.trim();
@@ -185,6 +194,20 @@ export function createNotePanel(
       event.preventDefault();
       if (event.submitter !== save) add();
     });
+    if (annotations.length > 0 && !drafts.has(draftKey)) {
+      form.hidden = true;
+      const addAnother = document.createElement('button');
+      addAnother.type = 'button';
+      addAnother.dataset.annotationAddAnother = '';
+      addAnother.dataset.variant = 'quiet';
+      addAnother.textContent = 'Add another note';
+      addAnother.addEventListener('click', () => {
+        form.hidden = false;
+        addAnother.hidden = true;
+        note.focus();
+      });
+      panel.append(addAnother);
+    }
     panel.append(form);
     restoreFocus();
   }
@@ -336,11 +359,38 @@ export function createNotePanel(
       ? persistence.applyCssEdits(annotation, annotation.cssEdits)
       : undefined;
     const images = imagesSection(document, item, annotation, context, reportReadError);
-    const css = cssSection(document, annotation, position, context, reportReadError, appliedCss?.refused);
-    const repro = reproSection(document, annotation, position, context);
+    const css = cssSection(document, annotation, position, context, appliedCss?.refused);
+    const repro = reproSection(document, annotation, position);
+    const note = noteSection(document, annotation, position, context, images.attachLabel, images.attachName, [...css.fields, ...repro.fields], () => save());
     const hasCss = (annotation.cssEdits?.length ?? 0) > 0;
+
+    // One Save sends every field that changed and omits the rest. A CSS change that cannot be applied sends nothing.
+    function save(): void {
+      const changes: AnnotationUpdate = {};
+      const value = note.field.value.trim();
+      if (value && value !== annotation.note) changes.note = value;
+      let successMessage: string | undefined;
+      const declarations = css.pending();
+      if (declarations.length > 0) {
+        const result = persistence.applyCssEdits(annotation, declarations);
+        if (!result) {
+          reportReadError(new Error(CSS_ELEMENT_NOT_FOUND_MESSAGE));
+          return;
+        }
+        changes.cssEdits = result.edits;
+        if (result.refused.length > 0) {
+          successMessage = `Not applied because it would load a resource: ${result.refused.map(({ property }) => property).join(', ')}.`;
+        }
+      }
+      const reproChange = repro.pending();
+      if (reproChange) changes.repro = reproChange;
+      if (Object.keys(changes).length === 0) return;
+      void mutate({ type: 'annotation.update', pageUrl: context.url, id: annotation.id, changes }, context, successMessage);
+    }
+
     item.append(
-      ...noteSection(document, annotation, position, context, images.attachLabel, images.attachName),
+      note.field,
+      note.media,
       group(document, annotation.id, 'css', 'CSS tweaks', hasCss, css.restored, [...css.controls, ...css.readout]),
       group(document, annotation.id, 'repro', 'Reproduction steps', annotation.repro !== undefined, repro.restored, [
         ...repro.controls,
@@ -348,6 +398,7 @@ export function createNotePanel(
       ]),
     );
     await images.appendPreviews();
+    item.append(note.footer);
     return item;
   }
 
@@ -386,7 +437,9 @@ export function createNotePanel(
     context: ElementContext,
     attachmentLabel: HTMLElement,
     attachmentName: HTMLElement,
-  ): HTMLElement[] {
+    editFields: HTMLTextAreaElement[],
+    save: () => void,
+  ): { field: HTMLTextAreaElement; media: HTMLElement; footer: HTMLElement } {
     const note = document.createElement('textarea');
     note.dataset.annotationEditNote = '';
     note.maxLength = MAX_TEXT_LENGTH;
@@ -397,34 +450,26 @@ export function createNotePanel(
     const unsaved = document.createElement('p');
     unsaved.dataset.annotationUnsaved = '';
     unsaved.textContent = 'Unsaved changes';
-    unsaved.hidden = note.value === annotation.note;
+    // Save sends the note, the CSS and the repro, so a change to any of those fields is unsaved.
+    const showUnsaved = () => {
+      unsaved.hidden = ![note, ...editFields].some((field) => field.value !== field.defaultValue);
+    };
+    showUnsaved();
+    for (const field of editFields) field.addEventListener('input', showUnsaved);
     note.addEventListener('input', () => {
-      unsaved.hidden = note.value === annotation.note;
-      if (unsaved.hidden) drafts.delete(draftKey);
+      showUnsaved();
+      if (note.value === annotation.note) drafts.delete(draftKey);
       else drafts.set(draftKey, note.value);
     });
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.dataset.annotationEdit = '';
-    edit.textContent = 'Save note';
-    const saveNote = () => {
-      const value = note.value.trim();
-      if (!value) return;
-      void mutate(
-        {
-          type: 'annotation.update',
-          pageUrl: context.url,
-          id: annotation.id,
-          changes: { note: value },
-        },
-        context,
-      );
-    };
-    edit.addEventListener('click', saveNote);
+    edit.textContent = 'Save';
+    edit.addEventListener('click', save);
     note.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
       event.preventDefault();
-      saveNote();
+      save();
     });
     note.addEventListener('paste', (event) => {
       const files = Array.from(event.clipboardData?.files ?? []);
@@ -484,10 +529,13 @@ export function createNotePanel(
       dataPrefix: 'annotation-delete',
     });
     edit.dataset.variant = 'primary';
-    const actions = document.createElement('div');
-    actions.dataset.annotationNoteActions = '';
-    actions.append(edit, statusToggle, capture, attachmentLabel, attachmentName, remove);
-    return [note, unsaved, actions];
+    const media = document.createElement('div');
+    media.dataset.annotationMediaActions = '';
+    media.append(capture, attachmentLabel, attachmentName);
+    const footer = document.createElement('div');
+    footer.dataset.annotationNoteActions = '';
+    footer.append(remove, unsaved, statusToggle, edit);
+    return { field: note, media, footer };
   }
 
   // The file input sits with the note controls; previews follow the groups once their blobs are read.
@@ -571,9 +619,8 @@ export function createNotePanel(
     annotation: Annotation,
     position: number,
     context: ElementContext,
-    reportReadError: (error: unknown) => void,
     refused: CssDeclaration[] = [],
-  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean } {
+  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean; fields: HTMLTextAreaElement[]; pending: () => CssDeclaration[] } {
     const { field: cssDecls, label: cssDeclsLabel } = labelledField(
       document,
       position,
@@ -582,35 +629,9 @@ export function createNotePanel(
     );
     cssDecls.dataset.annotationCssDecls = '';
     const restored = keepDraft(cssDecls, editDraftKey(annotation.id, 'css'));
-    const saveCss = document.createElement('button');
-    saveCss.type = 'button';
-    saveCss.dataset.annotationCssSave = '';
-    saveCss.textContent = 'Save CSS';
-    saveCss.addEventListener('click', () => {
-      const declarations = parseCssDeclarations(cssDecls.value);
-      if (declarations.length === 0) return;
-      const result = persistence.applyCssEdits(annotation, declarations);
-      if (!result) {
-        reportReadError(new Error('Element not found on this page; CSS tweaks were not saved.'));
-        return;
-      }
-      const successMessage = result.refused.length > 0
-        ? `Not applied because it would load a resource: ${result.refused.map(({ property }) => property).join(', ')}.`
-        : undefined;
-      void mutate(
-        {
-          type: 'annotation.update',
-          pageUrl: context.url,
-          id: annotation.id,
-          changes: { cssEdits: result.edits },
-        },
-        context,
-        successMessage,
-      );
-    });
+    const pending = () => cssDecls.value === cssDecls.defaultValue ? [] : parseCssDeclarations(cssDecls.value);
     if (!annotation.cssEdits || annotation.cssEdits.length === 0) {
-      const actions = groupActions(document, [saveCss]);
-      return { controls: [cssDeclsLabel, actions], readout: [], restored };
+      return { controls: [cssDeclsLabel], readout: [], restored, fields: [cssDecls], pending };
     }
     const clearCss = document.createElement('button');
     clearCss.type = 'button';
@@ -636,16 +657,15 @@ export function createNotePanel(
       entry.textContent = `${property}: ${original} -> ${value}${isRefused ? ' (not applied: it would load a resource)' : ''}`;
       readout.append(entry);
     }
-    const actions = groupActions(document, [saveCss, clearCss]);
-    return { controls: [cssDeclsLabel, actions], readout: [readout], restored };
+    const actions = groupActions(document, [clearCss]);
+    return { controls: [cssDeclsLabel, actions], readout: [readout], restored, fields: [cssDecls], pending };
   }
 
   function reproSection(
     document: Document,
     annotation: Annotation,
     position: number,
-    context: ElementContext,
-  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean } {
+  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean; fields: HTMLTextAreaElement[]; pending: () => Repro | undefined } {
     const { field: reproSteps, label: reproStepsLabel } = labelledField(
       document,
       position,
@@ -674,30 +694,19 @@ export function createNotePanel(
       keepDraft(reproActual, editDraftKey(annotation.id, 'actual')),
     ];
     const restored = restoredFields.includes(true);
-    const saveRepro = document.createElement('button');
-    saveRepro.type = 'button';
-    saveRepro.dataset.annotationReproSave = '';
-    saveRepro.textContent = 'Save repro';
-    saveRepro.addEventListener('click', () => {
+    const pending = (): Repro | undefined => {
+      if (![reproSteps, reproExpected, reproActual].some((field) => field.value !== field.defaultValue)) return undefined;
       const steps = reproSteps.value
         .split(/\r?\n/)
         .map((step) => step.trim())
         .filter(Boolean);
       const expected = reproExpected.value.trim();
       const actual = reproActual.value.trim();
-      if (steps.length === 0 && !expected && !actual) return;
-      void mutate(
-        {
-          type: 'annotation.update',
-          pageUrl: context.url,
-          id: annotation.id,
-          changes: { repro: { steps, expected, actual } },
-        },
-        context,
-      );
-    });
-    const controls = [reproStepsLabel, reproExpectedLabel, reproActualLabel, groupActions(document, [saveRepro])];
-    if (!annotation.repro) return { controls, readout: [], restored };
+      return steps.length === 0 && !expected && !actual ? undefined : { steps, expected, actual };
+    };
+    const controls = [reproStepsLabel, reproExpectedLabel, reproActualLabel];
+    const fields = [reproSteps, reproExpected, reproActual];
+    if (!annotation.repro) return { controls, readout: [], restored, fields, pending };
     const readout = document.createElement('div');
     readout.dataset.annotationRepro = '';
     const stepsList = document.createElement('ol');
@@ -711,7 +720,7 @@ export function createNotePanel(
     const actual = document.createElement('p');
     actual.textContent = `Actual: ${annotation.repro.actual}`;
     readout.append(stepsList, expected, actual);
-    return { controls, readout: [readout], restored };
+    return { controls, readout: [readout], restored, fields, pending };
   }
 
   function appendPreview(

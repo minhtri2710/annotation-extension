@@ -72,7 +72,12 @@ describe('toolbar controls', () => {
   it('prepends the grip and appends the collapse button around existing toolbar content', async () => {
     const { grip, collapse } = setup();
     await controls!.ready;
-    expect(Array.from(toolbar.children).map((child) => child.textContent)).toEqual(['⠿', 'Scan', '', 'Hide']);
+    expect(Array.from(toolbar.children).map((child) => child.getAttribute('aria-label') ?? child.textContent)).toEqual([
+      'Move toolbar',
+      'Scan',
+      '',
+      'Hide annotation toolbar',
+    ]);
     expect(toolbar.firstElementChild).toBe(grip);
     expect(toolbar.lastElementChild).toBe(collapse);
     expect(grip.type).toBe('button');
@@ -83,14 +88,28 @@ describe('toolbar controls', () => {
     expect(inlinePosition()).toEqual({ left: '', top: '', right: '', bottom: '' });
   });
 
-  it('names the collapse button with toolbar context while keeping its visible text', async () => {
+  it('names the collapse button with toolbar context', async () => {
     const { collapse } = setup();
     await controls!.ready;
-    expect(collapse.textContent).toBe('Hide');
     expect(collapse.getAttribute('aria-label')).toBe('Hide annotation toolbar');
     collapse.click();
-    expect(collapse.textContent).toBe('Show');
     expect(collapse.getAttribute('aria-label')).toBe('Show annotation toolbar');
+  });
+
+  it('draws the grip and the collapse button as icons with a name and a title and no visible text, in both collapse states', async () => {
+    const { grip, collapse } = setup();
+    await controls!.ready;
+    for (const label of ['Hide annotation toolbar', 'Show annotation toolbar']) {
+      for (const control of [grip, collapse]) {
+        expect(control.textContent).toBe('');
+        expect(control.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+        expect(control.querySelector('svg')?.getAttribute('focusable')).toBe('false');
+        expect(control.title).toBe(control.getAttribute('aria-label'));
+      }
+      expect(collapse.getAttribute('aria-label')).toBe(label);
+      collapse.click();
+    }
+    expect(grip.title).toBe('Move toolbar');
   });
 
   it('applies the stored position clamped to the viewport and the stored collapsed state without notifying', async () => {
@@ -99,7 +118,7 @@ describe('toolbar controls', () => {
     expect(inlinePosition()).toEqual({ left: '592px', top: '20px', right: 'auto', bottom: 'auto' });
     expect(toolbar.hasAttribute('data-collapsed')).toBe(true);
     expect(collapse.getAttribute('aria-expanded')).toBe('false');
-    expect(collapse.textContent).toBe('Show');
+    expect(collapse.getAttribute('aria-label')).toBe('Show annotation toolbar');
     expect(onCollapsedChange).not.toHaveBeenCalled();
     expect(prefs.write).not.toHaveBeenCalled();
   });
@@ -219,13 +238,13 @@ describe('toolbar controls', () => {
     collapse.click();
     expect(toolbar.hasAttribute('data-collapsed')).toBe(true);
     expect(collapse.getAttribute('aria-expanded')).toBe('false');
-    expect(collapse.textContent).toBe('Show');
+    expect(collapse.getAttribute('aria-label')).toBe('Show annotation toolbar');
     expect(prefs.write).toHaveBeenCalledWith({ position: { x: 100, y: 100 }, collapsed: true });
     await vi.waitFor(() => expect(onCollapsedChange).toHaveBeenCalledWith(true));
     collapse.click();
     expect(toolbar.hasAttribute('data-collapsed')).toBe(false);
     expect(collapse.getAttribute('aria-expanded')).toBe('true');
-    expect(collapse.textContent).toBe('Hide');
+    expect(collapse.getAttribute('aria-label')).toBe('Hide annotation toolbar');
     expect(prefs.write).toHaveBeenLastCalledWith({ position: { x: 100, y: 100 }, collapsed: false });
     await vi.waitFor(() => expect(onCollapsedChange).toHaveBeenLastCalledWith(false));
   });

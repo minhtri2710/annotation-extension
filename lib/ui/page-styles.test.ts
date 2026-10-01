@@ -25,7 +25,7 @@ describe('page styles', () => {
   });
 
   it('gives page buttons hover, focus-visible and active states with short transitions', () => {
-    expect(PAGE_STYLES).toContain('.annotation-page__card button:hover {\n  border-color: var(--annotation-color-accent);\n  background: var(--annotation-color-surface-raised);');
+    expect(PAGE_STYLES).toContain('.annotation-page__card button:hover {\n  background: var(--annotation-color-hover);');
     expect(PAGE_STYLES).toContain('.annotation-page__card button:focus-visible');
     expect(PAGE_STYLES).toContain('outline: 0.15rem solid var(--annotation-color-accent)');
     expect(PAGE_STYLES).toMatch(/\.annotation-page__card button:not\(:disabled\):active \{\n +transform: /);

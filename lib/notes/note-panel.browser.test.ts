@@ -47,16 +47,16 @@ describe('note panel in a real browser', () => {
     return { shadow, shell, notePanel };
   }
 
-  it('places the glyph Close at the header end on the heading row', async () => {
+  it('places the glyph Close at the header end on the element label row', async () => {
     const { shell } = await rendered('light');
     const header = shell.panel.firstElementChild as HTMLElement;
-    const heading = header.querySelector('h2')!;
+    const hint = header.querySelector('[data-annotation-hint]')!;
     const close = header.querySelector<HTMLButtonElement>('[data-annotation-close]')!;
     expect(header.matches('[data-annotation-note-header]')).toBe(true);
     const headerRect = header.getBoundingClientRect();
-    const headingRect = heading.getBoundingClientRect();
+    const hintRect = hint.getBoundingClientRect();
     const closeRect = close.getBoundingClientRect();
-    expect(Math.abs(closeRect.top - headingRect.top)).toBeLessThanOrEqual(4);
+    expect(Math.abs((closeRect.top + closeRect.height / 2) - (hintRect.top + hintRect.height / 2))).toBeLessThanOrEqual(4);
     expect(closeRect.right).toBeCloseTo(headerRect.right - Number.parseFloat(getComputedStyle(header).paddingRight), 0);
     expect(closeRect.width).toBeGreaterThanOrEqual(32);
     expect(closeRect.height).toBeGreaterThanOrEqual(32);
@@ -94,15 +94,17 @@ describe('note panel in a real browser', () => {
     expect(Math.abs((textRect.top + textRect.height / 2) - (rect.top + rect.height / 2))).toBeLessThanOrEqual(2);
   });
 
-  it('renders card borders and stacked full-width disclosure fields', async () => {
+  it('renders a card without a border or padding of its own and stacked full-width disclosure fields', async () => {
     const { shell } = await rendered('light', {
       cssEdits: [{ property: 'color', value: 'red', original: 'blue' }],
     });
+    shell.panel.querySelector<HTMLButtonElement>('[data-annotation-add-another]')!.click();
     const card = shell.panel.querySelector<HTMLTextAreaElement>('[data-annotation-edit-note]')!.closest('article')!;
     const labels = [...shell.panel.querySelectorAll<HTMLLabelElement>('[data-annotation-css-group] label, [data-annotation-repro-group] label')];
     const textareas = [...shell.panel.querySelectorAll<HTMLTextAreaElement>('textarea')];
     const form = shell.panel.querySelector<HTMLFormElement>(':scope > form')!;
-    expect(getComputedStyle(card).borderTopWidth).toBe('1px');
+    expect(getComputedStyle(card).borderTopWidth).toBe('0px');
+    expect(getComputedStyle(card).paddingTop).toBe('0px');
     expect(card.getBoundingClientRect().height).toBeGreaterThan(0);
     for (const label of labels) {
       const field = label.querySelector<HTMLTextAreaElement>('textarea')!;
@@ -165,7 +167,8 @@ describe('note panel in a real browser', () => {
     await userEvent.keyboard('{Control>}{Enter}{/Control}');
     await vi.waitFor(() => expect(shell.panel.querySelector('[data-annotation-edit-note]')).not.toBeNull());
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
-    expect(shadow.activeElement).toBe(shell.panel.querySelector('[data-annotation-new-note]'));
+    // The saved note folds the form behind Add another note, so focus moves to the panel heading.
+    expect(shadow.activeElement).toBe(shell.panel.querySelector('h2'));
     expect(document.activeElement).not.toBe(document.body);
     expect(notePanel.live.textContent).toBe('Note saved.');
   });
@@ -208,23 +211,25 @@ describe('note panel in a real browser', () => {
     expect(hovered?.closest('[title]')?.getAttribute('title')).toContain(label);
   });
 
-  it('sets Save note and Resolve as the main row, Capture screenshot and Attach image as a quieter row, Delete apart, shorter CSS and repro fields, and Add a note below as the secondary form', async () => {
+  it('sets Capture screenshot and Attach image as a quieter row under the note, Delete, Resolve and Save as one footer row with Save last, and shorter CSS and repro fields', async () => {
     const { shell } = await rendered('light');
     for (const group of shell.panel.querySelectorAll('details')) group.open = true;
     const part = (selector: string) => shell.panel.querySelector<HTMLElement>(selector)!;
     const [save, resolve, capture, attach, remove] = ['[data-annotation-edit]', '[data-annotation-status-toggle]', '[data-annotation-capture-screenshot]', '[data-annotation-attach]', '[data-annotation-delete]'].map(part);
     const actions = part('[data-annotation-note-actions]');
-    expect(Math.abs(rect(save!).top - rect(resolve!).top)).toBeLessThanOrEqual(1);
-    expect(rect(save!).right).toBeLessThanOrEqual(rect(resolve!).left);
-    expect(rect(capture!).top).toBeGreaterThanOrEqual(rect(save!).bottom);
+    expect(rect(capture!).top).toBeGreaterThanOrEqual(rect(part('[data-annotation-edit-note]')).bottom);
     expect(Math.abs(rect(capture!).top - rect(attach!).top)).toBeLessThanOrEqual(1);
     expect(rect(capture!).right).toBeLessThanOrEqual(rect(attach!).left);
-    expect(alpha(getComputedStyle(save!).borderTopColor)).toBe(1);
-    expect(alpha(getComputedStyle(resolve!).borderTopColor)).toBe(1);
-    expect(alpha(getComputedStyle(capture!).borderTopColor)).toBe(0);
-    expect(alpha(getComputedStyle(attach!).borderTopColor)).toBe(0);
-    expect(rect(remove!).left - rect(attach!).right).toBeGreaterThanOrEqual(24);
-    expect(rect(actions).right - rect(remove!).right).toBeLessThanOrEqual(1);
+    expect(rect(actions).top).toBeGreaterThanOrEqual(rect(part('[data-annotation-css-group]')).bottom);
+    for (const button of [remove!, resolve!, save!]) expect(Math.abs(rect(button).top - rect(save!).top)).toBeLessThanOrEqual(1);
+    expect(rect(remove!).right + 24).toBeLessThanOrEqual(rect(resolve!).left);
+    expect(rect(resolve!).right).toBeLessThanOrEqual(rect(save!).left);
+    expect(rect(actions).right - rect(save!).right).toBeLessThanOrEqual(1);
+    for (const button of [save!, resolve!, capture!, attach!, remove!]) expect(getComputedStyle(button).borderTopWidth).toBe('0px');
+    expect(alpha(getComputedStyle(save!).backgroundColor)).toBe(1);
+    expect(alpha(getComputedStyle(capture!).backgroundColor)).toBe(0);
+    expect(alpha(getComputedStyle(attach!).backgroundColor)).toBe(0);
+    expect(alpha(getComputedStyle(remove!).backgroundColor)).toBe(0);
 
     const note = part('[data-annotation-edit-note]');
     for (const selector of ['[data-annotation-css-decls]', '[data-annotation-repro-steps]', '[data-annotation-repro-expected]', '[data-annotation-repro-actual]']) {

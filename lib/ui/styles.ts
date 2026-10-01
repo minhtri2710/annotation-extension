@@ -103,16 +103,22 @@ ${ANNOTATION_DARK_TOKENS}
   display: inline-flex;
   align-items: center;
   min-height: 32px;
-  padding: 0 var(--annotation-space-2);
+  padding: 0 var(--annotation-space-3);
   border-radius: var(--annotation-radius-md);
   background: var(--annotation-color-surface-raised);
-  color: var(--annotation-color-text);
-  font-weight: var(--annotation-font-weight-medium);
+  color: var(--annotation-color-accent);
+  font-weight: var(--annotation-font-weight-bold);
   white-space: nowrap;
 }
 
-/* The badge is a flex container, which strips the unit's leading space unless it is preserved. */
+/* The badge shows the number; the unit stays in the text for assistive technology. */
 [data-annotation-shell] [data-annotation-badge-unit] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
   white-space: pre;
 }
 
@@ -123,15 +129,18 @@ ${ANNOTATION_DARK_TOKENS}
 
 [data-annotation-shell] [data-annotation-onboarding] {
   padding: var(--annotation-space-2) var(--annotation-space-3);
-  border: 1px solid var(--annotation-color-border);
   border-radius: var(--annotation-radius-md);
   background: var(--annotation-color-surface-raised);
   color: var(--annotation-color-text-muted);
   font-size: var(--annotation-font-size-caption);
 }
 
+[data-annotation-shell] [data-annotation-onboarding][hidden] {
+  display: none;
+}
+
 [data-annotation-shell] [data-annotation-onboarding] ol {
-  margin: var(--annotation-space-2) 0 0;
+  margin: 0;
   padding-left: var(--annotation-space-4);
 }
 
@@ -147,40 +156,76 @@ ${ANNOTATION_DARK_TOKENS}
   margin-top: var(--annotation-space-3);
 }
 
-[data-annotation-shell] [data-annotation-note-header] {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: var(--annotation-space-2);
+/* Header: pin number, the element label on one truncated line, Close. The "Notes" heading stays in the tree for assistive technology. */
+[data-annotation-shell] [data-annotation-note-header],
+[data-annotation-shell] [data-annotation-list-header] {
+  display: flex;
+  gap: var(--annotation-space-2);
   align-items: center;
 }
 
 [data-annotation-shell] [data-annotation-note-header] h2 {
-  margin: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 [data-annotation-shell] [data-annotation-note-header] [data-annotation-hint] {
-  grid-column: 1 / -1;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-[data-annotation-shell] [data-annotation-close] {
+[data-annotation-shell] [data-annotation-list-header] h2 {
+  margin: 0;
+  font-size: var(--annotation-font-size-title);
+  font-weight: var(--annotation-font-weight-bold);
+  line-height: 1.2;
+}
+
+[data-annotation-shell] [data-annotation-list-count] {
+  flex: 1 1 auto;
+  color: var(--annotation-color-text-muted);
+  font-size: var(--annotation-font-size-caption);
+}
+
+[data-annotation-shell] [data-annotation-note-header] > [data-annotation-close],
+[data-annotation-shell] [data-annotation-list-header] > [data-annotation-close] {
+  margin-left: auto;
+}
+
+[data-annotation-shell] [data-annotation-close],
+[data-annotation-shell] [data-annotation-help] {
   width: 32px;
   min-width: 32px;
-  min-height: 32px;
   padding: 0;
   font-size: var(--annotation-font-size-title);
   line-height: 1;
 }
 
+[data-annotation-shell] [data-annotation-help][aria-expanded="true"] {
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-accent);
+}
+
+/* Cards share the panel's one padding; a divider, not a box, separates two of them. */
 [data-annotation-shell] article[data-annotation-note-card] {
   display: flex;
   flex-direction: column;
   gap: var(--annotation-space-2);
-  padding: var(--annotation-space-3);
-  border: 1px solid var(--annotation-color-border);
-  border-radius: var(--annotation-radius-md);
+}
+
+[data-annotation-shell] article[data-annotation-note-card] + article[data-annotation-note-card] {
+  padding-top: var(--annotation-space-3);
+  border-top: 1px solid var(--annotation-color-divider);
 }
 
 [data-annotation-shell] [data-annotation-note-actions],
+[data-annotation-shell] [data-annotation-media-actions],
 [data-annotation-shell] [data-annotation-group-actions],
 [data-annotation-shell] [data-annotation-row-actions],
 [data-annotation-shell] [data-annotation-export-actions] {
@@ -190,38 +235,53 @@ ${ANNOTATION_DARK_TOKENS}
   align-items: center;
 }
 
-[data-annotation-shell] [data-annotation-note-actions] label[data-annotation-attach] {
+[data-annotation-shell] [data-annotation-media-actions] {
+  gap: var(--annotation-space-1);
+}
+
+[data-annotation-shell] [data-annotation-note-actions] label[data-annotation-attach],
+[data-annotation-shell] [data-annotation-media-actions] label[data-annotation-attach] {
   display: inline-flex;
   align-items: center;
 }
 
-[data-annotation-shell] [data-annotation-note-actions] label[data-annotation-attach]:has(input:focus-visible) {
+[data-annotation-shell] [data-annotation-media-actions] label[data-annotation-attach]:has(input:focus-visible) {
   outline: 2px solid var(--annotation-color-accent);
   outline-offset: 2px;
 }
 
-/* Row 1 is Save note and Resolve; the ::after break starts row 2 (Capture, Attach, Delete), and DOM order stays the visual order. */
-[data-annotation-shell] [data-annotation-note-actions]::after {
-  content: "";
-  order: 1;
-  flex-basis: 100%;
-  height: 0;
+/* Footer: Delete at the start, then the save status, Resolve and Save at the end, on one row; the delete prompt takes a row of its own. */
+[data-annotation-shell] [data-annotation-note-actions] {
+  flex-wrap: nowrap;
+  padding-top: var(--annotation-space-3);
+  border-top: 1px solid var(--annotation-color-divider);
 }
 
-[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-capture-screenshot],
-[data-annotation-shell] [data-annotation-note-actions] > label[data-annotation-attach],
-[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-attach-name],
-[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-delete],
+[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-unsaved] {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+}
+
+[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-unsaved][hidden] {
+  display: block;
+  visibility: hidden;
+}
+
+[data-annotation-shell] [data-annotation-note-actions]:has(> [data-annotation-delete-prompt]) {
+  flex-wrap: wrap;
+}
+
 [data-annotation-shell] [data-annotation-note-actions] > [data-annotation-delete-prompt] {
-  order: 2;
-}
-
-[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-delete] {
-  margin-left: auto;
-}
-
-[data-annotation-shell] [data-annotation-note-actions] > [data-annotation-delete-prompt] {
   flex-basis: 100%;
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] > [data-annotation-add-another] {
+  align-self: flex-start;
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] > form[hidden] {
+  display: none;
 }
 
 [data-annotation-shell] [data-annotation-attach-name]:empty {
@@ -290,7 +350,7 @@ ${ANNOTATION_DARK_TOKENS}
 
 [data-annotation-shell] [data-annotation-mount="panel"]:has(article[data-annotation-note-card]) > form {
   padding-top: var(--annotation-space-3);
-  border-top: 1px solid var(--annotation-color-border);
+  border-top: 1px solid var(--annotation-color-divider);
 }
 
 [data-annotation-shell] [data-annotation-mount="panel"] textarea::placeholder {
@@ -365,12 +425,16 @@ ${ANNOTATION_DARK_TOKENS}
 
 :where([data-annotation-shell] [data-annotation-mount]) button,
 :where([data-annotation-shell] [data-annotation-mount]) label[data-annotation-attach] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--annotation-space-1);
   max-width: 100%;
   min-height: 32px;
-  padding: var(--annotation-space-1) var(--annotation-space-2);
-  border: 1px solid var(--annotation-color-border);
+  padding: var(--annotation-space-1) var(--annotation-space-3);
+  border: 0;
   border-radius: var(--annotation-radius-md);
-  background: var(--annotation-color-surface);
+  background: var(--annotation-color-surface-raised);
   color: var(--annotation-color-text);
   font: inherit;
   cursor: pointer;
@@ -393,64 +457,79 @@ ${ANNOTATION_DARK_TOKENS}
   max-width: 100%;
 }
 
+/* Three tiers, none with a border. Secondary is the base: a neutral fill. */
 [data-annotation-shell] [data-annotation-mount] button:hover,
 [data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover {
-  border-color: var(--annotation-color-accent);
-  background: var(--annotation-color-surface-raised);
+  background: var(--annotation-color-hover);
   color: var(--annotation-color-text);
 }
 
+/* Primary: the one accent fill of a surface. */
 [data-annotation-shell] [data-annotation-mount] button[data-variant="primary"],
+[data-annotation-shell] [data-annotation-mount] button[data-variant="primary"]:hover,
 [data-annotation-shell] [data-annotation-mount] button[data-variant="primary"]:active {
-  border-color: var(--annotation-color-accent);
   background: var(--annotation-color-accent);
-  color: var(--annotation-color-surface);
+  color: var(--annotation-color-on-accent);
   font-weight: var(--annotation-font-weight-medium);
 }
 
-[data-annotation-shell] [data-annotation-mount] button[data-variant="primary"]:hover {
-  border-color: var(--annotation-color-text);
-  background: var(--annotation-color-accent);
-  color: var(--annotation-color-surface);
+[data-annotation-shell] [data-annotation-mount] button[data-variant="primary"]:hover,
+[data-annotation-shell] [data-annotation-mount] [role="group"] > button[data-variant="danger"]:hover {
+  filter: brightness(0.92);
 }
 
-[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"],
-[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"]:hover,
-[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"]:active {
-  border-color: var(--annotation-color-danger);
-  color: var(--annotation-color-danger);
-}
-
-/* Quiet: an action beside the main ones, with no border until it is hovered. */
+/* Ghost: transparent and muted until hovered. */
 [data-annotation-shell] [data-annotation-mount] button[data-variant="quiet"],
-[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach] {
-  border-color: transparent;
+[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach],
+[data-annotation-shell] [data-annotation-mount="toolbar"] > button:not([data-variant]),
+[data-annotation-shell] [data-annotation-mount] button[data-annotation-close],
+[data-annotation-shell] [data-annotation-filter] button {
   background: transparent;
   color: var(--annotation-color-text-muted);
-  font-size: var(--annotation-font-size-caption);
 }
 
 [data-annotation-shell] [data-annotation-mount] button[data-variant="quiet"]:hover,
 [data-annotation-shell] [data-annotation-mount] button[data-variant="quiet"]:active,
-[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover {
-  border-color: var(--annotation-color-border);
-  background: var(--annotation-color-surface-raised);
+[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover,
+[data-annotation-shell] [data-annotation-mount="toolbar"] > button:not([data-variant]):hover,
+[data-annotation-shell] [data-annotation-mount] button[data-annotation-close]:hover,
+[data-annotation-shell] [data-annotation-filter] button:hover {
+  background: var(--annotation-color-hover);
   color: var(--annotation-color-text);
 }
 
-/* Add a note is the second way to save on a card that already has Save note, so it is outlined, not filled. */
-[data-annotation-shell] [data-annotation-mount] button[data-annotation-save][data-variant="primary"],
-[data-annotation-shell] [data-annotation-mount] button[data-annotation-save][data-variant="primary"]:hover,
-[data-annotation-shell] [data-annotation-mount] button[data-annotation-save][data-variant="primary"]:active {
-  border-color: var(--annotation-color-border);
-  background: var(--annotation-color-surface);
-  color: var(--annotation-color-text);
-  font-weight: var(--annotation-font-weight-regular);
+/* A toggled icon control and a pressed segment read as selected through the accent. */
+[data-annotation-shell] [data-annotation-mount="toolbar"] > button[aria-expanded="true"],
+[data-annotation-shell] [data-annotation-mount] button[data-annotation-help][aria-expanded="true"] {
+  background: var(--annotation-color-surface-raised);
+  color: var(--annotation-color-accent);
 }
 
-[data-annotation-shell] [data-annotation-mount] button[data-annotation-save][data-variant="primary"]:hover {
-  border-color: var(--annotation-color-accent);
-  background: var(--annotation-color-surface-raised);
+/* Danger: red text on a transparent base; only a confirm button is filled. */
+[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"],
+[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"]:active {
+  background: transparent;
+  color: var(--annotation-color-danger);
+}
+
+[data-annotation-shell] [data-annotation-mount] button[data-variant="danger"]:hover {
+  background: var(--annotation-color-hover);
+  color: var(--annotation-color-danger);
+}
+
+[data-annotation-shell] [data-annotation-mount] [role="group"] > button[data-variant="danger"],
+[data-annotation-shell] [data-annotation-mount] [role="group"] > button[data-variant="danger"]:hover,
+[data-annotation-shell] [data-annotation-mount] [role="group"] > button[data-variant="danger"]:active {
+  background: var(--annotation-color-danger);
+  color: var(--annotation-color-on-accent);
+  font-weight: var(--annotation-font-weight-medium);
+}
+
+/* Icon-only controls are square. */
+[data-annotation-shell] [data-annotation-mount] button:has(> svg:only-child) {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
 }
 
 [data-annotation-shell] [data-annotation-mount] input:focus-visible,
@@ -472,7 +551,7 @@ ${ANNOTATION_DARK_TOKENS}
 
 [data-annotation-shell] [data-annotation-scan-group] {
   padding-top: var(--annotation-space-3);
-  border-top: 1px solid var(--annotation-color-border);
+  border-top: 1px solid var(--annotation-color-divider);
 }
 
 [data-annotation-shell] [data-annotation-scan-group] h3 {
@@ -484,16 +563,26 @@ ${ANNOTATION_DARK_TOKENS}
   margin: 0 0 var(--annotation-space-2);
 }
 
+/* One segmented control: a neutral track with the pressed segment ringed in the accent. */
 [data-annotation-shell] [data-annotation-filter] {
   display: flex;
   flex-wrap: wrap;
   gap: var(--annotation-space-2);
+  padding: 2px;
+  border-radius: var(--annotation-radius-md);
+  background: var(--annotation-color-surface-raised);
+}
+
+[data-annotation-shell] [data-annotation-filter] button {
+  flex: 1 1 0;
+  min-height: 28px;
+  padding: 0 var(--annotation-space-2);
 }
 
 [data-annotation-shell] [data-annotation-filter] button[aria-pressed="true"] {
-  border-color: var(--annotation-color-accent);
-  background: var(--annotation-color-surface-raised);
-  color: var(--annotation-color-text);
+  box-shadow: inset 0 0 0 1px var(--annotation-color-accent);
+  background: var(--annotation-color-surface);
+  color: var(--annotation-color-accent);
   font-weight: var(--annotation-font-weight-medium);
 }
 
@@ -668,7 +757,7 @@ ${ANNOTATION_DARK_TOKENS}
   gap: var(--annotation-space-2);
   align-items: center;
   padding-top: var(--annotation-space-3);
-  border-top: 1px solid var(--annotation-color-border);
+  border-top: 1px solid var(--annotation-color-divider);
 }
 
 /* The export buttons and Clear all are one row of the footer; Clear all sits at the far end. */
@@ -691,43 +780,63 @@ ${ANNOTATION_DARK_TOKENS}
   gap: var(--annotation-space-2);
 }
 
-/* Number, note and status share the first line; the element label is one muted line under the note, then the actions. */
+/* Number, one-line note and the icon actions share the first line; the element label and the status are muted lines under the note. */
 [data-annotation-shell] article[data-annotation-row] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   column-gap: var(--annotation-space-2);
   row-gap: var(--annotation-space-1);
   align-items: center;
-  padding: var(--annotation-space-2) var(--annotation-space-3);
-  border: 1px solid var(--annotation-color-border);
-  border-radius: var(--annotation-radius-md);
+  padding-bottom: var(--annotation-space-2);
+  border-bottom: 1px solid var(--annotation-color-divider);
 }
 
 [data-annotation-shell] article[data-annotation-row] > [data-annotation-note] {
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-[data-annotation-shell] article[data-annotation-row] > [data-annotation-hint] {
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-row-actions] {
+  flex-wrap: nowrap;
+}
+
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-hint],
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-status] {
   grid-column: 2 / -1;
 }
 
-[data-annotation-shell] article[data-annotation-row] > [data-annotation-row-actions],
-[data-annotation-shell] article[data-annotation-row] > [data-annotation-locate-missing] {
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-status] {
+  justify-self: start;
+}
+
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-locate-missing],
+[data-annotation-shell] article[data-annotation-row]:has([data-annotation-delete-prompt]) > [data-annotation-row-actions] {
   grid-column: 1 / -1;
 }
 
-[data-annotation-shell] [data-annotation-row-actions] > [data-annotation-delete] {
-  margin-left: auto;
+[data-annotation-shell] article[data-annotation-row] [data-annotation-row-actions]:has(> [data-annotation-delete-prompt]) {
+  flex-wrap: wrap;
 }
 
 [data-annotation-shell] [data-annotation-row-actions] > [data-annotation-delete-prompt] {
   flex-basis: 100%;
 }
 
+[data-annotation-shell] [data-annotation-delete-prompt],
 [data-annotation-shell] [data-annotation-clear-prompt] {
-  padding: var(--annotation-space-2) var(--annotation-space-3);
-  border: 1px solid var(--annotation-color-danger);
-  border-radius: var(--annotation-radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--annotation-space-2);
+  align-items: center;
+}
+
+[data-annotation-shell] [data-annotation-delete-prompt] > p,
+[data-annotation-shell] [data-annotation-clear-prompt] > p {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--annotation-color-danger);
 }
 
 @media (prefers-reduced-motion: no-preference) {
