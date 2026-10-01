@@ -896,6 +896,7 @@ describe.each<ThemeMode>(['light', 'dark'])('options page layout in the %s schem
   }
 
   it('centres a 560 px card with 24 px padding, a divider border and no shadow, and spaces its sections 16 px apart with no band under the last', async () => {
+    await page.viewport(1280, 720);
     const { main } = await mountOptions();
     const style = getComputedStyle(main);
     const rect = main.getBoundingClientRect();
@@ -917,6 +918,7 @@ describe.each<ThemeMode>(['light', 'dark'])('options page layout in the %s schem
   });
 
   it('puts the allowed-site field and Add site on one row at one height and one top', async () => {
+    await page.viewport(1280, 720);
     const { byId } = await mountOptions();
     const field = byId('allowlist-entry').getBoundingClientRect();
     const add = byId('allowlist-form').querySelector('button')!.getBoundingClientRect();
@@ -925,6 +927,7 @@ describe.each<ThemeMode>(['light', 'dark'])('options page layout in the %s schem
   });
 
   it('shows each site on one line with Remove as danger text at its end, and Save settings as the one primary in a footer row with the status at the start', async () => {
+    await page.viewport(1280, 720);
     const { main, byId } = await mountOptions();
     const rows = [...byId('allowlist').children] as HTMLElement[];
     expect(rows).toHaveLength(2);

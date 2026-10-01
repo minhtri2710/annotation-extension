@@ -744,6 +744,26 @@ describe('panel placement against the toolbar (real browser)', () => {
     expect(rect.bottom).toBeLessThanOrEqual(box.y - 8 + 1);
   });
 
+  it('keeps a scrolled panel where it was scrolled when its content changes', async () => {
+    const { shell } = mountOverlay();
+    const anchor = createPanelAnchor(shell.panel, shell.toolbar);
+    cleanups.push(() => anchor.destroy());
+    fillTo(shell.panel, 3000);
+    anchor.place(() => ({ x: 40, y: 60, width: 100, height: 30 }));
+    await settled(shell);
+    // The anchor's cap is below the stylesheet's, so measuring uncapped would clamp a scroll at the bottom.
+    shell.panel.scrollTop = shell.panel.scrollHeight;
+    const scrolled = shell.panel.scrollTop;
+    expect(scrolled).toBeGreaterThan(200);
+
+    const added = document.createElement('div');
+    added.style.height = '20px';
+    shell.panel.append(added);
+    await settled(shell);
+
+    expect(shell.panel.scrollTop).toBe(scrolled);
+  });
+
   it('keeps the note and list headers in view while the panel body scrolls', async () => {
     await page.viewport(600, 400);
     const { shadow, shell } = mountOverlay();

@@ -239,7 +239,7 @@ ${ANNOTATION_DARK_TOKENS}
     expect(ruleBody('[data-annotation-shell] [data-annotation-toolbar-grip][data-dragging] {')).toContain('cursor: grabbing');
   });
 
-  it('hides every collapsed toolbar child except the grip, collapse button and badge', () => {
+  it('hides every collapsed toolbar child except the grip, collapse button and View all with its badge', () => {
     expect(
       ruleBody(
         '[data-annotation-shell] [data-annotation-mount="toolbar"][data-collapsed] > :not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse]):not([data-annotation-list-toggle]) {',

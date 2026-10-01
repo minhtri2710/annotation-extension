@@ -250,6 +250,37 @@ describe('panel anchor', () => {
     anchor.destroy();
   });
 
+  it('keeps a panel that fits the viewport below its box when the toolbar is below it but not over its columns', () => {
+    const { panel, toolbar } = setup({ width: 400, height: 300 }, { width: 200, height: 200 });
+    vi.spyOn(toolbar, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 300, y: 250, width: 90, height: 40 }));
+    const anchor = createPanelAnchor(panel, toolbar);
+
+    anchor.place(() => ({ x: 40, y: 50, width: 100, height: 20 }));
+
+    expect(panel.style.top).toBe('78px');
+    expect(panel.style.maxHeight).toBe('212px');
+    anchor.destroy();
+  });
+
+  it('places again once per frame however many content changes the frame holds', async () => {
+    const { panel, rect, toolbar } = setup({ width: 400, height: 300 }, { width: 200, height: 100 });
+    const anchor = createPanelAnchor(panel, toolbar);
+    anchor.place(() => ({ x: 40, y: 50, width: 100, height: 20 }));
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    await frame();
+    rect.mockClear();
+
+    for (let index = 0; index < 3; index += 1) {
+      panel.append(document.createElement('p'));
+      await Promise.resolve();
+    }
+    expect(rect).not.toHaveBeenCalled();
+    await frame();
+
+    expect(rect).toHaveBeenCalledTimes(1);
+    anchor.destroy();
+  });
+
   it('observes the panel content only while a placement is held', () => {
     const observing = new Set<MutationObserver>();
     class Tracked extends MutationObserver {
