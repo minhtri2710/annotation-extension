@@ -158,6 +158,20 @@ describe('scan panel rows and controls in a real browser', () => {
     expect(getComputedStyle(pageRow).listStyleType).toBe('none');
   });
 
+  it.each(['light', 'dark'] as const)('keeps Annotate on one line at its natural width however long the detail is (%s)', async (theme) => {
+    const { shell } = await mountRows(theme);
+    const [longRow, shortRow] = [...shell.panel.querySelectorAll<HTMLElement>('[data-annotation-scan-number]')];
+    const longButton = longRow!.querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]')!;
+    const shortButton = shortRow!.querySelector<HTMLButtonElement>('[data-annotation-scan-annotate]')!;
+    const range = document.createRange();
+    range.selectNodeContents(longButton.firstChild!);
+    const tops = [...range.getClientRects()].map((rect) => rect.top);
+    expect(tops.length).toBeGreaterThan(0);
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(longButton.getBoundingClientRect().width - shortButton.getBoundingClientRect().width)).toBeLessThanOrEqual(0.5);
+    expect(longButton.scrollWidth).toBeLessThanOrEqual(longButton.clientWidth);
+  });
+
   it.each(['light', 'dark'] as const)('makes Deep scan, Rescan, Locate and Annotate 28 px high with an 8 px gap between neighbours (%s)', async (theme) => {
     const { shell } = await mountRows(theme);
     const pick = (selector: string) => shell.panel.querySelector<HTMLElement>(selector)!;

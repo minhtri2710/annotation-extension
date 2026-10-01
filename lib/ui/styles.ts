@@ -662,6 +662,11 @@ ${ANNOTATION_DARK_TOKENS}
   font-size: var(--annotation-font-size-caption);
 }
 
+/* Only the detail shrinks: the buttons keep their natural width and their text on one line. */
+[data-annotation-shell] [data-annotation-scan-finding] button {
+  flex: none;
+}
+
 [data-annotation-shell] [data-annotation-scan-finding] > :first-child {
   flex: 1 1 auto;
   min-width: 0;
