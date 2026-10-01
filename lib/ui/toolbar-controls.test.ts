@@ -396,6 +396,22 @@ describe('toolbar controls', () => {
     expect(document.activeElement).toBe(grip);
   });
 
+  it('keeps View all in the roving set when the bar is collapsed', async () => {
+    const { grip, collapse } = setup();
+    await controls!.ready;
+    const viewAll = document.createElement('button');
+    viewAll.dataset.annotationListToggle = '';
+    collapse.before(viewAll);
+    await vi.waitFor(() => expect(viewAll.tabIndex).toBe(-1));
+    collapse.click();
+    await vi.waitFor(() => expect(collapse.tabIndex).toBe(-1));
+    grip.focus();
+    key(grip, 'End');
+    expect(document.activeElement).toBe(collapse);
+    key(collapse, 'ArrowLeft');
+    expect(document.activeElement).toBe(viewAll);
+  });
+
   it('destroy stops roving and clears the tab stops it set', async () => {
     setup();
     await controls!.ready;

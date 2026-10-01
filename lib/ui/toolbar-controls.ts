@@ -26,7 +26,7 @@ const KEY_DELTAS: Record<string, Position> = {
   ArrowDown: { x: 0, y: 1 },
 };
 const ROVING_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End']);
-const SHOWN_WHEN_COLLAPSED = '[data-annotation-toolbar-grip], [data-annotation-toolbar-collapse], [data-annotation-badge]';
+const SHOWN_WHEN_COLLAPSED = '[data-annotation-toolbar-grip], [data-annotation-toolbar-collapse], [data-annotation-list-toggle]';
 
 export function createToolbarControls(options: ToolbarControlsOptions): ToolbarControls {
   const { toolbar, win, prefs } = options;

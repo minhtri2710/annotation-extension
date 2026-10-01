@@ -38,6 +38,7 @@ export async function mountOptionsPage(elements: OptionsPageElements, storage: P
         item.textContent = value;
         const remove = document.createElement('button');
         remove.type = 'button';
+        remove.dataset.variant = 'danger';
         remove.textContent = 'Remove';
         remove.setAttribute('aria-label', `Remove ${value}`);
         remove.addEventListener('click', () => {
@@ -47,7 +48,7 @@ export async function mountOptionsPage(elements: OptionsPageElements, storage: P
           const buttons = allowlist.querySelectorAll('button');
           (buttons[index] ?? buttons[index - 1] ?? entry).focus();
         });
-        item.append(' ', remove);
+        item.append(remove);
         return item;
       }),
     );

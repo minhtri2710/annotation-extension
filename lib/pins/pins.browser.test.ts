@@ -14,6 +14,13 @@ let toolbar: HTMLDivElement;
 let overlay: HTMLDivElement;
 let controller: PinsController | undefined;
 
+// The count badge needs a host; a plain button in the toolbar stands in where a test does not look at the badge.
+function addBadgeHost(host: HTMLElement): HTMLButtonElement {
+  const button = document.createElement('button');
+  host.append(button);
+  return button;
+}
+
 function annotation(index: number, selector: string): Annotation {
   const context = {
     selector,
@@ -115,7 +122,7 @@ describe('pin resolve cost on a 50k-element page (real browser)', () => {
       const annotations = Array.from({ length: ANNOTATIONS }, (_, index) =>
         annotation(index, buildSelector(spans[index * step]!)),
       );
-      controller = createPinsController({ document, container: overlay, toolbar });
+      controller = createPinsController({ document, container: overlay, toolbar, badgeHost: addBadgeHost(toolbar) });
       // Settle the fresh page's first style and layout outside the measured window.
       page.getBoundingClientRect();
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -186,7 +193,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     it(`shows the pin of an element ${name} fully inside the viewport, on the element's corner region`, () => {
       const { shell } = mountShell();
       const target = placeTarget(css);
-      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
       controller.setAnnotations([annotation(0, '#edge-target')]);
       controller.reanchor();
 
@@ -210,7 +217,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     it(`fans three pins on one element ${name} apart, none overlapping and each inside the viewport`, () => {
       const { shell } = mountShell();
       placeTarget(css);
-      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
       controller.setAnnotations([0, 1, 2].map((index) => annotation(index, '#edge-target')));
       controller.reanchor();
 
@@ -234,7 +241,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     neighbour.style.cssText = 'position: absolute; left: 210px; top: 200px; width: 100px; height: 40px';
     document.body.append(neighbour);
     document.getElementById('edge-target')!.style.position = 'absolute';
-    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
     controller.setAnnotations([annotation(0, '#edge-target'), annotation(1, '#neighbour-target')]);
     controller.reanchor();
 
@@ -252,7 +259,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
   it('hides the pin of an element outside the viewport', () => {
     const { shell } = mountShell();
     placeTarget('left: -500px; top: 100px');
-    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
     controller.setAnnotations([annotation(0, '#edge-target')]);
     controller.reanchor();
 
@@ -265,7 +272,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
   it('hides the pin of a display: none element and shows it once the element is displayed', () => {
     const { shadow, shell } = mountShell();
     const target = placeTarget('left: 200px; top: 200px; display: none');
-    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
     controller.setAnnotations([annotation(0, '#edge-target')]);
     controller.reanchor();
 
@@ -293,7 +300,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
   it('dismisses the tooltip with Escape without moving focus or hover', async () => {
     const { shadow, shell } = mountShell();
     placeTarget('left: 200px; top: 200px');
-    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
     controller.setAnnotations([annotation(0, '#edge-target')]);
     controller.reanchor();
     const marker = shell.root.querySelector<HTMLElement>('.annotation-pin')!;
@@ -315,7 +322,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
   it('keeps the tooltip while the pointer moves onto it', async () => {
     const { shell } = mountShell();
     placeTarget('left: 200px; top: 200px');
-    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
     controller.setAnnotations([annotation(0, '#edge-target')]);
     controller.reanchor();
     const marker = shell.root.querySelector<HTMLElement>('.annotation-pin')!;
@@ -339,7 +346,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
       await browserPage.viewport(width, 480);
       const { shell } = mountShell();
       placeTarget('right: 4px; bottom: 4px; width: 20px; height: 20px');
-      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
       const long = annotation(0, '#edge-target');
       long.note = 'A long note that fills the tooltip preview. '.repeat(6);
       controller.setAnnotations([long]);
@@ -358,7 +365,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     const spacer = document.createElement('div');
     spacer.style.cssText = 'position: absolute; left: 0; top: 0; width: 1px; height: 3000px';
     document.body.append(spacer);
-    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
     controller.setAnnotations([annotation(0, '#edge-target')]);
     controller.reanchor();
     const marker = shell.root.querySelector<HTMLElement>('.annotation-pin')!;
@@ -400,7 +407,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     // Mounted as in production: the pins controller first, then the toolbar buttons and controls.
     function mountToolbar(stored: ToolbarPrefs = { position: null, collapsed: false }) {
       const { shell } = mountShell();
-      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
       for (const label of ['Scan page', 'List annotations', 'Annotate']) {
         const button = document.createElement('button');
         button.textContent = label;

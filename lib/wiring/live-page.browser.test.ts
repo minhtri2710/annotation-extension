@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { userEvent } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { createCaptureController, guardUntrustedOverlayEvents, interceptPageEvents, type CaptureController, type CaptureEvents } from '../capture/selection';
 import { createAnnotationList } from '../annotation-list/annotation-list';
 import type { AnnotationWriteMessage } from '../annotation-messages';
-import { buildOverlayShell } from '../ui/shell';
+import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../notes/note-panel';
+import { buildOverlayShell, createPanelAnchor } from '../ui/shell';
+import { createPanelMode } from './panel-mode';
 import { createPinsController, type PinsController } from '../pins/pins';
 import { createEventBus } from '../ui/event-bus';
 
@@ -124,7 +126,7 @@ describe.each([
     const container = document.createElement('div');
     const toolbar = document.createElement('div');
     root.append(container, toolbar);
-    pins = createPinsController({ document, container, toolbar });
+    pins = createPinsController({ document, container, toolbar, badgeHost: toolbar.appendChild(document.createElement('button')) });
     pins.setAnnotations([annotation('#zoom-target')]);
 
     const marker = container.querySelector<HTMLElement>('[data-annotation-id]')!.getBoundingClientRect();
@@ -371,5 +373,83 @@ describe('a page that stops events at window capture (real browser)', () => {
     expect(pageSaw).toEqual(expect.arrayContaining(['pointermove', 'pointerdown', 'click']));
     expect(selected).toEqual([]);
     expect(targetClicks).toBe(0);
+  });
+});
+
+describe('closing a note panel after Save near the toolbar (real browser)', () => {
+  it('leaves the panel unclamped with Close in view and clickable after Save grows a panel that started clamped', async () => {
+    await page.viewport(1280, 720);
+    // Programmatic clicks stand in for the user's; the guard that drops them has its own cases above.
+    stopOverlayGuard?.();
+    stopOverlayGuard = undefined;
+    const container = document.createElement('div');
+    root.append(container);
+    host.style.cssText = 'position: fixed; inset: 0';
+    const shell = buildOverlayShell(container);
+    const footer = document.createElement('div');
+    footer.style.cssText = 'position: fixed; left: 0; right: 0; bottom: 0; height: 40px; background: #ccc';
+    document.body.append(footer);
+    const bar = document.createElement('button');
+    bar.type = 'button';
+    bar.textContent = 'Annotate';
+    shell.toolbar.append(bar);
+
+    const stored: Annotation[] = [];
+    const context = { ...annotation('#zoom-target').elementContext, boundingBox: { x: 0, y: 0, width: 100, height: 20 } };
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => [...stored],
+      sendAnnotationWrite: async (message) => {
+        if (message.type === 'annotation.add') {
+          stored.push({ ...annotation(message.input.selector), id: 'saved', note: message.input.note, elementContext: context });
+        }
+      },
+      captureScreenshot: vi.fn(), readBlob: vi.fn(), addAttachment: vi.fn(), deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    const anchor = createPanelAnchor(shell.panel, shell.toolbar);
+    const closed = vi.fn();
+    shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, closed);
+    const panels = createPanelMode({
+      panel: shell.panel,
+      overlayRoot: root,
+      anchor,
+      anchorToToolbar: () => shell.toolbar.getBoundingClientRect(),
+      notePanel,
+      scanPanel: { render: async () => undefined, clear: () => undefined },
+      annotationList: () => ({ render: async () => undefined, clear: () => undefined }),
+      listToggle: document.createElement('button'),
+      scanToggle: document.createElement('button'),
+    });
+    shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, () => panels.close());
+    try {
+      // The empty form is 40 px taller than the room down to the toolbar, yet still fits the viewport below its box.
+      await notePanel.render(context);
+      const bare = shell.panel.offsetHeight;
+      const barRect = shell.toolbar.getBoundingClientRect();
+      const box = { x: barRect.left + 10, y: barRect.top - 10 - (bare - 40) - 8 - 20, width: 100, height: 20 };
+      panels.showNote({ ...context, boundingBox: box }, undefined);
+      await vi.waitFor(() => expect(shell.panel.querySelector('[data-annotation-new-note]')).not.toBeNull());
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const field = shell.panel.querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!;
+      field.value = 'A saved note';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      shell.panel.querySelector<HTMLButtonElement>('[data-annotation-save]')!.click();
+      await vi.waitFor(() => expect(shell.panel.querySelectorAll('[data-annotation-note-card]')).toHaveLength(1));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const panelRect = shell.panel.getBoundingClientRect();
+      expect(shell.panel.scrollHeight).toBeLessThanOrEqual(shell.panel.clientHeight + 1);
+      const close = shell.panel.querySelector<HTMLButtonElement>('[data-annotation-close]')!;
+      const rect = close.getBoundingClientRect();
+      expect(rect.top).toBeGreaterThanOrEqual(panelRect.top);
+      expect(rect.bottom).toBeLessThanOrEqual(panelRect.bottom);
+      expect(root.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)).toBe(close);
+      close.click();
+      expect(closed).toHaveBeenCalledTimes(1);
+      expect(panels.mode()).toBe('none');
+    } finally {
+      footer.remove();
+    }
   });
 });

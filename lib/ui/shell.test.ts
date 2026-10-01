@@ -66,6 +66,14 @@ describe('overlay shell', () => {
     ).toEqual({ top: 10, left: 100 });
   });
 
+  it('places the popover above when it does not fit down to the given bottom limit', () => {
+    const box = { x: 40, y: 150, width: 100, height: 20 };
+    const panel = { width: 200, height: 100 };
+    const viewport = { width: 400, height: 300 };
+    expect(positionPopover(box, panel, viewport, 8, 280)).toEqual({ top: 178, left: 40 });
+    expect(positionPopover(box, panel, viewport, 8, 200)).toEqual({ top: 42, left: 40 });
+  });
+
   it('clamps the toolbar inside the viewport margin at every edge', () => {
     const size = { width: 200, height: 40 };
     const viewport = { width: 800, height: 600 };
@@ -240,6 +248,39 @@ describe('panel anchor', () => {
     expect(panel.style.top).toBe('78px');
     expect(panel.style.maxHeight).toBe('212px');
     anchor.destroy();
+  });
+
+  it('observes the panel content only while a placement is held', () => {
+    const observing = new Set<MutationObserver>();
+    class Tracked extends MutationObserver {
+      override observe(target: Node, options?: MutationObserverInit): void {
+        observing.add(this);
+        super.observe(target, options);
+      }
+
+      override disconnect(): void {
+        observing.delete(this);
+        super.disconnect();
+      }
+    }
+    vi.stubGlobal('MutationObserver', Tracked);
+    try {
+      const { panel, toolbar } = setup({ width: 400, height: 300 }, { width: 200, height: 100 });
+      const anchor = createPanelAnchor(panel, toolbar);
+      expect(observing.size).toBe(0);
+
+      anchor.place(() => ({ x: 40, y: 50, width: 100, height: 20 }));
+      expect(observing.size).toBe(1);
+      anchor.clear();
+      expect(observing.size).toBe(0);
+
+      anchor.place(() => ({ x: 40, y: 50, width: 100, height: 20 }));
+      expect(observing.size).toBe(1);
+      anchor.destroy();
+      expect(observing.size).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('scrolls a control that takes focus fully into view inside the panel on the next frame', async () => {

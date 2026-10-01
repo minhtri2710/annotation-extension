@@ -66,7 +66,7 @@ ${ANNOTATION_DARK_TOKENS}
   display: none;
 }
 
-[data-annotation-shell] [data-annotation-mount="toolbar"][data-collapsed] > :not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse]):not([data-annotation-badge]) {
+[data-annotation-shell] [data-annotation-mount="toolbar"][data-collapsed] > :not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse]):not([data-annotation-list-toggle]) {
   display: none;
 }
 
@@ -99,16 +99,33 @@ ${ANNOTATION_DARK_TOKENS}
   to { opacity: 1; transform: none; }
 }
 
+/* The count sits on the View all button's top-right corner; it is not a toolbar item. */
+[data-annotation-shell] [data-annotation-list-toggle] {
+  position: relative;
+}
+
 [data-annotation-shell] [data-annotation-badge] {
+  position: absolute;
+  top: -6px;
+  right: -6px;
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
-  padding: 0 var(--annotation-space-3);
-  border-radius: var(--annotation-radius-md);
-  background: var(--annotation-color-surface-raised);
-  color: var(--annotation-color-accent);
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--annotation-space-1);
+  border-radius: 9px;
+  background: var(--annotation-color-accent);
+  color: var(--annotation-color-on-accent);
+  font-size: var(--annotation-font-size-caption);
   font-weight: var(--annotation-font-weight-bold);
+  line-height: 1;
   white-space: nowrap;
+  pointer-events: none;
+}
+
+[data-annotation-shell] [data-annotation-badge][hidden] {
+  display: none;
 }
 
 /* The badge shows the number; the unit stays in the text for assistive technology. */
@@ -163,6 +180,21 @@ ${ANNOTATION_DARK_TOKENS}
   display: flex;
   gap: var(--annotation-space-2);
   align-items: center;
+}
+
+/* The header stays in view while the panel body scrolls: it takes the panel's top padding, so no content shows above it. */
+[data-annotation-shell] [data-annotation-mount="panel"]:has(> [data-annotation-note-header], > [data-annotation-list-header], > [data-annotation-scan-header]) {
+  padding-top: 0;
+}
+
+[data-annotation-shell] [data-annotation-note-header],
+[data-annotation-shell] [data-annotation-list-header],
+[data-annotation-shell] [data-annotation-scan-header] {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-top: var(--annotation-space-4);
+  background: var(--annotation-color-surface);
 }
 
 [data-annotation-shell] [data-annotation-note-header] h2 {
@@ -529,7 +561,7 @@ ${ANNOTATION_DARK_TOKENS}
 }
 
 /* Icon-only controls are square. */
-[data-annotation-shell] [data-annotation-mount] button:has(> svg:only-child) {
+[data-annotation-shell] [data-annotation-mount] button:has(> svg) {
   width: 32px;
   min-width: 32px;
   padding: 0;
@@ -554,9 +586,22 @@ ${ANNOTATION_DARK_TOKENS}
 
 /* Adjacent buttons keep a token gap, also where the row wraps. */
 [data-annotation-shell] [data-annotation-deep-scan],
+[data-annotation-shell] [data-annotation-rescan] {
+  margin: 0 var(--annotation-space-2) var(--annotation-space-2) 0;
+}
+
+[data-annotation-shell] [data-annotation-deep-scan],
 [data-annotation-shell] [data-annotation-rescan],
 [data-annotation-shell] [data-annotation-scan-finding] button {
-  margin: 0 var(--annotation-space-2) var(--annotation-space-2) 0;
+  height: 28px;
+  min-height: 28px;
+  padding-block: 0;
+}
+
+[data-annotation-shell] [data-annotation-mount="panel"] [data-annotation-scan-finding] button[data-annotation-scan-locate] {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
 }
 
 [data-annotation-shell] [data-annotation-scan-group] {
@@ -602,12 +647,27 @@ ${ANNOTATION_DARK_TOKENS}
 }
 
 [data-annotation-shell] [data-annotation-scan-group] ul {
-  padding-left: var(--annotation-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--annotation-space-2);
+  padding: 0;
+  list-style: none;
 }
 
+/* One line per finding: number chip, the detail on one truncated line (its full text is the title), then the actions. */
 [data-annotation-shell] [data-annotation-scan-finding] {
+  display: flex;
+  align-items: center;
+  gap: var(--annotation-space-2);
   font-size: var(--annotation-font-size-caption);
-  overflow-wrap: anywhere;
+}
+
+[data-annotation-shell] [data-annotation-scan-finding] > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 [data-annotation-shell] [data-annotation-severity] {
@@ -677,17 +737,17 @@ ${ANNOTATION_DARK_TOKENS}
 
 [data-annotation-shell] [data-annotation-scan-finding][data-annotation-scan-number]::before {
   content: attr(data-annotation-scan-number);
-  display: inline-block;
+  flex: none;
   min-width: var(--annotation-space-4);
-  margin-right: var(--annotation-space-1);
   padding: 0 var(--annotation-space-1);
-  border: 1px solid var(--annotation-color-border);
   border-radius: var(--annotation-radius-sm);
+  background: var(--annotation-color-hover);
   font-weight: var(--annotation-font-weight-bold);
   text-align: center;
 }
 
 [data-annotation-shell] [data-annotation-scan-page-level] {
+  flex: none;
   color: var(--annotation-color-text-muted);
   font-size: var(--annotation-font-size-caption);
 }

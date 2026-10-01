@@ -242,7 +242,7 @@ ${ANNOTATION_DARK_TOKENS}
   it('hides every collapsed toolbar child except the grip, collapse button and badge', () => {
     expect(
       ruleBody(
-        '[data-annotation-shell] [data-annotation-mount="toolbar"][data-collapsed] > :not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse]):not([data-annotation-badge]) {',
+        '[data-annotation-shell] [data-annotation-mount="toolbar"][data-collapsed] > :not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse]):not([data-annotation-list-toggle]) {',
       ),
     ).toContain('display: none');
   });

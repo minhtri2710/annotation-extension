@@ -12,6 +12,8 @@ export interface PinsControllerOptions {
   document: Document;
   container: HTMLElement;
   toolbar: HTMLElement;
+  // Where the count badge sits. The host is described by the badge.
+  badgeHost: HTMLElement;
   onActivate?: (annotation: Annotation) => void;
 }
 
@@ -29,6 +31,7 @@ interface TrackedPin extends PendingAnnotation {
 }
 
 const BADGE_ATTRIBUTE = 'data-annotation-badge';
+const BADGE_ID = 'annotation-badge-count';
 const MARKER_ATTRIBUTE = 'data-annotation-id';
 const TOOLTIP_ATTRIBUTE = 'data-annotation-tooltip';
 const PIN_CLASS = 'annotation-pin';
@@ -221,7 +224,10 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   const badgeUnit = options.document.createElement('span');
   badgeUnit.setAttribute('data-annotation-badge-unit', '');
   badge.append(badgeCount, badgeUnit);
-  options.toolbar.append(badge);
+  badge.id = BADGE_ID;
+  badge.hidden = true;
+  options.badgeHost.append(badge);
+  options.badgeHost.setAttribute('aria-describedby', BADGE_ID);
 
   let trackedPins: TrackedPin[] = [];
   let unresolved: PendingAnnotation[] = [];
@@ -329,6 +335,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     }
     trackedPins = [];
     hideTooltip();
+    badge.hidden = annotations.length === 0;
     badgeCount.data = String(annotations.length);
     badgeUnit.textContent = annotations.length === 1 ? ' annotation' : ' annotations';
 
@@ -362,6 +369,7 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     trackedPins = [];
     hideTooltip();
     badge.remove();
+    options.badgeHost.removeAttribute('aria-describedby');
   };
 
   return { setAnnotations, reanchor, destroy };

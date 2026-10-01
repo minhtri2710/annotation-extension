@@ -127,12 +127,22 @@ describe('content script entrypoint', () => {
     await start();
     const iconOnly = ['Scan', 'View all', 'Hide annotation toolbar', 'Move toolbar'].map(button);
     for (const control of iconOnly) {
-      expect(control.textContent).toBe('');
+      expect(control.textContent).toBe(control.querySelector('[data-annotation-badge]')?.textContent ?? '');
       expect(control.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
       expect(control.title).toBe(control.getAttribute('aria-label'));
     }
     expect(button('Annotate').textContent).toBe('Annotate');
     expect(button('Annotate').querySelector('svg')).toBeNull();
+  });
+
+  it('puts the annotation count badge on the View all button and describes the button by it', async () => {
+    await start();
+    const viewAll = button('View all');
+    const badge = viewAll.querySelector<HTMLElement>('[data-annotation-badge]')!;
+    expect(badge).not.toBeNull();
+    expect(viewAll.getAttribute('aria-describedby')).toBe(badge.id);
+    expect(badge.hidden).toBe(true);
+    expect(viewAll.parentElement!.querySelectorAll(':scope > [data-annotation-badge]')).toHaveLength(0);
   });
 
   it('uses a closed shadow root that page script cannot reach', async () => {

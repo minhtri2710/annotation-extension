@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
+import optionsHtml from '../../entrypoints/options/index.html?raw';
 import popupHtml from '../../entrypoints/popup/index.html?raw';
+import { mountOptionsPage } from '../options/options-page';
 import { createAnnotationList } from '../annotation-list/annotation-list';
 import type { Annotation } from '../annotation';
 import { renderCaptureShortcutHint } from '../capture/activation';
@@ -836,6 +838,19 @@ describe.each<ThemeMode>(['light', 'dark'])('button tiers and palette on the rea
     }
   });
 
+  it('paints the switch knob white on and off in both schemes, over a track that keeps 3:1 against the card', async () => {
+    const { popup } = await surfaces();
+    const toggle = popup.byId<HTMLButtonElement>('toolbar-toggle');
+    const track = toggle.querySelector<HTMLElement>('.annotation-page__switch-track')!;
+    const card = color(getComputedStyle(popup.root).backgroundColor);
+    for (const checked of ['false', 'true']) {
+      toggle.setAttribute('aria-checked', checked);
+      await Promise.allSettled(track.getAnimations().map((animation) => animation.finished));
+      expect(getComputedStyle(track, '::after').backgroundColor, checked).toBe('rgb(255, 255, 255)');
+      expect(contrastRatio(color(getComputedStyle(track).backgroundColor), card), checked).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it('keeps the Notes footer and the popup export row each on one row', async () => {
     const { popup, notes } = await surfaces();
     const tops = (elements: Element[]) => elements.map((element) => element.getBoundingClientRect().top);
@@ -844,5 +859,98 @@ describe.each<ThemeMode>(['light', 'dark'])('button tiers and palette on the rea
     expect(Math.max(...tops(footer)) - Math.min(...tops(footer))).toBeLessThanOrEqual(1);
     const exports = [popup.byId('export'), popup.byId('export-markdown')];
     expect(Math.max(...tops(exports)) - Math.min(...tops(exports))).toBeLessThanOrEqual(1);
+  });
+});
+
+describe.each<ThemeMode>(['light', 'dark'])('options page layout in the %s scheme', (theme) => {
+  async function mountOptions() {
+    const parsed = new DOMParser().parseFromString(optionsHtml, 'text/html');
+    const style = document.createElement('style');
+    style.textContent = PAGE_STYLES;
+    const darkTokens = document.createElement('style');
+    if (theme === 'dark') darkTokens.textContent = `:root {\n${ANNOTATION_DARK_TOKENS}\n}`;
+    document.head.append(style, darkTokens);
+    const main = document.importNode(parsed.querySelector('main')!, true);
+    document.body.classList.add('annotation-page--options');
+    document.body.append(main);
+    cleanups.push(() => {
+      main.remove();
+      style.remove();
+      darkTokens.remove();
+      document.body.classList.remove('annotation-page--options');
+    });
+    const byId = <T extends HTMLElement>(id: string) => main.querySelector<T>(`#${id}`)!;
+    await mountOptionsPage(
+      {
+        enabled: byId<HTMLInputElement>('enabled'),
+        form: byId<HTMLFormElement>('allowlist-form'),
+        entry: byId<HTMLInputElement>('allowlist-entry'),
+        entryError: byId('allowlist-error'),
+        allowlist: byId<HTMLUListElement>('allowlist'),
+        save: byId<HTMLButtonElement>('save'),
+        status: byId('status'),
+      },
+      { read: async () => ({ enabled: true, allowlist: ['example.com', 'docs.example.org'] }), write: async () => undefined },
+    );
+    return { main, byId };
+  }
+
+  it('centres a 560 px card with 24 px padding, a divider border and no shadow, and spaces its sections 16 px apart with no band under the last', async () => {
+    const { main } = await mountOptions();
+    const style = getComputedStyle(main);
+    const rect = main.getBoundingClientRect();
+    expect(rect.width).toBeLessThanOrEqual(560);
+    expect(rect.width).toBeGreaterThanOrEqual(520);
+    expect(Math.abs(rect.left - (document.documentElement.clientWidth - rect.right))).toBeLessThanOrEqual(1);
+    expect(style.paddingTop).toBe('24px');
+    expect(style.paddingLeft).toBe('24px');
+    expect(style.boxShadow).toBe('none');
+    expect(style.borderTopWidth).toBe('1px');
+
+    const sections = [...main.children].filter((element) => element.getBoundingClientRect().height > 0);
+    expect(sections.map((element) => element.tagName.toLowerCase())).toEqual(['h1', 'label', 'form', 'ul', 'div']);
+    for (let index = 1; index < sections.length; index += 1) {
+      const gap = sections[index]!.getBoundingClientRect().top - sections[index - 1]!.getBoundingClientRect().bottom;
+      expect(gap, sections[index]!.tagName).toBeCloseTo(16, 1);
+    }
+    expect(Math.abs(rect.bottom - 1 - 24 - sections.at(-1)!.getBoundingClientRect().bottom)).toBeLessThanOrEqual(1);
+  });
+
+  it('puts the allowed-site field and Add site on one row at one height and one top', async () => {
+    const { byId } = await mountOptions();
+    const field = byId('allowlist-entry').getBoundingClientRect();
+    const add = byId('allowlist-form').querySelector('button')!.getBoundingClientRect();
+    expect(add.top).toBe(field.top);
+    expect(add.height).toBe(field.height);
+  });
+
+  it('shows each site on one line with Remove as danger text at its end, and Save settings as the one primary in a footer row with the status at the start', async () => {
+    const { main, byId } = await mountOptions();
+    const rows = [...byId('allowlist').children] as HTMLElement[];
+    expect(rows).toHaveLength(2);
+    const danger = color(getComputedStyle(main).getPropertyValue('--annotation-color-danger').trim());
+    for (const row of rows) {
+      const remove = row.querySelector('button')!;
+      expect(row.getBoundingClientRect().height).toBeLessThanOrEqual(44);
+      expect(remove.dataset.variant).toBe('danger');
+      const style = getComputedStyle(remove);
+      expect(color(style.color)).toEqual(danger);
+      expect(style.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+      expect(style.borderTopWidth).toBe('0px');
+      expect(row.getBoundingClientRect().right - remove.getBoundingClientRect().right).toBeLessThanOrEqual(12);
+    }
+
+    const save = byId('save');
+    byId('status').textContent = 'Settings saved.';
+    expect(save.dataset.variant).toBe('primary');
+    expect(main.querySelectorAll('button[data-variant="primary"]')).toHaveLength(1);
+    expect(color(getComputedStyle(save).backgroundColor)).toEqual(color(getComputedStyle(main).getPropertyValue('--annotation-color-accent').trim()));
+    const footer = save.parentElement!;
+    expect(footer).not.toBe(main);
+    expect(byId('status').parentElement).toBe(footer);
+    const [status, button] = [byId('status').getBoundingClientRect(), save.getBoundingClientRect()];
+    expect(status.right).toBeLessThanOrEqual(button.left);
+    expect(Math.abs(status.top + status.height / 2 - (button.top + button.height / 2))).toBeLessThanOrEqual(2);
+    expect(Math.abs(footer.getBoundingClientRect().right - button.right - 0)).toBeLessThanOrEqual(1);
   });
 });

@@ -14,8 +14,9 @@ export function positionPopover(
   panel: { width: number; height: number },
   viewport: { width: number; height: number },
   gap = 8,
+  bottom = viewport.height,
 ): { top: number; left: number } {
-  const fitsBelow = box.y + box.height + gap + panel.height <= viewport.height;
+  const fitsBelow = box.y + box.height + gap + panel.height <= bottom;
   const top = fitsBelow ? box.y + box.height + gap : box.y - gap - panel.height;
   const maxLeft = viewport.width - panel.width - 10;
 
@@ -34,9 +35,11 @@ export interface PanelAnchor {
 const PANEL_MARGIN = 10;
 const PANEL_PLACEMENT = ['position', 'top', 'left', 'right', 'bottom', 'max-height'] as const;
 
-// Keeps a placed panel inside the viewport and clear of the toolbar, which paints above it: its
-// height is capped to the free room below its top (the panel scrolls internally, and a focused
-// control is scrolled fully into view), and it is placed again whenever it or the window resizes.
+// Keeps a placed panel inside the viewport and clear of the toolbar, which paints above it: it goes
+// below its box only when it fits down to the toolbar's top (or the viewport's bottom where the toolbar
+// is not in its way), otherwise above; its height is capped to the free room below its top (the panel
+// scrolls internally, and a focused control is scrolled fully into view), and it is placed again
+// whenever its content, its size or the window changes, until it is cleared.
 export function createPanelAnchor(panel: HTMLElement, toolbar: HTMLElement): PanelAnchor {
   const document = panel.ownerDocument;
   const win = document.defaultView!;
@@ -44,15 +47,18 @@ export function createPanelAnchor(panel: HTMLElement, toolbar: HTMLElement): Pan
 
   const update = () => {
     if (!source) return;
+    const scrolled = panel.scrollTop;
     panel.style.removeProperty('max-height');
     const { width, height } = panel.getBoundingClientRect();
     const viewport = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
-    const placed = positionPopover(source(), { width, height }, viewport);
-    const { left } = placed;
-    let { top } = placed;
-    let bottom = viewport.height - PANEL_MARGIN;
+    const box = source();
+    const { left } = positionPopover(box, { width, height }, viewport);
     const bar = toolbar.getBoundingClientRect();
-    if (bar.width > 0 && bar.left < left + width && bar.right > left) {
+    const barInTheWay = bar.width > 0 && bar.left < left + width && bar.right > left;
+    const room = barInTheWay && bar.top > box.y + box.height ? bar.top - PANEL_MARGIN : viewport.height - PANEL_MARGIN;
+    let { top } = positionPopover(box, { width, height }, viewport, 8, room);
+    let bottom = viewport.height - PANEL_MARGIN;
+    if (barInTheWay) {
       if (bar.top > top) bottom = Math.min(bottom, bar.top - PANEL_MARGIN);
       else if (bar.bottom > top) top = bar.bottom + PANEL_MARGIN;
     }
@@ -62,6 +68,15 @@ export function createPanelAnchor(panel: HTMLElement, toolbar: HTMLElement): Pan
     panel.style.right = 'auto';
     panel.style.bottom = 'auto';
     panel.style.maxHeight = `${Math.max(0, bottom - top)}px`;
+    panel.scrollTop = scrolled;
+  };
+  let frame = 0;
+  const schedule = () => {
+    if (frame !== 0) return;
+    frame = win.requestAnimationFrame(() => {
+      frame = 0;
+      update();
+    });
   };
   // Browsers leave a partly visible control partly clipped when it takes focus, and Firefox's own
   // focus scroll can land after a synchronous one, so the reveal runs on the next frame.
@@ -74,16 +89,20 @@ export function createPanelAnchor(panel: HTMLElement, toolbar: HTMLElement): Pan
   };
   const observer = new ResizeObserver(update);
   observer.observe(panel);
+  // A panel clamped exactly at its max-height does not resize when its content grows, so content changes re-place it too.
+  const content = new MutationObserver(schedule);
   win.addEventListener('resize', update);
   panel.addEventListener('focusin', reveal);
 
   const clear = () => {
     source = undefined;
+    content.disconnect();
     for (const property of PANEL_PLACEMENT) panel.style.removeProperty(property);
   };
   return {
     place(box) {
       source = box;
+      content.observe(panel, { childList: true, subtree: true, characterData: true });
       update();
     },
     clear,

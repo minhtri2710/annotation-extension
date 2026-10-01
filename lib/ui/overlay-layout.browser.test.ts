@@ -6,7 +6,9 @@ import { createCaptureController } from '../capture/selection';
 import { createAnnotationList } from '../annotation-list/annotation-list';
 import { createNotePanel } from '../notes/note-panel';
 import { createPinsController } from '../pins/pins';
+import { createPanelMode } from '../wiring/panel-mode';
 import { createLocateHighlight } from './locate-highlight';
+import { setIconButton } from './icons';
 import { buildOverlayShell, createPanelAnchor, raiseOverlay, setToolbarHidden } from './shell';
 import { createToolbarControls } from './toolbar-controls';
 
@@ -140,7 +142,7 @@ describe('overlay layout on hostile pages (real browser)', () => {
       window.scrollTo(0, 300);
       await nextFrame();
 
-      const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+      const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: shell.toolbar.appendChild(document.createElement('button')) });
       cleanups.push(() => pins.destroy());
       pins.setAnnotations([annotation('a1', 'note')]);
       pins.reanchor();
@@ -239,8 +241,9 @@ describe('toolbar layout (real browser)', () => {
   it('lays every control and the count out on one row at one height, with the count text unchanged, also collapsed', async () => {
     await page.viewport(1280, 720);
     const { shell } = mountShell();
-    addToolbarButtons(shell.toolbar, ['Scan', 'View all', 'Annotate']);
-    const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    const [, viewAll] = addToolbarButtons(shell.toolbar, ['Scan', 'View all', 'Annotate']);
+    viewAll!.dataset.annotationListToggle = '';
+    const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: viewAll! });
     cleanups.push(() => pins.destroy());
     pins.setAnnotations([annotation('a1', 'One'), annotation('a2', 'Two')]);
     const controls = createToolbarControls({
@@ -271,7 +274,7 @@ describe('toolbar layout (real browser)', () => {
       for (const gap of gaps) expect(Math.abs(gap - gaps[0]!)).toBeLessThanOrEqual(0.5);
     };
     const badge = shell.toolbar.querySelector<HTMLElement>('[data-annotation-badge]')!;
-    expectOneRowOneHeight(6);
+    expectOneRowOneHeight(5);
     expect(badge.textContent).toBe('2 annotations');
 
     shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!.click();
@@ -283,7 +286,9 @@ describe('toolbar layout (real browser)', () => {
   it('renders a word space between the count number and its unit for one and several annotations, also collapsed', async () => {
     await page.viewport(1280, 720);
     const { shell } = mountShell();
-    const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar });
+    const [viewAll] = addToolbarButtons(shell.toolbar, ['View all']);
+    viewAll!.dataset.annotationListToggle = '';
+    const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: viewAll! });
     cleanups.push(() => pins.destroy());
     const controls = createToolbarControls({
       toolbar: shell.toolbar,
@@ -314,6 +319,131 @@ describe('toolbar layout (real browser)', () => {
     expect(renderedSpaceWidth()).toBeGreaterThan(1);
     pins.setAnnotations([annotation('a1', 'One')]);
     expect(renderedSpaceWidth()).toBeGreaterThan(1);
+  });
+
+  it('overlaps the count badge on the top-right corner of the View all button, hides it at zero, keeps the button named View all and describes it by the badge, also collapsed', async () => {
+    await page.viewport(1280, 720);
+    const { shell } = mountShell();
+    const [scan, viewAll] = addToolbarButtons(shell.toolbar, ['Scan', 'View all']);
+    viewAll!.dataset.annotationListToggle = '';
+    setIconButton(viewAll!, 'list', 'View all');
+    const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: viewAll! });
+    cleanups.push(() => pins.destroy());
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: noPrefs,
+      onCollapsedChange: () => undefined,
+      onPositionChange: () => undefined,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+    const settled = async () => {
+      await nextFrame();
+      await Promise.all(shell.root.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    };
+    const badge = () => viewAll!.querySelector<HTMLElement>('[data-annotation-badge]')!;
+
+    pins.setAnnotations([]);
+    await settled();
+    expect(getComputedStyle(badge()).display).toBe('none');
+
+    pins.setAnnotations([annotation('a1', 'One'), annotation('a2', 'Two')]);
+    await settled();
+    const expectCorner = () => {
+      const button = viewAll!.getBoundingClientRect();
+      const shown = badge().getBoundingClientRect();
+      expect(shown.width).toBeGreaterThan(0);
+      expect(getComputedStyle(badge()).position).toBe('absolute');
+      expect(shown.left + shown.width / 2).toBeGreaterThan(button.left + button.width / 2);
+      expect(shown.top + shown.height / 2).toBeLessThan(button.top + button.height / 2);
+      expect(shown.left).toBeLessThan(button.right);
+      expect(shown.bottom).toBeGreaterThan(button.top);
+      expect(button.height).toBe(32);
+      expect(button.width).toBe(32);
+      const bar = getComputedStyle(shell.toolbar);
+      const items = [...shell.toolbar.children].filter((child) => getComputedStyle(child).display !== 'none');
+      const widths = items.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0);
+      const chrome = ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce(
+        (sum, key) => sum + parseFloat(bar[key as 'paddingLeft']),
+        0,
+      );
+      expect(shell.toolbar.getBoundingClientRect().width).toBeCloseTo(widths + parseFloat(bar.columnGap) * (items.length - 1) + chrome, 1);
+    };
+    expectCorner();
+    expect(badge().textContent).toBe('2 annotations');
+    expect(shell.toolbar.contains(badge())).toBe(true);
+    expect(badge().parentElement).toBe(viewAll);
+    expect(viewAll!.getAttribute('aria-describedby')).toBe(badge().id);
+    expect(badge().id).not.toBe('');
+    expect(scan!.hasAttribute('aria-describedby')).toBe(false);
+
+    shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!.click();
+    await settled();
+    expect(getComputedStyle(viewAll!).display).not.toBe('none');
+    expect(getComputedStyle(scan!).display).toBe('none');
+    expectCorner();
+  });
+
+  it('keeps View all and its badge on the collapsed bar in one row, where View all opens and closes All annotations', async () => {
+    await page.viewport(1280, 720);
+    const { shell } = mountShell();
+    const [scan, viewAll] = addToolbarButtons(shell.toolbar, ['Scan', 'View all']);
+    viewAll!.dataset.annotationListToggle = '';
+    setIconButton(viewAll!, 'list', 'View all');
+    const pins = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: viewAll! });
+    cleanups.push(() => pins.destroy());
+    pins.setAnnotations([annotation('a1', 'One'), annotation('a2', 'Two'), annotation('a3', 'Three')]);
+    const controls = createToolbarControls({
+      toolbar: shell.toolbar,
+      win: window,
+      prefs: noPrefs,
+      onCollapsedChange: () => undefined,
+      onPositionChange: () => undefined,
+    });
+    cleanups.push(() => controls.destroy());
+    await controls.ready;
+    const list = createAnnotationList(shell.panel, pageUrl, {
+      listAnnotations: async () => [annotation('a1', 'One'), annotation('a2', 'Two'), annotation('a3', 'Three')],
+      sendAnnotationWrite: vi.fn(async () => undefined),
+      readBlob: vi.fn(),
+      readOnboardingOpen: async () => false,
+      readCaptureShortcut: async () => 'Alt+Q',
+      writeOnboardingOpen: async () => undefined,
+    });
+    cleanups.push(() => list.clear());
+    const anchor = createPanelAnchor(shell.panel, shell.toolbar);
+    cleanups.push(() => anchor.destroy());
+    const panels = createPanelMode({
+      panel: shell.panel,
+      overlayRoot: shell.root.getRootNode() as ShadowRoot,
+      anchor,
+      anchorToToolbar: () => shell.toolbar.getBoundingClientRect(),
+      notePanel: { render: async () => undefined, clear: () => undefined },
+      scanPanel: { render: async () => undefined, clear: () => undefined },
+      annotationList: () => list,
+      listToggle: viewAll!,
+      scanToggle: scan!,
+    });
+    viewAll!.addEventListener('click', () => panels.toggle('list'));
+
+    shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!.click();
+    await nextFrame();
+    await Promise.all(shell.root.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    const parts = [...shell.toolbar.children].filter((child) => getComputedStyle(child).display !== 'none') as HTMLElement[];
+    expect(parts).toHaveLength(3);
+    const tops = parts.map((part) => part.getBoundingClientRect().top);
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(0.5);
+    const badge = viewAll!.querySelector<HTMLElement>('[data-annotation-badge]')!;
+    expect(badge.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(viewAll!.getBoundingClientRect().width).toBeGreaterThan(0);
+
+    await userEvent.click(viewAll!);
+    await vi.waitFor(() => expect(shell.panel.querySelector('[data-annotation-list-header]')).not.toBeNull());
+    expect(viewAll!.getAttribute('aria-expanded')).toBe('true');
+    await userEvent.click(viewAll!);
+    await vi.waitFor(() => expect(shell.panel.querySelector('[data-annotation-list-header]')).toBeNull());
+    expect(viewAll!.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('shows a bar that was hidden during a window shrink fully inside the viewport', async () => {
@@ -433,7 +563,7 @@ describe('pin stacking (real browser)', () => {
     // A toolbar with no box that the pins can be laid out against, so no pin is moved off the real toolbar.
     const noBox = document.createElement('div');
     document.body.append(noBox);
-    const pins = createPinsController({ document, container: shell.root, toolbar: noBox });
+    const pins = createPinsController({ document, container: shell.root, toolbar: noBox, badgeHost: noBox.appendChild(document.createElement('button')) });
     cleanups.push(() => pins.destroy());
     pins.setAnnotations([annotation('p1', 'Under the panel', '#under-panel'), annotation('p2', 'Under the toolbar', '#under-toolbar'), annotation('p3', 'Free', '#free')]);
     pins.reanchor();
@@ -555,6 +685,104 @@ describe('panels stay inside small viewports (real browser)', () => {
 
     await page.viewport(320, 300);
     await vi.waitFor(() => expectInsideViewport(shell.panel.getBoundingClientRect()));
+  });
+});
+
+describe('panel placement against the toolbar (real browser)', () => {
+  // The panel enters with a short translate animation; boxes are measured once it has finished.
+  async function settled(shell: { root: HTMLElement }): Promise<void> {
+    await nextFrame();
+    await Promise.all(shell.root.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    await nextFrame();
+  }
+
+  // Fills the panel so its natural height is `natural` px, whatever its padding and border.
+  function fillTo(panel: HTMLElement, natural: number): HTMLElement {
+    const block = document.createElement('div');
+    panel.append(block);
+    block.style.height = '10px';
+    const chrome = panel.offsetHeight - 10;
+    block.style.height = `${natural - chrome}px`;
+    return block;
+  }
+
+  it('re-places a panel that is clamped exactly at its max-height when its content then grows, so it goes above the box and nothing scrolls', async () => {
+    const { shell } = mountOverlay();
+    const bar = shell.toolbar.getBoundingClientRect();
+    const box = { x: bar.left + 10, y: 450, width: 100, height: 20 };
+    const anchor = createPanelAnchor(shell.panel, shell.toolbar);
+    cleanups.push(() => anchor.destroy());
+    const room = bar.top - 10 - (box.y + box.height + 8);
+    fillTo(shell.panel, room);
+    anchor.place(() => box);
+    await settled(shell);
+
+    const grown = document.createElement('div');
+    grown.style.height = '100px';
+    shell.panel.append(grown);
+    await settled(shell);
+
+    const rect = shell.panel.getBoundingClientRect();
+    expect(shell.panel.scrollHeight).toBeLessThanOrEqual(shell.panel.clientHeight + 1);
+    expect(rect.bottom).toBeLessThanOrEqual(box.y - 8 + 1);
+    expect(rect.top).toBeGreaterThanOrEqual(10);
+  });
+
+  it('puts a panel above the box when it fits the viewport but not down to the toolbar, instead of clamping it', async () => {
+    const { shell } = mountOverlay();
+    const bar = shell.toolbar.getBoundingClientRect();
+    const box = { x: bar.left + 10, y: 450, width: 100, height: 20 };
+    const anchor = createPanelAnchor(shell.panel, shell.toolbar);
+    cleanups.push(() => anchor.destroy());
+    const room = bar.top - 10 - (box.y + box.height + 8);
+    fillTo(shell.panel, room + 20);
+    anchor.place(() => box);
+    await settled(shell);
+
+    const rect = shell.panel.getBoundingClientRect();
+    expect(shell.panel.scrollHeight).toBeLessThanOrEqual(shell.panel.clientHeight + 1);
+    expect(rect.bottom).toBeLessThanOrEqual(box.y - 8 + 1);
+  });
+
+  it('keeps the note and list headers in view while the panel body scrolls', async () => {
+    await page.viewport(600, 400);
+    const { shadow, shell } = mountOverlay();
+    const anchor = createPanelAnchor(shell.panel, shell.toolbar);
+    cleanups.push(() => anchor.destroy());
+    const stored = Array.from({ length: 12 }, (_, index) => annotation(`a${index}`, `Note ${index}`));
+    const notePanel = notePanelFor(shell.panel, stored);
+    cleanups.push(() => notePanel.teardown());
+    await notePanel.render(context());
+    anchor.place(() => ({ x: 40, y: 60, width: 100, height: 30 }));
+    await nextFrame();
+    const expectHeaderPinned = (selector: string) => {
+      shell.panel.scrollTop = shell.panel.scrollHeight;
+      expect(shell.panel.scrollTop).toBeGreaterThan(0);
+      const headerElement = shell.panel.querySelector<HTMLElement>(selector)!;
+      const header = headerElement.getBoundingClientRect();
+      const { top, bottom } = shell.panel.getBoundingClientRect();
+      expect(header.top).toBeGreaterThanOrEqual(top);
+      expect(header.top).toBeLessThanOrEqual(top + 2);
+      const close = headerElement.querySelector<HTMLElement>('[data-annotation-close]')!;
+      const rect = close.getBoundingClientRect();
+      expect(rect.top).toBeGreaterThanOrEqual(top);
+      expect(rect.bottom).toBeLessThanOrEqual(bottom);
+      expect(shadow.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)).toBe(close);
+    };
+    expectHeaderPinned('[data-annotation-note-header]');
+
+    const list = createAnnotationList(shell.panel, pageUrl, {
+      listAnnotations: async () => stored,
+      sendAnnotationWrite: vi.fn(async () => undefined),
+      readBlob: vi.fn(),
+      readOnboardingOpen: async () => true,
+      readCaptureShortcut: async () => 'Alt+Q',
+      writeOnboardingOpen: async () => undefined,
+    });
+    cleanups.push(() => list.clear());
+    await list.render();
+    await nextFrame();
+    expectHeaderPinned('[data-annotation-list-header]');
   });
 });
 

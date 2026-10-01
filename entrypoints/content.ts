@@ -103,9 +103,6 @@ export default defineContentScript({
         const activeScanPanel = createScanPanel(shell.panel, {
           scan: (signal) => scanPage(window, shadowHost, signal),
           deepScan: (signal, onProgress) => deepScanPage(window, shadowHost, signal, onProgress),
-          onUpdate: () => {
-            if (panels.mode() === 'scan') activePanelAnchor.place(anchorToToolbar);
-          },
           highlightRoot: shell.root,
           // The row's button is gone once the scan panel closes, so the note panel returns focus to the Scan toggle.
           onAnnotate: (el, finding) => panels.showNote(extractElementContext(el), scanToggle, `${finding.name}: ${finding.detail}`),
@@ -163,6 +160,7 @@ export default defineContentScript({
           document,
           container: shell.root,
           toolbar: shell.toolbar,
+          badgeHost: listToggle,
           onActivate: (annotation) => {
             const context = resolveLiveElementContext(document, annotation);
             const pin = overlayRoot.activeElement as HTMLElement | null;

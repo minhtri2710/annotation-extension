@@ -3,12 +3,12 @@ import { ALL_RULES, DEEP_SCAN_RULES } from '../lint/rules';
 import { revealSweep } from './reveal-sweep';
 import { errorMessage } from '../guards';
 import { followFrames, scrollToElement } from '../ui/locate-highlight';
+import { setIconButton } from '../ui/icons';
 import { createLiveRegion } from '../ui/shell';
 
 export interface ScanPanelOptions {
   scan: (signal: AbortSignal) => Promise<Finding[]>;
   deepScan: (signal: AbortSignal, onProgress: (fraction: number) => void) => Promise<Finding[]>;
-  onUpdate: () => void;
   highlightRoot: HTMLElement;
   onAnnotate: (el: Element, finding: Finding) => void;
 }
@@ -198,7 +198,6 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
         setStatus(status, `Scan failed: ${errorMessage(error)}`);
         panel.replaceChildren(header, status);
       }
-      options.onUpdate();
       return;
     }
     if (version !== renderVersion) return;
@@ -206,7 +205,6 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     panel.replaceChildren(header);
     showFindings(document, findings, 'Deep scan: ');
     restoreFocus();
-    options.onUpdate();
   }
 
   function focusIsInPanel(): boolean {
@@ -415,6 +413,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     row.dataset.annotationScanFinding = '';
     const detail = document.createElement('span');
     detail.textContent = finding.detail;
+    detail.title = finding.detail;
     row.append(detail);
     if (outline) {
       const { el, box } = outline;
@@ -434,8 +433,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       const locate = document.createElement('button');
       locate.type = 'button';
       locate.dataset.annotationScanLocate = '';
-      locate.textContent = 'Locate';
-      locate.setAttribute('aria-label', `Locate finding ${index + 1}: ${finding.name}`);
+      setIconButton(locate, 'locate', `Locate finding ${index + 1}: ${finding.name}`);
       // Set here too: Firefox does not focus a button on click.
       locate.addEventListener('click', () => {
         scrollToElement(el);
@@ -448,12 +446,12 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       annotate.textContent = 'Annotate';
       annotate.setAttribute('aria-label', `Annotate finding ${index + 1}: ${finding.name}`);
       annotate.addEventListener('click', () => options.onAnnotate(el, finding));
-      row.append(' ', locate, ' ', annotate);
+      row.append(locate, annotate);
     } else {
       const tag = document.createElement('span');
       tag.dataset.annotationScanPageLevel = '';
       tag.textContent = 'Page-level';
-      row.append(' ', tag);
+      row.append(tag);
     }
     return row;
   }

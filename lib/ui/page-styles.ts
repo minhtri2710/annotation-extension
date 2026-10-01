@@ -46,6 +46,52 @@ body.annotation-page--popup .annotation-page__card {
   box-shadow: none;
 }
 
+/* The options card: one centred column, sections one gap apart, no shadow. */
+body.annotation-page--options .annotation-page__card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--annotation-space-4);
+  max-width: 560px;
+  margin: 24px auto;
+  padding: 24px;
+  box-shadow: none;
+}
+
+body.annotation-page--options .annotation-page__card h1,
+body.annotation-page--options .annotation-page__form,
+body.annotation-page--options .annotation-page__list {
+  margin: 0;
+}
+
+body.annotation-page--options .annotation-page__form p {
+  margin: 0;
+}
+
+body.annotation-page--options .annotation-page__form p:empty,
+body.annotation-page--options .annotation-page__list:empty {
+  display: none;
+}
+
+body.annotation-page--options .annotation-page__form input,
+body.annotation-page--options .annotation-page__form button {
+  box-sizing: border-box;
+  height: 2.25rem;
+  padding-block: 0;
+}
+
+.annotation-page__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--annotation-space-3);
+}
+
+.annotation-page__footer .annotation-page__status {
+  min-height: 0;
+  margin: 0;
+}
+
 .annotation-page__card h1 {
   margin: 0 0 var(--annotation-space-4);
   font-size: var(--annotation-font-size-title);
@@ -176,6 +222,15 @@ body.annotation-page--popup .annotation-page__card {
   color: var(--annotation-color-text);
 }
 
+.annotation-page__card button[data-variant="danger"] {
+  background: transparent;
+  color: var(--annotation-color-danger);
+}
+
+.annotation-page__card button[data-variant="danger"]:hover {
+  background: var(--annotation-color-hover);
+}
+
 /* Popup layout: Start annotating is the full-width primary, then the tab switch, then the exports on one row. */
 body.annotation-page--popup .annotation-page__card > button[data-variant="primary"] {
   width: 100%;
@@ -224,7 +279,7 @@ body.annotation-page--popup .annotation-page__group {
   width: 0.875rem;
   height: 0.875rem;
   border-radius: 50%;
-  background: var(--annotation-color-on-accent);
+  background: var(--annotation-color-knob);
 }
 
 .annotation-page__switch[aria-checked="true"] .annotation-page__switch-track {
@@ -273,7 +328,7 @@ body.annotation-page--popup .annotation-page__group {
   align-items: center;
   justify-content: space-between;
   gap: var(--annotation-space-2);
-  padding: var(--annotation-space-2) 0;
+  padding: var(--annotation-space-1) 0;
   border-bottom: 1px solid var(--annotation-color-divider);
   overflow-wrap: anywhere;
 }
