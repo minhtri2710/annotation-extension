@@ -42,15 +42,15 @@ describe('ui prefs', () => {
     await expect(readToolbarPrefs()).resolves.toEqual({ position: null, collapsed: false });
   });
 
-  it('defaults onboarding to open and round-trips it under ui:onboarding-open', async () => {
-    await expect(readOnboardingOpen()).resolves.toBe(true);
-    await writeOnboardingOpen(false);
-    await expect(fakeBrowser.storage.local.get('ui:onboarding-open')).resolves.toEqual({ 'ui:onboarding-open': false });
+  it('defaults onboarding to closed and round-trips it under ui:onboarding-open', async () => {
     await expect(readOnboardingOpen()).resolves.toBe(false);
+    await writeOnboardingOpen(true);
+    await expect(fakeBrowser.storage.local.get('ui:onboarding-open')).resolves.toEqual({ 'ui:onboarding-open': true });
+    await expect(readOnboardingOpen()).resolves.toBe(true);
   });
 
-  it('returns the onboarding default for a non-boolean stored value', async () => {
-    await fakeBrowser.storage.local.set({ 'ui:onboarding-open': 'false' });
-    await expect(readOnboardingOpen()).resolves.toBe(true);
+  it('returns the closed onboarding default for a non-boolean stored value', async () => {
+    await fakeBrowser.storage.local.set({ 'ui:onboarding-open': 'true' });
+    await expect(readOnboardingOpen()).resolves.toBe(false);
   });
 });

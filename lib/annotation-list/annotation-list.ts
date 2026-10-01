@@ -92,7 +92,7 @@ export function createAnnotationList(
       statusMessage = errorMessage(error);
     }
     const [onboardingOpen, shortcut] = await Promise.all([
-      persistence.readOnboardingOpen().catch(() => true),
+      persistence.readOnboardingOpen().catch(() => false),
       persistence.readCaptureShortcut().catch(() => undefined),
     ]);
     if (version !== renderVersion) return;

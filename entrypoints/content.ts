@@ -2,7 +2,7 @@ import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
 import { ANNOTATION_EDIT_EVENT, ANNOTATION_LIST_CLOSE_EVENT, ANNOTATION_START_EVENT, createAnnotationList } from '../lib/annotation-list/annotation-list';
 import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../lib/notes/note-panel';
-import { createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
+import { ANNOTATION_SCAN_CLOSE_EVENT, createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import { extractElementContext } from '../lib/capture/context';
 import type { Annotation } from '../lib/annotation';
@@ -183,6 +183,9 @@ export default defineContentScript({
         });
         shell.panel.addEventListener(ANNOTATION_LIST_CLOSE_EVENT, () => {
           if (panels.mode() === 'list') panels.close();
+        });
+        shell.panel.addEventListener(ANNOTATION_SCAN_CLOSE_EVENT, () => {
+          if (panels.mode() === 'scan') panels.close();
         });
         shell.panel.addEventListener('keydown', (event) => {
           if (event.key !== 'Escape' || panels.mode() === 'none') return;

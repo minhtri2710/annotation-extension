@@ -6,6 +6,7 @@ import type { AnnotationWriteMessage } from '../annotation-messages';
 import { format } from '../export/format';
 import { ANNOTATION_EDIT_EVENT, ANNOTATION_START_EVENT, createAnnotationList } from './annotation-list';
 import { buildOverlayShell } from '../ui/shell';
+import { readOnboardingOpen } from '../ui/ui-prefs';
 import type { AnnotationListPersistence } from './annotation-list';
 import type { AnnotationExportDelivery } from '../export/delivery';
 import type { ElementContext } from '../capture/context';
@@ -352,13 +353,14 @@ describe('annotation list', () => {
     expect(store.writeOnboardingOpen).not.toHaveBeenCalled();
   });
 
-  it('renders How it works open and keeps the list when the onboarding read fails', async () => {
+  it('renders How it works closed and keeps the list when the onboarding read fails', async () => {
     const panel = document.createElement('div');
     const store = persistence([annotation('annotation-1', 'Still listed')]);
     vi.mocked(store.readOnboardingOpen).mockRejectedValue(new Error('storage down'));
     const list = createAnnotationList(panel, pageUrl, store);
     await expect(list.render()).resolves.toBeUndefined();
-    expect(panel.querySelector<HTMLElement>('[data-annotation-onboarding]')?.hidden).toBe(false);
+    expect(panel.querySelector<HTMLElement>('[data-annotation-onboarding]')?.hidden).toBe(true);
+    expect(panel.querySelector('[data-annotation-help]')?.getAttribute('aria-expanded')).toBe('false');
     expect(panel.querySelectorAll('[data-annotation-row]')).toHaveLength(1);
     expect(panel.querySelector('[data-annotation-status=""]')).toBeNull();
   });
@@ -1069,6 +1071,14 @@ describe('annotation list header, row icons and Download', () => {
     help.click();
     expect([help.getAttribute('aria-expanded'), onboarding.hidden]).toEqual(['false', true]);
     expect(store.writeOnboardingOpen).toHaveBeenLastCalledWith(false);
+  });
+
+  it('renders the first view with How it works closed and the help button collapsed when no state is stored', async () => {
+    const panel = document.createElement('div');
+    const list = createAnnotationList(panel, pageUrl, { ...persistence([annotation('annotation-1', 'Note')]), readOnboardingOpen });
+    await list.render();
+    expect(panel.querySelector('[data-annotation-help]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(panel.querySelector<HTMLElement>('[data-annotation-onboarding]')?.hidden).toBe(true);
   });
 
   it('shows How it works open from the stored state', async () => {

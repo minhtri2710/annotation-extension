@@ -158,7 +158,8 @@ ${ANNOTATION_DARK_TOKENS}
 
 /* Header: pin number, the element label on one truncated line, Close. The "Notes" heading stays in the tree for assistive technology. */
 [data-annotation-shell] [data-annotation-note-header],
-[data-annotation-shell] [data-annotation-list-header] {
+[data-annotation-shell] [data-annotation-list-header],
+[data-annotation-shell] [data-annotation-scan-header] {
   display: flex;
   gap: var(--annotation-space-2);
   align-items: center;
@@ -180,7 +181,8 @@ ${ANNOTATION_DARK_TOKENS}
   min-width: 0;
 }
 
-[data-annotation-shell] [data-annotation-list-header] h2 {
+[data-annotation-shell] [data-annotation-list-header] h2,
+[data-annotation-shell] [data-annotation-scan-header] h2 {
   margin: 0;
   font-size: var(--annotation-font-size-title);
   font-weight: var(--annotation-font-weight-bold);
@@ -194,7 +196,8 @@ ${ANNOTATION_DARK_TOKENS}
 }
 
 [data-annotation-shell] [data-annotation-note-header] > [data-annotation-close],
-[data-annotation-shell] [data-annotation-list-header] > [data-annotation-close] {
+[data-annotation-shell] [data-annotation-list-header] > [data-annotation-close],
+[data-annotation-shell] [data-annotation-scan-header] > [data-annotation-close] {
   margin-left: auto;
 }
 
@@ -549,6 +552,13 @@ ${ANNOTATION_DARK_TOKENS}
   font-weight: var(--annotation-font-weight-medium);
 }
 
+/* Adjacent buttons keep a token gap, also where the row wraps. */
+[data-annotation-shell] [data-annotation-deep-scan],
+[data-annotation-shell] [data-annotation-rescan],
+[data-annotation-shell] [data-annotation-scan-finding] button {
+  margin: 0 var(--annotation-space-2) var(--annotation-space-2) 0;
+}
+
 [data-annotation-shell] [data-annotation-scan-group] {
   padding-top: var(--annotation-space-3);
   border-top: 1px solid var(--annotation-color-divider);
@@ -780,7 +790,7 @@ ${ANNOTATION_DARK_TOKENS}
   gap: var(--annotation-space-2);
 }
 
-/* Number, one-line note and the icon actions share the first line; the element label and the status are muted lines under the note. */
+/* Number, one-line note and the icon actions share the first line; the muted element label and the status chip share the second. */
 [data-annotation-shell] article[data-annotation-row] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -802,13 +812,13 @@ ${ANNOTATION_DARK_TOKENS}
   flex-wrap: nowrap;
 }
 
-[data-annotation-shell] article[data-annotation-row] > [data-annotation-hint],
-[data-annotation-shell] article[data-annotation-row] > [data-annotation-status] {
-  grid-column: 2 / -1;
+[data-annotation-shell] article[data-annotation-row] > [data-annotation-hint] {
+  grid-column: 2;
 }
 
 [data-annotation-shell] article[data-annotation-row] > [data-annotation-status] {
-  justify-self: start;
+  grid-column: 3;
+  justify-self: end;
 }
 
 [data-annotation-shell] article[data-annotation-row] > [data-annotation-locate-missing],

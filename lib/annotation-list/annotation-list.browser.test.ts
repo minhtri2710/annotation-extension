@@ -180,6 +180,27 @@ describe('annotation list in a real browser', () => {
     list.clear();
   });
 
+  it('puts the status chip at the end of the element label line, centred with the label, and keeps each row two lines tall', async () => {
+    const { shell, list } = await renderedList([longLabelled('a1'), { ...longLabelled('a2'), status: 'resolved' }], false);
+    const rows = [...shell.panel.querySelectorAll<HTMLElement>('[data-annotation-row]')];
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const hint = row.querySelector<HTMLElement>('[data-annotation-hint]')!;
+      const status = row.querySelector<HTMLElement>('[data-annotation-status]')!;
+      const actions = row.querySelector<HTMLElement>('[data-annotation-row-actions]')!;
+      const centre = (element: Element) => rect(element).top + rect(element).height / 2;
+      expect(Math.abs(centre(status) - centre(hint))).toBeLessThanOrEqual(2);
+      expect(rect(hint).right).toBeLessThanOrEqual(rect(status).left);
+      expect(hint.scrollWidth).toBeGreaterThan(hint.clientWidth);
+      const style = getComputedStyle(row);
+      const secondLine = Math.max(rect(hint).height, rect(status).height);
+      const twoLines = rect(actions).height + Number.parseFloat(style.rowGap) + secondLine
+        + Number.parseFloat(style.paddingBottom) + Number.parseFloat(style.borderBottomWidth);
+      expect(rect(row).height).toBeLessThanOrEqual(twoLines + 1);
+    }
+    list.clear();
+  });
+
   it('names the stub capture shortcut in the first How it works step', async () => {
     const host = document.createElement('div');
     document.body.append(host);

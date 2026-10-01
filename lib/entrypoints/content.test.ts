@@ -11,6 +11,7 @@ import { registerBackgroundMessageHandlers } from '../wiring/background-messages
 import { interceptPageEvents, releasePageEvents } from '../capture';
 import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../capture/activation';
 import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
+import { ANNOTATION_SCAN_CLOSE_EVENT } from '../scan-panel/scan-panel';
 import type { ToolbarPrefs } from '../ui/ui-prefs';
 
 // Spy: the content script's event bus is closure-private; the real bus runs, and each `on` records its unsubscriber.
@@ -314,6 +315,24 @@ describe('content script entrypoint', () => {
     expect(panel().hasAttribute('aria-label')).toBe(false);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(shadow().activeElement).toBe(toggle);
+  });
+
+  it('the scan-close event, also from the scan panel Close, closes an open scan panel and returns focus to Scan', async () => {
+    await start();
+    const toggle = button('Scan');
+    for (const close of [
+      () => trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-scan-header] button')!),
+      () => panel().dispatchEvent(new Event(ANNOTATION_SCAN_CLOSE_EVENT)),
+    ]) {
+      trustedClick(toggle);
+      await vi.waitFor(() => expect(panel().querySelector('[data-annotation-scan-header]')).not.toBeNull());
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      panel().querySelector<HTMLButtonElement>('[data-annotation-scan-header] button')!.focus();
+      close();
+      expect(panel().hasAttribute('aria-label')).toBe(false);
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(shadow().activeElement).toBe(toggle);
+    }
   });
 
   it('Annotate on a scan finding opens the note panel for its element seeded with the finding, and closing it focuses Scan', async () => {

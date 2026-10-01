@@ -80,6 +80,33 @@ function expectOver(outline: Element, el: Element): void {
   }
 }
 
+describe('scan panel buttons in a real browser', () => {
+  it.each(['light', 'dark'] as const)('keeps the token gap between Deep scan and Rescan and between Locate and Annotate (%s)', async (theme) => {
+    const target = box('20px 0 0 40px');
+    document.body.append(target);
+    const { shell, scanToggle } = mountScan([finding('error', 'contrast', target)], theme);
+    scanToggle.click();
+    await vi.waitFor(() => expect(shell.panel.querySelector('[data-annotation-scan-annotate]')).not.toBeNull());
+
+    const probe = document.createElement('span');
+    probe.style.display = 'block';
+    probe.style.width = 'var(--annotation-space-2)';
+    shell.root.append(probe);
+    const gapToken = probe.getBoundingClientRect().width;
+    probe.remove();
+    expect(gapToken).toBeGreaterThanOrEqual(8);
+
+    const gap = (first: Element, second: Element) => {
+      const a = first.getBoundingClientRect();
+      const b = second.getBoundingClientRect();
+      return Math.max(b.left - a.right, b.top - a.bottom);
+    };
+    const pick = (selector: string) => shell.panel.querySelector(selector)!;
+    expect(gap(pick('[data-annotation-deep-scan]'), pick('[data-annotation-rescan]'))).toBeGreaterThanOrEqual(gapToken);
+    expect(gap(pick('[data-annotation-scan-locate]'), pick('[data-annotation-scan-annotate]'))).toBeGreaterThanOrEqual(gapToken);
+  });
+});
+
 describe('scan panel outlines in a real browser', () => {
   it.each(['light', 'dark'] as const)('outlines each element finding over its element in its severity colour, through scrolling, until the Scan toggle closes it (%s)', async (theme) => {
     const error = box('300px 0 0 40px');

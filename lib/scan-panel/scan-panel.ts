@@ -20,6 +20,8 @@ export interface ScanPanel {
   live: HTMLElement;
 }
 
+export const ANNOTATION_SCAN_CLOSE_EVENT = 'annotation-scan-close';
+
 const SEVERITY_ORDER: Severity[] = ['error', 'warning', 'advisory'];
 const SEVERITY_LABEL: Record<Severity, string> = { error: 'Error', warning: 'Warning', advisory: 'Advisory' };
 const SEVERITY_COUNT: Record<Severity, [one: string, other: string]> = {
@@ -80,7 +82,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     version: number;
     controller: AbortController;
     document: Document;
-    heading: HTMLElement;
+    header: HTMLElement;
     status: HTMLElement;
   } {
     const version = ++renderVersion;
@@ -93,13 +95,24 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       controller.abort();
     };
     const document = panel.ownerDocument;
+    const header = document.createElement('header');
+    header.dataset.annotationScanHeader = '';
     const heading = document.createElement('h2');
     heading.textContent = 'Design scan';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.dataset.annotationClose = '';
+    close.dataset.variant = 'quiet';
+    close.textContent = '×';
+    close.setAttribute('aria-label', 'Close');
+    close.title = 'Close';
+    close.addEventListener('click', () => panel.dispatchEvent(new Event(ANNOTATION_SCAN_CLOSE_EVENT)));
+    header.append(heading, close);
     const status = document.createElement('p');
     status.dataset.annotationStatus = '';
     setStatus(status, statusText);
-    panel.replaceChildren(heading, status);
-    return { version, controller, document, heading, status };
+    panel.replaceChildren(header, status);
+    return { version, controller, document, header, status };
   }
 
   async function render(): Promise<void> {
@@ -125,7 +138,7 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
   }
 
   async function runDeepScan(): Promise<void> {
-    const { version, controller, document, heading, status } = begin('Deep scan running…');
+    const { version, controller, document, header, status } = begin('Deep scan running…');
     deepScan = controller;
     const cancel = document.createElement('button');
     cancel.type = 'button';
@@ -179,18 +192,18 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       finish();
       if (controller.signal.aborted) {
         setStatus(status, 'Deep scan cancelled');
-        panel.replaceChildren(heading, status, createDeepScanButton(document));
+        panel.replaceChildren(header, status, createDeepScanButton(document));
         restoreFocus();
       } else {
         setStatus(status, `Scan failed: ${errorMessage(error)}`);
-        panel.replaceChildren(heading, status);
+        panel.replaceChildren(header, status);
       }
       options.onUpdate();
       return;
     }
     if (version !== renderVersion) return;
     finish();
-    panel.replaceChildren(heading);
+    panel.replaceChildren(header);
     showFindings(document, findings, 'Deep scan: ');
     restoreFocus();
     options.onUpdate();

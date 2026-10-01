@@ -318,26 +318,32 @@ describe('a page that stops events at window capture (real browser)', () => {
     viewAll.style.removeProperty('inset');
     viewAll.style.removeProperty('width');
     viewAll.style.removeProperty('height');
+    // The stretched control is clipped to the panel, so the real click must land inside the panel.
+    const clickInPanel = async () => {
+      const box = shell.panel.getBoundingClientRect();
+      host.style.cssText = `position: fixed; margin: 0; inset: auto; left: ${box.left + box.width / 2 - 7}px; top: ${box.top + box.height / 2 - 7}px; width: 14px; height: 14px`;
+      await userEvent.click(host);
+    };
     const currentRemove = shell.panel.querySelector<HTMLButtonElement>('[data-annotation-delete]')!;
     currentRemove.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
-    await userEvent.click(host);
+    await clickInPanel();
     const deletePrompt = shell.panel.querySelector('[data-annotation-delete-prompt]')!;
     const deleteConfirm = deletePrompt.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement;
     deleteConfirm.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, cancelable: true }));
     expect(sendAnnotationWrite).not.toHaveBeenCalled();
     deleteConfirm.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
-    await userEvent.click(host);
+    await clickInPanel();
     expect(sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.delete', pageUrl: location.href, id: 'zoomed' });
 
     const currentClear = shell.panel.querySelector('[data-annotation-clear]') as HTMLButtonElement;
     currentClear.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
-    await userEvent.click(host);
+    await clickInPanel();
     const clearPrompt = shell.panel.querySelector('[data-annotation-clear-prompt]')!;
     const confirm = clearPrompt.querySelector('[data-annotation-clear-confirm]') as HTMLButtonElement;
     confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, cancelable: true }));
     expect(sendAnnotationWrite).not.toHaveBeenCalledWith({ type: 'annotation.clear', pageUrl: location.href });
     confirm.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh';
-    await userEvent.click(host);
+    await clickInPanel();
     expect(sendAnnotationWrite).toHaveBeenCalledWith({ type: 'annotation.clear', pageUrl: location.href });
     await list.clear();
   });

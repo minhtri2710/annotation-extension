@@ -24,7 +24,7 @@ export function writeToolbarPrefs(prefs: ToolbarPrefs): Promise<void> {
 export async function readOnboardingOpen(): Promise<boolean> {
   const stored = await browser.storage.local.get(ONBOARDING_OPEN_STORAGE_KEY);
   const open = stored[ONBOARDING_OPEN_STORAGE_KEY];
-  return typeof open === 'boolean' ? open : true;
+  return typeof open === 'boolean' ? open : false;
 }
 
 export function writeOnboardingOpen(open: boolean): Promise<void> {

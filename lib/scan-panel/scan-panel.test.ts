@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Finding, Rule, Severity } from '../lint/engine';
 import { hiddenAtRestRules } from '../lint/rules/hidden-at-rest';
-import { createScanPanel, deepScanPage, scanPage, type ScanPanelOptions } from './scan-panel';
+import { ANNOTATION_SCAN_CLOSE_EVENT, createScanPanel, deepScanPage, scanPage, type ScanPanelOptions } from './scan-panel';
 
 function finding(ruleId: string, name: string, severity: Severity, detail: string, el?: Element): Finding {
   return {
@@ -84,6 +84,28 @@ describe('scanPage', () => {
 });
 
 describe('scan panel', () => {
+  it('heads the panel with the Design scan title and a Close that dispatches the scan-close event on the panel, also during a deep scan', async () => {
+    vi.useFakeTimers();
+    const { panel, scanPanel } = setup(async () => [finding('r', 'Rule', 'error', 'bad')]);
+    const closed = vi.fn();
+    panel.addEventListener(ANNOTATION_SCAN_CLOSE_EVENT, closed);
+    await renderNow(scanPanel.render);
+    const header = panel.firstElementChild as HTMLElement;
+    expect(header.matches('header[data-annotation-scan-header]')).toBe(true);
+    expect([...header.children].map((el) => el.tagName)).toEqual(['H2', 'BUTTON']);
+    expect(header.querySelector('h2')?.textContent).toBe('Design scan');
+    const close = header.querySelector<HTMLButtonElement>('button')!;
+    expect([close.type, close.dataset.variant, close.getAttribute('aria-label'), close.title]).toEqual(['button', 'quiet', 'Close', 'Close']);
+    expect(close.hasAttribute('data-annotation-close')).toBe(true);
+    close.click();
+    expect(closed).toHaveBeenCalledTimes(1);
+
+    deepButton(panel)?.click();
+    expect(panel.firstElementChild?.matches('header[data-annotation-scan-header]')).toBe(true);
+    panel.querySelector<HTMLButtonElement>('[data-annotation-scan-header] button')!.click();
+    expect(closed).toHaveBeenCalledTimes(2);
+  });
+
   it('shows a scanning status and yields a macrotask before scanning', async () => {
     vi.useFakeTimers();
     const scan = vi.fn(async () => [] as Finding[]);
@@ -574,7 +596,7 @@ describe('scan panel deep scan', () => {
 
     expect(spy).toHaveBeenCalledTimes(1);
     expect(calls[0]?.signal.aborted).toBe(false);
-    expect([...panel.children].map((el) => el.tagName)).toEqual(['H2', 'P', 'BUTTON']);
+    expect([...panel.children].map((el) => el.tagName)).toEqual(['HEADER', 'P', 'BUTTON']);
     expect(panel.querySelector('h2')?.textContent).toBe('Design scan');
     expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('Deep scan running…');
     const cancel = panel.querySelector<HTMLButtonElement>('[data-annotation-deep-scan-cancel]');
