@@ -13,6 +13,7 @@ import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../capture/activa
 import { SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
 import { ANNOTATION_SCAN_CLOSE_EVENT } from '../scan-panel/scan-panel';
 import type { ToolbarPrefs } from '../ui/ui-prefs';
+import { readToolbarTab } from '../wiring/toolbar-tab-messages';
 
 // Spy: the content script's event bus is closure-private; the real bus runs, and each `on` records its unsubscriber.
 const busSubscriptions = vi.hoisted(() => [] as { event: PropertyKey; unsubscribe: import('vitest').Mock }[]);
@@ -123,9 +124,9 @@ describe('content script entrypoint', () => {
     expect(toolbarButtons().filter((text) => text !== 'Move toolbar').slice(0, 3)).toEqual(['Scan', 'View all', 'Annotate']);
   });
 
-  it('draws Scan, View all, the collapse control and the grip as icons with a name and a title, and keeps Annotate as text', async () => {
+  it('draws Scan, View all, the Hide toolbar control and the grip as icons with a name and a title, and keeps Annotate as text', async () => {
     await start();
-    const iconOnly = ['Scan', 'View all', 'Hide annotation toolbar', 'Move toolbar'].map(button);
+    const iconOnly = ['Scan', 'View all', 'Hide toolbar on this tab', 'Move toolbar'].map(button);
     for (const control of iconOnly) {
       expect(control.textContent).toBe(control.querySelector('[data-annotation-badge]')?.textContent ?? '');
       expect(control.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
@@ -621,6 +622,7 @@ describe('content script entrypoint', () => {
     const isAnnotating = () => hosts()[0]!.hasAttribute('data-annotation-active');
     const storedToolbar = async () => (await browser.storage.local.get('ui:toolbar'))['ui:toolbar'] as ToolbarPrefs;
     const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const toggleCapture = () => fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
     const requests = (send: { mock: { calls: unknown[][] } }, type: string) =>
       send.mock.calls.map(([message]) => message).filter((message) => (message as { type?: string }).type === type);
 
@@ -840,29 +842,196 @@ describe('content script entrypoint', () => {
       expect(isHidden()).toBe(true);
     });
 
-    it('keeps the stored collapse and position through turning the toolbar off and on', async () => {
+    it('keeps the stored position through turning the toolbar off and on', async () => {
       await start();
       await pushToolbar(true);
-      trustedClick(button('Hide annotation toolbar'));
-      await vi.waitFor(async () => expect((await browser.storage.local.get('ui:toolbar'))['ui:toolbar']).toEqual({ position: null, collapsed: true }));
+      dispatchTrusted(button('Move toolbar'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await vi.waitFor(async () => expect((await storedToolbar()).position).not.toBeNull());
       await pushToolbar(false);
       expect(isHidden()).toBe(true);
       await settle();
-      await expect(browser.storage.local.get('ui:toolbar')).resolves.toEqual({ 'ui:toolbar': { position: null, collapsed: true } });
-
-      dispatchTrusted(button('Move toolbar'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-      await vi.waitFor(async () => expect((await storedToolbar()).position).not.toBeNull());
-      trustedClick(button('Show annotation toolbar'));
-      await vi.waitFor(async () => expect((await storedToolbar()).collapsed).toBe(false));
-      expect(isHidden()).toBe(true);
 
       const stored = await storedToolbar();
+      expect(Object.keys(stored)).toEqual(['position']);
       await pushToolbar(true);
       expect(isHidden()).toBe(false);
       expect(await storedToolbar()).toEqual(stored);
-      expect(toolbar().hasAttribute('data-collapsed')).toBe(false);
       expect(toolbar().style.left).toBe(`${stored.position?.x}px`);
       expect(toolbar().style.top).toBe(`${stored.position?.y}px`);
+    });
+
+    describe('Hide toolbar', () => {
+      const HIDE = 'Hide toolbar on this tab';
+      const HIDDEN_NOTICE = 'Toolbar hidden. Turn it back on from the extension popup.';
+      const statuses = () => [...shadow().querySelectorAll('[role="status"]')];
+      const announcements = () => statuses().filter((status) => !toolbar().contains(status)).map((status) => status.textContent);
+      const openNotePanel = async () => {
+        const target = document.body.appendChild(document.createElement('div'));
+        target.id = 'target';
+        dispatchTrusted(target, new PointerEvent('pointerdown', { bubbles: true, cancelable: true, composed: true, button: 0 }));
+        await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotation note'));
+        return target;
+      };
+      const turnOn = async () => {
+        await toggleCapture();
+        await vi.waitFor(() => expect(isAnnotating()).toBe(true));
+      };
+
+      it('sends one toolbar.set off, then hides the bar, stops annotating, closes All annotations and answers off for the tab', async () => {
+        const send = routeToBackground();
+        await start();
+        await turnOn();
+        trustedClick(button('View all'));
+        await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotations on this page'));
+        send.mockClear();
+
+        trustedClick(button(HIDE));
+
+        await vi.waitFor(() => expect(isHidden()).toBe(true));
+        expect(requests(send, 'toolbar.set')).toEqual([{ type: 'toolbar.set', on: false }]);
+        expect(isAnnotating()).toBe(false);
+        expect(panel().hasAttribute('aria-label')).toBe(false);
+        expect(button('View all').getAttribute('aria-expanded')).toBe('false');
+        await expect(readToolbarTab()).resolves.toBe(false);
+      });
+
+      it('leaves an open note panel open', async () => {
+        routeToBackground();
+        await start();
+        await turnOn();
+        await openNotePanel();
+
+        trustedClick(button(HIDE));
+
+        await vi.waitFor(() => expect(isHidden()).toBe(true));
+        expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+      });
+
+      it('stays shown, changes nothing and can be clicked again when the request fails, and announces nothing', async () => {
+        const send = stubRead(() => Promise.reject(new Error('Storage failed')));
+        await start();
+        await pushToolbar(true);
+        await toggleCapture();
+        trustedClick(button('View all'));
+        await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotations on this page'));
+        send.mockClear();
+
+        trustedClick(button(HIDE));
+        await settle();
+
+        expect(requests(send, 'toolbar.set')).toEqual([{ type: 'toolbar.set', on: false }]);
+        expect(isHidden()).toBe(false);
+        expect(isAnnotating()).toBe(true);
+        expect(panel().getAttribute('aria-label')).toBe('Annotations on this page');
+        expect(announcements()).not.toContain(HIDDEN_NOTICE);
+
+        trustedClick(button(HIDE));
+        await settle();
+        expect(requests(send, 'toolbar.set')).toHaveLength(2);
+      });
+
+      it('announces that the toolbar is hidden in a live region outside the toolbar', async () => {
+        routeToBackground();
+        await start();
+        await turnOn();
+        expect(announcements()).not.toContain(HIDDEN_NOTICE);
+
+        trustedClick(button(HIDE));
+
+        await vi.waitFor(() => expect(announcements()).toContain(HIDDEN_NOTICE));
+        expect(statuses().filter((status) => status.textContent === HIDDEN_NOTICE).every((status) => !toolbar().contains(status))).toBe(true);
+      });
+
+      it.each([
+        ['a toolbar change message', () => pushToolbar(true)],
+        ['the capture toggle', () => toggleCapture()],
+      ])('shows the bar again at its stored position with every control after %s', async (_name, turnBackOn) => {
+        routeToBackground();
+        await start();
+        dispatchTrusted(button('Move toolbar'), new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        await vi.waitFor(async () => expect((await storedToolbar()).position).not.toBeNull());
+        await turnOn();
+        trustedClick(button(HIDE));
+        await vi.waitFor(() => expect(isHidden()).toBe(true));
+
+        await turnBackOn();
+
+        await vi.waitFor(() => expect(isHidden()).toBe(false));
+        const stored = await storedToolbar();
+        expect(toolbar().style.left).toBe(`${stored.position?.x}px`);
+        expect(toolbarButtons()).toEqual(['Move toolbar', 'Scan', 'View all', expect.stringMatching(/Annotate|Stop annotating/), HIDE]);
+        for (const control of toolbar().querySelectorAll('button')) expect(control.hidden).toBe(false);
+      });
+    });
+
+    describe('a click outside the overlay', () => {
+      const pointer = (target: EventTarget, init: PointerEventInit & { trusted?: boolean } = {}) => {
+        const { trusted = true, ...rest } = init;
+        const event = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, composed: true, button: 0, ...rest });
+        if (trusted) dispatchTrusted(target, event);
+        else target.dispatchEvent(event);
+      };
+      const click = (target: EventTarget, init: MouseEventInit & { trusted?: boolean } = {}) => {
+        const { trusted = true, ...rest } = init;
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, button: 0, ...rest });
+        if (trusted) dispatchTrusted(target, event);
+        else target.dispatchEvent(event);
+      };
+      const page = () => document.body.appendChild(document.createElement('p'));
+      const openNote = async () => {
+        await pushToolbar(true);
+        const target = document.body.appendChild(document.createElement('div'));
+        target.id = 'target';
+        await toggleCapture();
+        pointer(target);
+        await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Annotation note'));
+      };
+
+      it('closes the note panel for a trusted primary pointerdown and click, and ignores an untrusted pair and a right button', async () => {
+        await start();
+        await openNote();
+        const outside = page();
+
+        pointer(outside, { trusted: false });
+        click(outside, { trusted: false });
+        expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+
+        pointer(outside, { button: 2 });
+        click(outside, { button: 2 });
+        expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+
+        pointer(outside);
+        click(outside);
+        expect(panel().hasAttribute('aria-label')).toBe(false);
+      });
+
+      it('keeps the note panel open when the gesture starts inside the overlay and the click lands on the page', async () => {
+        await start();
+        await openNote();
+        const outside = page();
+
+        pointer(panel());
+        click(outside);
+
+        expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+      });
+
+      it.each([
+        ['All annotations', 'View all', 'Annotations on this page'],
+        ['the scan panel', 'Scan', 'Page scan'],
+      ])('leaves %s open', async (_name, opener, label) => {
+        await start();
+        await pushToolbar(true);
+        trustedClick(button(opener));
+        await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe(label));
+        const outside = page();
+
+        pointer(outside);
+        click(outside);
+
+        expect(panel().getAttribute('aria-label')).toBe(label);
+        expect(button(opener).getAttribute('aria-expanded')).toBe('true');
+      });
     });
   });
 });

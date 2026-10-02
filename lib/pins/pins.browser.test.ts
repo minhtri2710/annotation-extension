@@ -405,7 +405,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     });
 
     // Mounted as in production: the pins controller first, then the toolbar buttons and controls.
-    function mountToolbar(stored: ToolbarPrefs = { position: null, collapsed: false }) {
+    function mountToolbar(stored: ToolbarPrefs = { position: null }) {
       const { shell } = mountShell();
       controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
       for (const label of ['Scan page', 'List annotations', 'Annotate']) {
@@ -418,7 +418,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
         win: window,
         // Storage answers after the page has rendered, as chrome.storage may.
         prefs: { read: () => frames().then(() => stored), write: async () => undefined },
-        onCollapsedChange: () => undefined,
+        onHide: () => undefined,
         onPositionChange: () => undefined,
       });
       return shell;
@@ -472,27 +472,29 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
       expect(overlaps(pin, moved), `${JSON.stringify(pin)} overlaps ${JSON.stringify(moved)}`).toBe(false);
     });
 
-    it('moves a pin off the toolbar after the toolbar is collapsed and expanded over it', async () => {
+    it('moves a pin off the toolbar after the toolbar grows over it, and puts it back on its own centre when the toolbar shrinks', async () => {
       const shell = mountToolbar();
       await controls!.ready;
-      const { marker, bar: expanded, own } = annotateBeside(shell, (bar) => ({ x: bar.left + 20, y: bar.top + bar.height / 2 }));
+      // The pin's own centre lies 30 px left of the toolbar; a wide button added to the bar grows it leftward over that centre.
+      const { marker, bar: narrow, own } = annotateBeside(shell, (bar) => ({ x: bar.left - 30, y: bar.top + bar.height / 2 }));
       await frames();
-      expect(overlaps(marker.getBoundingClientRect(), expanded)).toBe(false);
+      expect(overlaps(marker.getBoundingClientRect(), narrow)).toBe(false);
+      expect(center(marker.getBoundingClientRect()).x).toBeCloseTo(own.x, 0);
 
-      const collapse = shell.root.querySelector<HTMLElement>('[data-annotation-toolbar-collapse]')!;
-      await userEvent.click(collapse);
+      const wide = document.createElement('button');
+      wide.style.width = '120px';
+      shell.toolbar.append(wide);
       await frames();
-      // The collapsed toolbar leaves the pin's own centre free, so the pin returns to it.
-      expect(overlaps(marker.getBoundingClientRect(), shell.toolbar.getBoundingClientRect())).toBe(false);
+      const grown = shell.toolbar.getBoundingClientRect();
+      expect(grown.left).toBeLessThan(own.x);
+      const pin = marker.getBoundingClientRect();
+      expect(overlaps(pin, grown), `${JSON.stringify(pin)} overlaps ${JSON.stringify(grown)}`).toBe(false);
+
+      wide.remove();
+      await frames();
+      expect(shell.toolbar.getBoundingClientRect().width).toBeCloseTo(narrow.width);
       expect(center(marker.getBoundingClientRect()).x).toBeCloseTo(own.x, 0);
       expect(center(marker.getBoundingClientRect()).y).toBeCloseTo(own.y, 0);
-
-      await userEvent.click(collapse);
-      await frames();
-      const bar = shell.toolbar.getBoundingClientRect();
-      expect(bar.width).toBeCloseTo(expanded.width);
-      const pin = marker.getBoundingClientRect();
-      expect(overlaps(pin, bar), `${JSON.stringify(pin)} overlaps ${JSON.stringify(bar)}`).toBe(false);
     });
 
     it('takes a hidden toolbar out of layout and focus, and puts a pin it had pushed aside back on its own centre', async () => {
@@ -526,7 +528,7 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     });
 
     it('moves a pin off the toolbar once a stored position that covers it is applied', async () => {
-      const shell = mountToolbar({ position: { x: 100, y: 100 }, collapsed: false });
+      const shell = mountToolbar({ position: { x: 100, y: 100 } });
       placeTarget('left: 110px; top: 110px');
       const marker = annotate(shell);
       expect(center(marker.getBoundingClientRect())).toEqual({ x: 110, y: 110 });

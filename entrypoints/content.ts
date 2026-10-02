@@ -9,9 +9,10 @@ import type { Annotation } from '../lib/annotation';
 import { resolveLiveElementContext } from '../lib/wiring/live-element';
 import { createPanelMode } from '../lib/wiring/panel-mode';
 import { watchRoute } from '../lib/wiring/route-watch';
-import { buildOverlayShell, createPanelAnchor, raiseOverlay, setToolbarHidden, type PanelAnchor } from '../lib/ui/shell';
+import { buildOverlayShell, createLiveRegion, createPanelAnchor, raiseOverlay, setToolbarHidden, type PanelAnchor } from '../lib/ui/shell';
 import { createEventBus } from '../lib/ui/event-bus';
 import { setIconButton } from '../lib/ui/icons';
+import { watchOutsideClick } from '../lib/ui/outside-click';
 import { createToolbarControls } from '../lib/ui/toolbar-controls';
 import { readToolbarPrefs, writeToolbarPrefs } from '../lib/ui/ui-prefs';
 import { isToolbarChangedMessage, readToolbarTab, setToolbarTab } from '../lib/wiring/toolbar-tab-messages';
@@ -28,6 +29,8 @@ import {
   releasePageEvents,
   type CaptureEvents,
 } from '../lib/capture';
+
+const HIDDEN_NOTICE = 'Toolbar hidden. Turn it back on from the extension popup.';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -59,6 +62,7 @@ export default defineContentScript({
     let stopColorScheme: (() => void) | undefined;
     let toolbarControls: ReturnType<typeof createToolbarControls> | undefined;
     let stopOverlayGuard: (() => void) | undefined;
+    let stopOutsideClick: (() => void) | undefined;
     // The bar belongs to the tab and is off until the background says this tab turned it on, so an overlay
     // mounts with the bar hidden and never shows it for a frame. A later change wins over a read still pending.
     let toolbarOn = false;
@@ -110,6 +114,9 @@ export default defineContentScript({
         scanPanel = activeScanPanel;
         // Live regions sit outside the panel mount so they persist while panels re-render and close.
         shell.root.append(activeNotePanel.live, annotationList.live, activeScanPanel.live);
+        // Outside the toolbar so it is still announced once the toolbar is hidden.
+        const hiddenNotice = createLiveRegion(document);
+        shell.root.append(hiddenNotice.element);
         const overlayRoot = shell.root.getRootNode() as Document | ShadowRoot;
         const activePanelAnchor = createPanelAnchor(shell.panel, shell.toolbar);
         panelAnchor = activePanelAnchor;
@@ -132,6 +139,7 @@ export default defineContentScript({
           listToggle,
           scanToggle,
         });
+        stopOutsideClick = watchOutsideClick({ win: window, shadowHost, panels, captureActive: () => controller?.active ?? false });
         scanToggle.addEventListener('click', () => panels.toggle('scan'));
         shell.toolbar.append(scanToggle);
 
@@ -196,8 +204,15 @@ export default defineContentScript({
           toolbar: shell.toolbar,
           win: window,
           prefs: { read: readToolbarPrefs, write: writeToolbarPrefs },
-          onCollapsedChange: (collapsed) => {
-            if (collapsed && panels.mode() !== 'none') panels.close();
+          onHide: () => {
+            void setToolbarTab(false).then(
+              () => {
+                if (ctx.isInvalid) return;
+                showToolbar(false);
+                hiddenNotice.announce(HIDDEN_NOTICE);
+              },
+              () => undefined,
+            );
           },
           onPositionChange: () => {
             const mode = panels.mode();
@@ -207,6 +222,7 @@ export default defineContentScript({
         // The overlay stays mounted while the bar is off. Annotating never runs without the bar, and only a
         // list or scan panel, which anchor to the bar, close; an open note panel stays.
         applyToolbar = (on) => {
+          if (on) hiddenNotice.announce('');
           if (!on) {
             controller?.deactivate();
             const mode = panels.mode();
@@ -261,6 +277,8 @@ export default defineContentScript({
       onRemove: () => {
         stopOverlayGuard?.();
         stopOverlayGuard = undefined;
+        stopOutsideClick?.();
+        stopOutsideClick = undefined;
         stopRouteWatch?.();
         stopRouteWatch = undefined;
         stopColorScheme?.();

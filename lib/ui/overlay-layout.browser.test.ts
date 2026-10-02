@@ -33,7 +33,7 @@ function mountOverlay() {
   const shell = buildOverlayShell(container);
   raiseOverlay(host);
   // The production toolbar's controls, so its width at small viewports is realistic.
-  const [annotate] = ['Annotate', 'Move toolbar', 'Scan', 'View all', 'Collapse toolbar'].map((label) => {
+  const [annotate] = ['Annotate', 'Move toolbar', 'Scan', 'View all', 'Hide toolbar on this tab'].map((label) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = label;
@@ -235,10 +235,10 @@ function addToolbarButtons(toolbar: HTMLElement, labels: string[]): HTMLButtonEl
   });
 }
 
-const noPrefs = { read: async () => ({ position: null, collapsed: false }), write: async () => undefined };
+const noPrefs = { read: async () => ({ position: null }), write: async () => undefined };
 
 describe('toolbar layout (real browser)', () => {
-  it('lays every control and the count out on one row at one height, with the count text unchanged, also collapsed', async () => {
+  it('lays every control and the count out on one row at one height, with the count text unchanged', async () => {
     await page.viewport(1280, 720);
     const { shell } = mountShell();
     const [, viewAll] = addToolbarButtons(shell.toolbar, ['Scan', 'View all', 'Annotate']);
@@ -250,7 +250,7 @@ describe('toolbar layout (real browser)', () => {
       toolbar: shell.toolbar,
       win: window,
       prefs: noPrefs,
-      onCollapsedChange: () => undefined,
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());
@@ -276,14 +276,9 @@ describe('toolbar layout (real browser)', () => {
     const badge = shell.toolbar.querySelector<HTMLElement>('[data-annotation-badge]')!;
     expectOneRowOneHeight(5);
     expect(badge.textContent).toBe('2 annotations');
-
-    shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!.click();
-    await settled();
-    expectOneRowOneHeight(3);
-    expect(badge.textContent).toBe('2 annotations');
   });
 
-  it('renders a word space between the count number and its unit for one and several annotations, also collapsed', async () => {
+  it('renders a word space between the count number and its unit for one and several annotations', async () => {
     await page.viewport(1280, 720);
     const { shell } = mountShell();
     const [viewAll] = addToolbarButtons(shell.toolbar, ['View all']);
@@ -294,7 +289,7 @@ describe('toolbar layout (real browser)', () => {
       toolbar: shell.toolbar,
       win: window,
       prefs: noPrefs,
-      onCollapsedChange: () => undefined,
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());
@@ -308,20 +303,16 @@ describe('toolbar layout (real browser)', () => {
       range.setEnd(unit.firstChild!, 1);
       return range.getBoundingClientRect().width;
     };
-    const collapse = shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!;
 
     pins.setAnnotations([annotation('a1', 'One')]);
     expect(renderedSpaceWidth()).toBeGreaterThan(1);
     pins.setAnnotations([annotation('a1', 'One'), annotation('a2', 'Two'), annotation('a3', 'Three')]);
     expect(renderedSpaceWidth()).toBeGreaterThan(1);
-
-    collapse.click();
-    expect(renderedSpaceWidth()).toBeGreaterThan(1);
     pins.setAnnotations([annotation('a1', 'One')]);
     expect(renderedSpaceWidth()).toBeGreaterThan(1);
   });
 
-  it('overlaps the count badge on the top-right corner of the View all button, hides it at zero, keeps the button named View all and describes it by the badge, also collapsed', async () => {
+  it('overlaps the count badge on the top-right corner of the View all button, hides it at zero, keeps the button named View all and describes it by the badge', async () => {
     await page.viewport(1280, 720);
     const { shell } = mountShell();
     const [scan, viewAll] = addToolbarButtons(shell.toolbar, ['Scan', 'View all']);
@@ -333,7 +324,7 @@ describe('toolbar layout (real browser)', () => {
       toolbar: shell.toolbar,
       win: window,
       prefs: noPrefs,
-      onCollapsedChange: () => undefined,
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());
@@ -377,15 +368,9 @@ describe('toolbar layout (real browser)', () => {
     expect(viewAll!.getAttribute('aria-describedby')).toBe(badge().id);
     expect(badge().id).not.toBe('');
     expect(scan!.hasAttribute('aria-describedby')).toBe(false);
-
-    shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!.click();
-    await settled();
-    expect(getComputedStyle(viewAll!).display).not.toBe('none');
-    expect(getComputedStyle(scan!).display).toBe('none');
-    expectCorner();
   });
 
-  it('keeps View all and its badge on the collapsed bar in one row, where View all opens and closes All annotations', async () => {
+  it('keeps View all and its badge in one row with the other controls, where View all opens and closes All annotations', async () => {
     await page.viewport(1280, 720);
     const { shell } = mountShell();
     const [scan, viewAll] = addToolbarButtons(shell.toolbar, ['Scan', 'View all']);
@@ -398,7 +383,7 @@ describe('toolbar layout (real browser)', () => {
       toolbar: shell.toolbar,
       win: window,
       prefs: noPrefs,
-      onCollapsedChange: () => undefined,
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());
@@ -427,11 +412,10 @@ describe('toolbar layout (real browser)', () => {
     });
     viewAll!.addEventListener('click', () => panels.toggle('list'));
 
-    shell.toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!.click();
     await nextFrame();
     await Promise.all(shell.root.getAnimations({ subtree: true }).map((animation) => animation.finished));
     const parts = [...shell.toolbar.children].filter((child) => getComputedStyle(child).display !== 'none') as HTMLElement[];
-    expect(parts).toHaveLength(3);
+    expect(parts).toHaveLength(4);
     const tops = parts.map((part) => part.getBoundingClientRect().top);
     expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(0.5);
     const badge = viewAll!.querySelector<HTMLElement>('[data-annotation-badge]')!;
@@ -453,8 +437,8 @@ describe('toolbar layout (real browser)', () => {
     const controls = createToolbarControls({
       toolbar: shell.toolbar,
       win: window,
-      prefs: { read: async () => ({ position: { x: 700, y: 100 }, collapsed: false }), write: async () => undefined },
-      onCollapsedChange: () => undefined,
+      prefs: { read: async () => ({ position: { x: 700, y: 100 } }), write: async () => undefined },
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());
@@ -476,8 +460,8 @@ describe('toolbar layout (real browser)', () => {
     const controls = createToolbarControls({
       toolbar: shell.toolbar,
       win: window,
-      prefs: { read: async () => ({ position: { x: 600, y: 100 }, collapsed: false }), write: async () => undefined },
-      onCollapsedChange: () => undefined,
+      prefs: { read: async () => ({ position: { x: 600, y: 100 } }), write: async () => undefined },
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());
@@ -508,8 +492,8 @@ describe('toolbar layout (real browser)', () => {
     const controls = createToolbarControls({
       toolbar: shell.toolbar,
       win: window,
-      prefs: { read: async () => ({ position: { x: 600, y: 100 }, collapsed: false }), write },
-      onCollapsedChange: () => undefined,
+      prefs: { read: async () => ({ position: { x: 600, y: 100 } }), write },
+      onHide: () => undefined,
       onPositionChange,
     });
     cleanups.push(() => controls.destroy());
@@ -909,8 +893,8 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
     const controls = createToolbarControls({
       toolbar: shell.toolbar,
       win: window,
-      prefs: { read: async () => ({ position: null, collapsed: false }), write: async () => undefined },
-      onCollapsedChange: () => undefined,
+      prefs: { read: async () => ({ position: null }), write: async () => undefined },
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());

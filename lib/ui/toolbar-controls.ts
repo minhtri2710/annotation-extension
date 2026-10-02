@@ -6,7 +6,7 @@ export interface ToolbarControlsOptions {
   toolbar: HTMLElement;
   win: Window;
   prefs: { read(): Promise<ToolbarPrefs>; write(prefs: ToolbarPrefs): Promise<void> };
-  onCollapsedChange(collapsed: boolean): void;
+  onHide(): void;
   onPositionChange(): void;
 }
 
@@ -26,13 +26,11 @@ const KEY_DELTAS: Record<string, Position> = {
   ArrowDown: { x: 0, y: 1 },
 };
 const ROVING_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End']);
-const SHOWN_WHEN_COLLAPSED = '[data-annotation-toolbar-grip], [data-annotation-toolbar-collapse], [data-annotation-list-toggle]';
 
 export function createToolbarControls(options: ToolbarControlsOptions): ToolbarControls {
   const { toolbar, win, prefs } = options;
   const document = toolbar.ownerDocument;
   let position: Position | null = null;
-  let collapsed = false;
   let destroyed = false;
   let drag: { pointerId: number; startX: number; startY: number; origin: Position; moved: boolean } | undefined;
 
@@ -41,17 +39,16 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
   grip.dataset.annotationToolbarGrip = '';
   setIconButton(grip, 'grip', 'Move toolbar');
 
-  const collapse = document.createElement('button');
-  collapse.type = 'button';
-  collapse.dataset.annotationToolbarCollapse = '';
+  const hide = document.createElement('button');
+  hide.type = 'button';
+  hide.dataset.annotationToolbarHide = '';
+  setIconButton(hide, 'eye-off', 'Hide toolbar on this tab');
 
   // ARIA toolbar pattern: one tab stop (roving tabindex), moved by Left/Right/Home/End with wrap.
   // The grip keeps its arrow keys and Home for moving the toolbar; End still leaves it.
   let stop: HTMLButtonElement | undefined;
   const items = () =>
-    Array.from(toolbar.querySelectorAll('button')).filter(
-      (button) => !button.disabled && !button.hidden && (!collapsed || button.matches(SHOWN_WHEN_COLLAPSED)),
-    );
+    Array.from(toolbar.querySelectorAll('button')).filter((button) => !button.disabled && !button.hidden);
   const syncTabStop = () => {
     const shown = items();
     if (!stop || !shown.includes(stop)) stop = shown.find((button) => button !== grip) ?? shown[0];
@@ -85,7 +82,7 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     if (!wasHidden) refit();
   });
 
-  const persist = () => prefs.write({ position, collapsed }).catch(() => undefined);
+  const persist = () => prefs.write({ position }).catch(() => undefined);
 
   const clamp = (next: Position) => {
     // A bar left past the right edge wraps narrower than it is, so its size is measured from the left edge.
@@ -116,14 +113,6 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     if (position) return position;
     const rect = toolbar.getBoundingClientRect();
     return { x: rect.left, y: rect.top };
-  };
-
-  const applyCollapsed = (next: boolean) => {
-    collapsed = next;
-    toolbar.toggleAttribute('data-collapsed', collapsed);
-    collapse.setAttribute('aria-expanded', String(!collapsed));
-    setIconButton(collapse, collapsed ? 'chevron-up' : 'chevron-down', `${collapsed ? 'Show' : 'Hide'} annotation toolbar`);
-    syncTabStop();
   };
 
   const endDrag = (event: PointerEvent) => {
@@ -180,34 +169,25 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     if (!toolbar.hidden) refit();
   };
 
-  const onCollapseClick = () => {
-    applyCollapsed(!collapsed);
-    if (position) {
-      place(position);
-      options.onPositionChange();
-    }
-    const next = collapsed;
-    void persist().then(() => options.onCollapsedChange(next));
-  };
+  const onHideClick = () => options.onHide();
 
   grip.addEventListener('pointerdown', onPointerDown);
   grip.addEventListener('pointermove', onPointerMove);
   grip.addEventListener('pointerup', endDrag);
   grip.addEventListener('pointercancel', endDrag);
   grip.addEventListener('keydown', onKeyDown);
-  collapse.addEventListener('click', onCollapseClick);
+  hide.addEventListener('click', onHideClick);
   win.addEventListener('resize', onResize);
   toolbar.addEventListener('focusin', onFocusIn);
   toolbar.addEventListener('keydown', onToolbarKeyDown);
   toolbar.prepend(grip);
-  toolbar.append(collapse);
-  applyCollapsed(false);
+  toolbar.append(hide);
+  syncTabStop();
   observer.observe(toolbar, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden'] });
 
   const ready = prefs.read().then(
     (stored) => {
       if (destroyed) return;
-      applyCollapsed(stored.collapsed);
       if (stored.position) place(stored.position);
     },
     () => undefined,
@@ -224,14 +204,13 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
       grip.removeEventListener('pointerup', endDrag);
       grip.removeEventListener('pointercancel', endDrag);
       grip.removeEventListener('keydown', onKeyDown);
-      collapse.removeEventListener('click', onCollapseClick);
+      hide.removeEventListener('click', onHideClick);
       toolbar.removeEventListener('focusin', onFocusIn);
       toolbar.removeEventListener('keydown', onToolbarKeyDown);
       observer.disconnect();
       for (const button of toolbar.querySelectorAll('button')) button.removeAttribute('tabindex');
       grip.remove();
-      collapse.remove();
-      toolbar.removeAttribute('data-collapsed');
+      hide.remove();
       resetPosition();
     },
   };

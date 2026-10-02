@@ -256,15 +256,15 @@ describe('toolbar keyboard model', () => {
     const controls = createToolbarControls({
       toolbar: shell.toolbar,
       win: window,
-      prefs: { read: async () => ({ position: null, collapsed: false }), write: async () => undefined },
-      onCollapsedChange: () => undefined,
+      prefs: { read: async () => ({ position: null }), write: async () => undefined },
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());
     await controls.ready;
     const [scan, viewAll, annotate] = buttons;
     const grip = shell.toolbar.querySelector('[data-annotation-toolbar-grip]');
-    const collapse = shell.toolbar.querySelector('[data-annotation-toolbar-collapse]');
+    const hide = shell.toolbar.querySelector('[data-annotation-toolbar-hide]');
     const focused = () => shadow.activeElement ?? document.activeElement;
 
     before.focus();
@@ -279,11 +279,11 @@ describe('toolbar keyboard model', () => {
     await userEvent.keyboard('{ArrowRight}');
     expect(focused()).toBe(viewAll);
     await userEvent.keyboard('{ArrowRight}{ArrowRight}');
-    expect(focused()).toBe(collapse);
+    expect(focused()).toBe(hide);
     await userEvent.keyboard('{ArrowRight}');
     expect(focused()).toBe(grip);
     await userEvent.keyboard('{End}');
-    expect(focused()).toBe(collapse);
+    expect(focused()).toBe(hide);
     await userEvent.keyboard('{Home}');
     expect(focused()).toBe(grip);
     await userEvent.keyboard('{End}{ArrowLeft}');
@@ -612,8 +612,8 @@ describe.each<ThemeMode>(['light', 'dark'])('button tiers and palette on the rea
     const controls = createToolbarControls({
       toolbar: shell.toolbar,
       win: window,
-      prefs: { read: async () => ({ position: null, collapsed: false }), write: async () => undefined },
-      onCollapsedChange: () => undefined,
+      prefs: { read: async () => ({ position: null }), write: async () => undefined },
+      onHide: () => undefined,
       onPositionChange: () => undefined,
     });
     cleanups.push(() => controls.destroy());
@@ -849,6 +849,30 @@ describe.each<ThemeMode>(['light', 'dark'])('button tiers and palette on the rea
       expect(getComputedStyle(track, '::after').backgroundColor, checked).toBe('rgb(255, 255, 255)');
       expect(contrastRatio(color(getComputedStyle(track).backgroundColor), card), checked).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  it('insets the switch knob evenly inside its track off and on, and keeps it fully inside', async () => {
+    const { popup } = await surfaces();
+    const toggle = popup.byId<HTMLButtonElement>('toolbar-toggle');
+    const track = toggle.querySelector<HTMLElement>('.annotation-page__switch-track')!;
+    const insets = async (checked: string) => {
+      toggle.setAttribute('aria-checked', checked);
+      await Promise.allSettled(track.getAnimations({ subtree: true }).map((animation) => animation.finished));
+      const box = track.getBoundingClientRect();
+      const knob = getComputedStyle(track, '::after');
+      const left = Number.parseFloat(knob.left);
+      const top = Number.parseFloat(knob.top);
+      const width = Number.parseFloat(knob.width);
+      const height = Number.parseFloat(knob.height);
+      return { left, top, right: box.width - left - width, bottom: box.height - top - height };
+    };
+    const off = await insets('false');
+    const on = await insets('true');
+
+    expect(Math.abs(off.left - off.top)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(on.right - off.left)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(on.top - off.top)).toBeLessThanOrEqual(0.5);
+    for (const inset of [...Object.values(off), ...Object.values(on)]) expect(inset).toBeGreaterThanOrEqual(0);
   });
 
   it('keeps the Notes footer and the popup export row each on one row', async () => {

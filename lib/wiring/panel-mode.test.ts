@@ -154,6 +154,20 @@ describe('createPanelMode', () => {
     expect(document.activeElement).toBe(outside);
   });
 
+  it('dismisses the open panel like close but leaves focus where it is, even when it was in the panel', () => {
+    const { panels, panel, inner, outside, notePanel } = setup();
+    panels.showNote(context, outside);
+    inner.focus();
+
+    panels.dismiss();
+
+    expect(panels.mode()).toBe('none');
+    expect(panels.opener()).toBeUndefined();
+    expect(notePanel.clear).toHaveBeenCalledTimes(1);
+    expect(panel.hasAttribute('aria-label')).toBe(false);
+    expect(document.activeElement).toBe(inner);
+  });
+
   it('passes the seed to the note panel and places the anchor at the context box', async () => {
     const { panels, notePanel, anchor, outside } = setup();
 

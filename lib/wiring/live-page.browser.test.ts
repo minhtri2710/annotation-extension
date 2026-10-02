@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
-import { createCaptureController, guardUntrustedOverlayEvents, interceptPageEvents, type CaptureController, type CaptureEvents } from '../capture/selection';
+import { createCaptureController, guardUntrustedOverlayEvents, interceptPageEvents, releasePageEvents, type CaptureController, type CaptureEvents } from '../capture/selection';
+import { extractElementContext } from '../capture/context';
+import { watchOutsideClick } from '../ui/outside-click';
 import { createAnnotationList } from '../annotation-list/annotation-list';
 import type { AnnotationWriteMessage } from '../annotation-messages';
 import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../notes/note-panel';
@@ -451,5 +453,203 @@ describe('closing a note panel after Save near the toolbar (real browser)', () =
     } finally {
       footer.remove();
     }
+  });
+});
+
+describe('a click outside the note form (real browser)', () => {
+  const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  let dispose: (() => void) | undefined;
+
+  afterEach(() => {
+    dispose?.();
+    dispose = undefined;
+    releasePageEvents(window);
+  });
+
+  // The overlay as the content script builds it, in an open root so real pointer input can address its controls.
+  async function mountScene() {
+    await page.viewport(1280, 720);
+    const sceneHost = document.createElement('div');
+    const sceneRoot = sceneHost.attachShadow({ mode: 'open' });
+    const container = document.createElement('div');
+    sceneRoot.append(container);
+    document.body.append(sceneHost);
+    sceneHost.popover = 'manual';
+    sceneHost.showPopover();
+    const shell = buildOverlayShell(container);
+    const placed = (element: HTMLElement, style: string) => {
+      element.style.cssText = `position: fixed; margin: 0; ${style}`;
+      document.body.append(element);
+      return element;
+    };
+    const outside = placed(document.createElement('button'), 'left: 900px; top: 20px; width: 120px; height: 32px');
+    outside.textContent = 'Page control';
+    const second = placed(document.createElement('p'), 'left: 900px; top: 200px; width: 150px; height: 20px');
+    second.id = 'second-target';
+    const opener = document.createElement('button');
+    opener.textContent = 'Annotate';
+    const viewAll = document.createElement('button');
+    viewAll.textContent = 'View all';
+    shell.toolbar.append(opener, viewAll);
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => [],
+      sendAnnotationWrite: async () => undefined,
+      captureScreenshot: vi.fn(), readBlob: vi.fn(), addAttachment: vi.fn(), deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    shell.root.append(notePanel.live);
+    const anchor = createPanelAnchor(shell.panel, shell.toolbar);
+    const list = { render: vi.fn(async () => undefined), clear: vi.fn() };
+    const panels = createPanelMode({
+      panel: shell.panel,
+      overlayRoot: sceneRoot,
+      anchor,
+      anchorToToolbar: () => shell.toolbar.getBoundingClientRect(),
+      notePanel,
+      scanPanel: { render: async () => undefined, clear: () => undefined },
+      annotationList: () => list,
+      listToggle: viewAll,
+      scanToggle: document.createElement('button'),
+    });
+    viewAll.addEventListener('click', () => panels.toggle('list'));
+    const openerFocus = vi.fn();
+    opener.addEventListener('focus', openerFocus);
+    const pinsHere = createPinsController({
+      document,
+      container: shell.root,
+      toolbar: shell.toolbar,
+      badgeHost: viewAll,
+      onActivate: () => panels.showNote(extractElementContext(second), undefined),
+    });
+    const bus = createEventBus<CaptureEvents>();
+    bus.on('element:selected', (context) => panels.showNote(context, opener));
+    const activeCapture = () => controller?.active ?? false;
+    const stopWatching = watchOutsideClick({ win: window, shadowHost: sceneHost, panels, captureActive: activeCapture });
+    dispose = () => {
+      stopWatching();
+      pinsHere.destroy();
+      controller?.destroy();
+      controller = undefined;
+      notePanel.teardown();
+      anchor.destroy();
+      sceneHost.remove();
+      outside.remove();
+      second.remove();
+    };
+    const label = () => shell.panel.getAttribute('aria-label');
+    const field = () => shell.panel.querySelector<HTMLTextAreaElement>('[data-annotation-new-note]');
+    const openFormFor = async (element: Element) => {
+      panels.showNote(extractElementContext(element), opener);
+      await vi.waitFor(() => expect(field()).not.toBeNull());
+      await frames();
+    };
+    const capture = () => {
+      controller = createCaptureController({ document, shadowHost: sceneHost, shadowRoot: sceneRoot, bus });
+      controller.activate();
+    };
+    return { sceneRoot, shell, outside, second, viewAll, pinsHere, panels, label, field, openFormFor, capture, openerFocus, bus };
+  }
+
+  it('closes the form on a real click on page content outside the overlay, and keeps it for a click inside the form', async () => {
+    const { shell, outside, label, field, openFormFor } = await mountScene();
+    await openFormFor(target);
+
+    await userEvent.click(field()!);
+    await frames();
+    expect(label()).toBe('Annotation note');
+
+    await userEvent.click(outside);
+    await vi.waitFor(() => expect(label()).toBeNull());
+    expect(shell.panel.childElementCount).toBe(0);
+  });
+
+  it('opens the note of a clicked pin, and View all switches to All annotations', async () => {
+    const { sceneRoot, shell, viewAll, pinsHere, panels, label, field, openFormFor } = await mountScene();
+    pinsHere.setAnnotations([annotation('#second-target')]);
+    await openFormFor(target);
+    const hint = () => shell.panel.querySelector<HTMLElement>('[data-annotation-hint]')?.title;
+    expect(hint()).toBe('#zoom-target');
+
+    await userEvent.click(sceneRoot.querySelector<HTMLElement>('.annotation-pin')!);
+    await vi.waitFor(() => expect(hint()).toBe('#second-target'));
+    expect(label()).toBe('Annotation note');
+    expect(field()).not.toBeNull();
+
+    await userEvent.click(viewAll);
+    await vi.waitFor(() => expect(label()).toBe('Annotations on this page'));
+    expect(panels.mode()).toBe('list');
+  });
+
+  it.each([
+    ['after', 'listens after the capture listeners, as the content script registers it'],
+    ['before', 'listens before the capture listeners'],
+  ] as const)('keeps the form a click selects open when the watcher %s', async (order, _name) => {
+    releasePageEvents(window);
+    if (order === 'after') interceptPageEvents(window);
+    const { second, label, shell, openFormFor, capture } = await mountScene();
+    await openFormFor(target);
+    capture();
+
+    await userEvent.click(second);
+    await vi.waitFor(() => expect(shell.panel.querySelector<HTMLElement>('[data-annotation-hint]')?.title).toBe('#second-target'));
+    await frames();
+
+    expect(label()).toBe('Annotation note');
+    expect(shell.panel.querySelector('[data-annotation-new-note]')).not.toBeNull();
+  });
+
+  it('keeps the form open for a drag that starts in its field and ends on the page', async () => {
+    const { outside, label, field, openFormFor } = await mountScene();
+    await openFormFor(target);
+    field()!.value = 'Some note text to select';
+    field()!.dispatchEvent(new Event('input', { bubbles: true }));
+
+    await userEvent.dragAndDrop(field()!, outside);
+    await frames();
+
+    expect(label()).toBe('Annotation note');
+  });
+
+  it('leaves focus where the click put it, on a focusable page control and on one that keeps the focus in the form', async () => {
+    const { sceneRoot, outside, label, field, openFormFor, openerFocus } = await mountScene();
+    await openFormFor(target);
+    field()!.focus();
+
+    await userEvent.click(outside);
+    await vi.waitFor(() => expect(label()).toBeNull());
+    expect(document.activeElement).toBe(outside);
+    expect(openerFocus).not.toHaveBeenCalled();
+
+    await openFormFor(target);
+    field()!.focus();
+    const keeper = document.createElement('button');
+    keeper.style.cssText = 'position: fixed; left: 900px; top: 80px; width: 120px; height: 32px';
+    keeper.textContent = 'Keeps focus';
+    keeper.addEventListener('mousedown', (event) => event.preventDefault());
+    document.body.append(keeper);
+    try {
+      expect(sceneRoot.activeElement).toBe(field());
+
+      await userEvent.click(keeper);
+      await vi.waitFor(() => expect(label()).toBeNull());
+
+      expect(document.activeElement).not.toBe(sceneRoot.host);
+      expect(openerFocus).not.toHaveBeenCalled();
+    } finally {
+      keeper.remove();
+    }
+  });
+
+  it('keeps unsaved text through the close, and shows it with "Draft restored." when the same form opens again', async () => {
+    const { shell, outside, label, field, openFormFor } = await mountScene();
+    await openFormFor(target);
+    await userEvent.type(field()!, 'Keep this draft');
+
+    await userEvent.click(outside);
+    await vi.waitFor(() => expect(label()).toBeNull());
+    await openFormFor(target);
+
+    expect(field()!.value).toBe('Keep this draft');
+    expect(shell.panel.textContent).toContain('Draft restored.');
   });
 });

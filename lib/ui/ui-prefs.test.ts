@@ -13,33 +13,32 @@ afterEach(() => {
 
 describe('ui prefs', () => {
   it('defaults the toolbar prefs when nothing is stored', async () => {
-    await expect(readToolbarPrefs()).resolves.toEqual({ position: null, collapsed: false });
+    await expect(readToolbarPrefs()).resolves.toEqual({ position: null });
   });
 
-  it('round-trips toolbar prefs through storage.local under ui:toolbar', async () => {
-    await writeToolbarPrefs({ position: { x: 12, y: 34 }, collapsed: true });
+  it('round-trips toolbar prefs through storage.local under ui:toolbar as the position alone', async () => {
+    await writeToolbarPrefs({ position: { x: 12, y: 34 } });
     await expect(fakeBrowser.storage.local.get('ui:toolbar')).resolves.toEqual({
-      'ui:toolbar': { position: { x: 12, y: 34 }, collapsed: true },
+      'ui:toolbar': { position: { x: 12, y: 34 } },
     });
-    await expect(readToolbarPrefs()).resolves.toEqual({ position: { x: 12, y: 34 }, collapsed: true });
-    await writeToolbarPrefs({ position: null, collapsed: false });
-    await expect(readToolbarPrefs()).resolves.toEqual({ position: null, collapsed: false });
+    await expect(readToolbarPrefs()).resolves.toEqual({ position: { x: 12, y: 34 } });
+    await writeToolbarPrefs({ position: null });
+    await expect(fakeBrowser.storage.local.get('ui:toolbar')).resolves.toEqual({ 'ui:toolbar': { position: null } });
+    await expect(readToolbarPrefs()).resolves.toEqual({ position: null });
   });
 
   it.each([
     'bad',
     null,
-    { collapsed: true },
-    { position: null },
-    { position: null, collapsed: 'yes' },
-    { position: { x: 1 }, collapsed: true },
-    { position: { x: Number.NaN, y: 1 }, collapsed: true },
-    { position: { x: 1, y: Number.POSITIVE_INFINITY }, collapsed: false },
-    { position: { x: '1', y: 2 }, collapsed: true },
-    { position: 5, collapsed: true },
+    {},
+    { position: { x: 1 } },
+    { position: { x: Number.NaN, y: 1 } },
+    { position: { x: 1, y: Number.POSITIVE_INFINITY } },
+    { position: { x: '1', y: 2 } },
+    { position: 5 },
   ])('returns the whole default for invalid stored toolbar prefs %#', async (value) => {
     await fakeBrowser.storage.local.set({ 'ui:toolbar': value });
-    await expect(readToolbarPrefs()).resolves.toEqual({ position: null, collapsed: false });
+    await expect(readToolbarPrefs()).resolves.toEqual({ position: null });
   });
 
   it('defaults onboarding to closed and round-trips it under ui:onboarding-open', async () => {

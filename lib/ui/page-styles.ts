@@ -263,10 +263,12 @@ body.annotation-page--popup .annotation-page__group {
 }
 
 .annotation-page__switch-track {
+  --switch-knob: 0.875rem;
+  --switch-inset: 0.125rem;
   position: relative;
   flex: none;
   width: 2rem;
-  height: 1.125rem;
+  height: calc(var(--switch-knob) + 2 * var(--switch-inset));
   border-radius: 999px;
   background: var(--annotation-color-border);
 }
@@ -274,10 +276,10 @@ body.annotation-page--popup .annotation-page__group {
 .annotation-page__switch-track::after {
   content: "";
   position: absolute;
-  top: 0.125rem;
-  left: 0.125rem;
-  width: 0.875rem;
-  height: 0.875rem;
+  top: var(--switch-inset);
+  left: var(--switch-inset);
+  width: var(--switch-knob);
+  height: var(--switch-knob);
   border-radius: 50%;
   background: var(--annotation-color-knob);
 }
@@ -287,7 +289,7 @@ body.annotation-page--popup .annotation-page__group {
 }
 
 .annotation-page__switch[aria-checked="true"] .annotation-page__switch-track::after {
-  left: 1.1875rem;
+  left: calc(100% - var(--switch-knob) - var(--switch-inset));
 }
 
 .annotation-page__card button:disabled,

@@ -13,17 +13,17 @@ let toolbar: HTMLDivElement;
 let viewport: { width: number; height: number };
 let controls: ReturnType<typeof createToolbarControls> | undefined;
 
-function setup(stored: ToolbarPrefs = { position: null, collapsed: false }) {
+function setup(stored: ToolbarPrefs = { position: null }) {
   const prefs = {
     read: vi.fn<() => Promise<ToolbarPrefs>>().mockResolvedValue(stored),
     write: vi.fn<(prefs: ToolbarPrefs) => Promise<void>>().mockResolvedValue(undefined),
   };
-  const onCollapsedChange = vi.fn<(collapsed: boolean) => void>();
+  const onHide = vi.fn<() => void>();
   const onPositionChange = vi.fn<() => void>();
-  controls = createToolbarControls({ toolbar, win: window, prefs, onCollapsedChange, onPositionChange });
+  controls = createToolbarControls({ toolbar, win: window, prefs, onHide, onPositionChange });
   const grip = toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-grip]')!;
-  const collapse = toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-collapse]')!;
-  return { prefs, onCollapsedChange, onPositionChange, grip, collapse };
+  const collapse = toolbar.querySelector<HTMLButtonElement>('[data-annotation-toolbar-hide]')!;
+  return { prefs, onHide, onPositionChange, grip, collapse };
 }
 
 function pointer(target: Element, type: string, clientX: number, clientY: number, button = 0) {
@@ -69,57 +69,64 @@ afterEach(() => {
 });
 
 describe('toolbar controls', () => {
-  it('prepends the grip and appends the collapse button around existing toolbar content', async () => {
+  it('prepends the grip and appends the Hide toolbar button around existing toolbar content', async () => {
     const { grip, collapse } = setup();
     await controls!.ready;
     expect(Array.from(toolbar.children).map((child) => child.getAttribute('aria-label') ?? child.textContent)).toEqual([
       'Move toolbar',
       'Scan',
       '',
-      'Hide annotation toolbar',
+      'Hide toolbar on this tab',
     ]);
     expect(toolbar.firstElementChild).toBe(grip);
     expect(toolbar.lastElementChild).toBe(collapse);
     expect(grip.type).toBe('button');
     expect(grip.getAttribute('aria-label')).toBe('Move toolbar');
     expect(collapse.type).toBe('button');
-    expect(collapse.getAttribute('aria-expanded')).toBe('true');
-    expect(toolbar.hasAttribute('data-collapsed')).toBe(false);
+    expect(collapse.hasAttribute('aria-expanded')).toBe(false);
+    expect(collapse.hasAttribute('aria-pressed')).toBe(false);
     expect(inlinePosition()).toEqual({ left: '', top: '', right: '', bottom: '' });
   });
 
-  it('names the collapse button with toolbar context', async () => {
-    const { collapse } = setup();
-    await controls!.ready;
-    expect(collapse.getAttribute('aria-label')).toBe('Hide annotation toolbar');
-    collapse.click();
-    expect(collapse.getAttribute('aria-label')).toBe('Show annotation toolbar');
-  });
-
-  it('draws the grip and the collapse button as icons with a name and a title and no visible text, in both collapse states', async () => {
+  it('draws the grip and the Hide toolbar button as icons with a name and a title and no visible text', async () => {
     const { grip, collapse } = setup();
     await controls!.ready;
-    for (const label of ['Hide annotation toolbar', 'Show annotation toolbar']) {
-      for (const control of [grip, collapse]) {
-        expect(control.textContent).toBe('');
-        expect(control.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
-        expect(control.querySelector('svg')?.getAttribute('focusable')).toBe('false');
-        expect(control.title).toBe(control.getAttribute('aria-label'));
-      }
-      expect(collapse.getAttribute('aria-label')).toBe(label);
-      collapse.click();
+    for (const control of [grip, collapse]) {
+      expect(control.textContent).toBe('');
+      expect(control.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+      expect(control.querySelector('svg')?.getAttribute('focusable')).toBe('false');
+      expect(control.title).toBe(control.getAttribute('aria-label'));
     }
+    expect(collapse.title).toBe('Hide toolbar on this tab');
     expect(grip.title).toBe('Move toolbar');
   });
 
-  it('applies the stored position clamped to the viewport and the stored collapsed state without notifying', async () => {
-    const { prefs, onCollapsedChange, collapse } = setup({ position: { x: 900, y: 20 }, collapsed: true });
+  it('calls onHide once per click on the Hide toolbar button and leaves the bar, its position and the stored prefs alone', async () => {
+    const { prefs, onHide, onPositionChange, collapse } = setup({ position: { x: 100, y: 100 } });
+    await controls!.ready;
+    collapse.click();
+    expect(onHide).toHaveBeenCalledTimes(1);
+    collapse.click();
+    expect(onHide).toHaveBeenCalledTimes(2);
+    expect(toolbar.hidden).toBe(false);
+    expect(inlinePosition()).toEqual({ left: '100px', top: '100px', right: 'auto', bottom: 'auto' });
+    expect(onPositionChange).not.toHaveBeenCalled();
+    expect(prefs.write).not.toHaveBeenCalled();
+  });
+
+  it('stops calling onHide once destroyed, even from a button reference kept by the page', async () => {
+    const { onHide, collapse } = setup();
+    await controls!.ready;
+    controls!.destroy();
+    collapse.click();
+    expect(onHide).not.toHaveBeenCalled();
+  });
+
+  it('applies the stored position clamped to the viewport without notifying', async () => {
+    const { prefs, onPositionChange } = setup({ position: { x: 900, y: 20 } });
     await controls!.ready;
     expect(inlinePosition()).toEqual({ left: '592px', top: '20px', right: 'auto', bottom: 'auto' });
-    expect(toolbar.hasAttribute('data-collapsed')).toBe(true);
-    expect(collapse.getAttribute('aria-expanded')).toBe('false');
-    expect(collapse.getAttribute('aria-label')).toBe('Show annotation toolbar');
-    expect(onCollapsedChange).not.toHaveBeenCalled();
+    expect(onPositionChange).not.toHaveBeenCalled();
     expect(prefs.write).not.toHaveBeenCalled();
   });
 
@@ -134,7 +141,7 @@ describe('toolbar controls', () => {
     expect(prefs.write).not.toHaveBeenCalled();
     pointer(grip, 'pointerup', 500, 460);
     expect(grip.hasAttribute('data-dragging')).toBe(false);
-    expect(prefs.write).toHaveBeenCalledWith({ position: { x: 484, y: 444 }, collapsed: false });
+    expect(prefs.write).toHaveBeenCalledWith({ position: { x: 484, y: 444 } });
   });
 
   it('clamps a drag at every viewport edge', async () => {
@@ -186,7 +193,7 @@ describe('toolbar controls', () => {
     await controls!.ready;
     expect(key(grip, 'ArrowLeft').defaultPrevented).toBe(true);
     expect(inlinePosition()).toEqual({ left: '568px', top: '544px', right: 'auto', bottom: 'auto' });
-    expect(prefs.write).toHaveBeenLastCalledWith({ position: { x: 568, y: 544 }, collapsed: false });
+    expect(prefs.write).toHaveBeenLastCalledWith({ position: { x: 568, y: 544 } });
     key(grip, 'ArrowUp', true);
     expect(inlinePosition().top).toBe('480px');
     key(grip, 'ArrowRight', true);
@@ -194,10 +201,10 @@ describe('toolbar controls', () => {
     key(grip, 'ArrowDown');
     key(grip, 'ArrowDown', true);
     expect(inlinePosition().top).toBe('552px');
-    expect(prefs.write).toHaveBeenLastCalledWith({ position: { x: 592, y: 552 }, collapsed: false });
+    expect(prefs.write).toHaveBeenLastCalledWith({ position: { x: 592, y: 552 } });
     expect(key(grip, 'Home').defaultPrevented).toBe(true);
     expect(inlinePosition()).toEqual({ left: '', top: '', right: '', bottom: '' });
-    expect(prefs.write).toHaveBeenLastCalledWith({ position: null, collapsed: false });
+    expect(prefs.write).toHaveBeenLastCalledWith({ position: null });
     expect(key(grip, 'a').defaultPrevented).toBe(false);
     expect(prefs.write).toHaveBeenCalledTimes(6);
   });
@@ -213,7 +220,7 @@ describe('toolbar controls', () => {
   });
 
   it('re-clamps a custom position on resize without persisting', async () => {
-    const { prefs } = setup({ position: { x: 500, y: 400 }, collapsed: false });
+    const { prefs } = setup({ position: { x: 500, y: 400 } });
     await controls!.ready;
     viewport = { width: 400, height: 300 };
     window.dispatchEvent(new Event('resize'));
@@ -229,28 +236,8 @@ describe('toolbar controls', () => {
     expect(inlinePosition()).toEqual({ left: '', top: '', right: '', bottom: '' });
   });
 
-  it('toggles collapse, persists it, then notifies', async () => {
-    const { prefs, onCollapsedChange, collapse } = setup({ position: { x: 100, y: 100 }, collapsed: false });
-    await controls!.ready;
-    prefs.write.mockImplementation(async () => {
-      expect(onCollapsedChange).not.toHaveBeenCalled();
-    });
-    collapse.click();
-    expect(toolbar.hasAttribute('data-collapsed')).toBe(true);
-    expect(collapse.getAttribute('aria-expanded')).toBe('false');
-    expect(collapse.getAttribute('aria-label')).toBe('Show annotation toolbar');
-    expect(prefs.write).toHaveBeenCalledWith({ position: { x: 100, y: 100 }, collapsed: true });
-    await vi.waitFor(() => expect(onCollapsedChange).toHaveBeenCalledWith(true));
-    collapse.click();
-    expect(toolbar.hasAttribute('data-collapsed')).toBe(false);
-    expect(collapse.getAttribute('aria-expanded')).toBe('true');
-    expect(collapse.getAttribute('aria-label')).toBe('Hide annotation toolbar');
-    expect(prefs.write).toHaveBeenLastCalledWith({ position: { x: 100, y: 100 }, collapsed: false });
-    await vi.waitFor(() => expect(onCollapsedChange).toHaveBeenLastCalledWith(false));
-  });
-
   it('destroy removes both buttons, the listeners and the inline position', async () => {
-    const { prefs, grip, collapse } = setup({ position: { x: 100, y: 100 }, collapsed: false });
+    const { prefs, grip, collapse } = setup({ position: { x: 100, y: 100 } });
     await controls!.ready;
     const removeWindowListener = vi.spyOn(window, 'removeEventListener');
     controls!.destroy();
@@ -271,18 +258,17 @@ describe('toolbar controls', () => {
   });
 
   it('does not apply stored prefs that resolve after destroy', async () => {
-    const { prefs } = setup({ position: { x: 100, y: 100 }, collapsed: true });
+    const { prefs } = setup({ position: { x: 100, y: 100 } });
     controls!.destroy();
     const ready = controls!.ready;
     controls = undefined;
     await ready;
     expect(inlinePosition()).toEqual({ left: '', top: '', right: '', bottom: '' });
-    expect(toolbar.hasAttribute('data-collapsed')).toBe(false);
     expect(prefs.read).toHaveBeenCalledTimes(1);
   });
 
-  it('reports position changes on drag moves, arrows, Home, a changing resize and a collapse re-clamp', async () => {
-    const { onPositionChange, grip, collapse } = setup();
+  it('reports position changes on drag moves, arrows, Home and a changing resize', async () => {
+    const { onPositionChange, grip } = setup();
     await controls!.ready;
     pointer(grip, 'pointerdown', 600, 560);
     pointer(grip, 'pointermove', 500, 460);
@@ -301,15 +287,13 @@ describe('toolbar controls', () => {
     viewport = { width: 400, height: 300 };
     window.dispatchEvent(new Event('resize'));
     expect(onPositionChange).toHaveBeenCalledTimes(5);
-    collapse.click();
-    expect(onPositionChange).toHaveBeenCalledTimes(6);
     key(grip, 'Home');
     expect(inlinePosition()).toEqual({ left: '', top: '', right: '', bottom: '' });
-    expect(onPositionChange).toHaveBeenCalledTimes(7);
+    expect(onPositionChange).toHaveBeenCalledTimes(6);
   });
 
   it('does not report a position change for the start-up apply or a press without movement', async () => {
-    const { onPositionChange, grip } = setup({ position: { x: 900, y: 20 }, collapsed: false });
+    const { onPositionChange, grip } = setup({ position: { x: 900, y: 20 } });
     await controls!.ready;
     expect(inlinePosition().left).toBe('592px');
     pointer(grip, 'pointerdown', 600, 30);
@@ -321,14 +305,14 @@ describe('toolbar controls', () => {
   it('leaves one tab stop in the toolbar, on its first button after the grip', async () => {
     const { grip, collapse } = setup();
     await controls!.ready;
-    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse])')!;
+    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-hide])')!;
     expect([grip, scan, collapse].map((button) => button.tabIndex)).toEqual([-1, 0, -1]);
   });
 
   it('moves focus and the tab stop with Left, Right, Home and End, wrapping at both ends', async () => {
     const { grip, collapse } = setup();
     await controls!.ready;
-    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse])')!;
+    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-hide])')!;
     scan.focus();
     expect(key(scan, 'ArrowRight').defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(collapse);
@@ -380,42 +364,30 @@ describe('toolbar controls', () => {
     expect(document.activeElement).toBe(collapse);
   });
 
-  it('skips buttons hidden by collapse and moves a hidden tab stop to a shown button', async () => {
+  it('skips a hidden or disabled button and moves a tab stop that left the set to a shown button', async () => {
     const { grip, collapse } = setup();
     await controls!.ready;
-    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse])')!;
-    collapse.click();
-    await vi.waitFor(() => expect(collapse.tabIndex).toBe(0));
+    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-hide])')!;
+    const middle = document.createElement('button');
+    collapse.before(middle);
+    await vi.waitFor(() => expect(middle.tabIndex).toBe(-1));
+    scan.hidden = true;
+    await vi.waitFor(() => expect(middle.tabIndex).toBe(0));
     expect(scan.tabIndex).toBe(-1);
-    collapse.focus();
-    key(collapse, 'ArrowRight');
-    expect(document.activeElement).toBe(grip);
-    key(grip, 'End');
-    expect(document.activeElement).toBe(collapse);
-    key(collapse, 'ArrowLeft');
-    expect(document.activeElement).toBe(grip);
-  });
-
-  it('keeps View all in the roving set when the bar is collapsed', async () => {
-    const { grip, collapse } = setup();
-    await controls!.ready;
-    const viewAll = document.createElement('button');
-    viewAll.dataset.annotationListToggle = '';
-    collapse.before(viewAll);
-    await vi.waitFor(() => expect(viewAll.tabIndex).toBe(-1));
-    collapse.click();
-    await vi.waitFor(() => expect(collapse.tabIndex).toBe(-1));
+    middle.disabled = true;
+    await vi.waitFor(() => expect(collapse.tabIndex).toBe(0));
+    expect([grip.tabIndex, scan.tabIndex, middle.tabIndex]).toEqual([-1, -1, -1]);
     grip.focus();
     key(grip, 'End');
     expect(document.activeElement).toBe(collapse);
     key(collapse, 'ArrowLeft');
-    expect(document.activeElement).toBe(viewAll);
+    expect(document.activeElement).toBe(grip);
   });
 
   it('destroy stops roving and clears the tab stops it set', async () => {
     setup();
     await controls!.ready;
-    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-collapse])')!;
+    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-hide])')!;
     controls!.destroy();
     controls = undefined;
     expect(scan.hasAttribute('tabindex')).toBe(false);

@@ -5,10 +5,9 @@ export const ONBOARDING_OPEN_STORAGE_KEY = 'ui:onboarding-open';
 
 export interface ToolbarPrefs {
   position: { x: number; y: number } | null;
-  collapsed: boolean;
 }
 
-export const defaultToolbarPrefs: ToolbarPrefs = { position: null, collapsed: false };
+export const defaultToolbarPrefs: ToolbarPrefs = { position: null };
 
 export async function readToolbarPrefs(): Promise<ToolbarPrefs> {
   const stored = await browser.storage.local.get(TOOLBAR_PREFS_STORAGE_KEY);
@@ -34,7 +33,6 @@ export function writeOnboardingOpen(open: boolean): Promise<void> {
 function isToolbarPrefs(value: unknown): value is ToolbarPrefs {
   if (!value || typeof value !== 'object') return false;
   const prefs = value as Partial<ToolbarPrefs>;
-  if (typeof prefs.collapsed !== 'boolean') return false;
   if (prefs.position === null) return true;
   if (!prefs.position || typeof prefs.position !== 'object') return false;
   return Number.isFinite(prefs.position.x) && Number.isFinite(prefs.position.y);

@@ -25,6 +25,8 @@ export interface PanelMode {
   mode(): PanelModeName;
   opener(): HTMLElement | undefined;
   close(): void;
+  // Closes without moving focus: for a click elsewhere on the page, which has already chosen where focus goes.
+  dismiss(): void;
   toggle(mode: 'list' | 'scan'): void;
   showNote(context: ElementContext, opener: HTMLElement | undefined, seed?: string): void;
 }
@@ -87,6 +89,7 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
     mode: () => panelMode,
     opener: () => panelOpener,
     close,
+    dismiss: resetPanel,
     toggle,
     showNote,
   };
