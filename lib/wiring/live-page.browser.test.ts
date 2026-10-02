@@ -610,6 +610,51 @@ describe('a click outside the note form (real browser)', () => {
     expect(label()).toBe('Annotation note');
   });
 
+  it('keeps the note panel open when a press starts on page content and releases inside the overlay', async () => {
+    const { outside, label, field, openFormFor } = await mountScene();
+    await openFormFor(target);
+    field()!.value = 'Typed before the gesture';
+    field()!.dispatchEvent(new Event('input', { bubbles: true }));
+
+    await userEvent.dragAndDrop(outside, field()!);
+    await frames();
+
+    expect(label()).toBe('Annotation note');
+    expect(field()!.value).toBe('Typed before the gesture');
+  });
+
+  it('keeps the note form open after an outside press with no click followed by a keyboard-activated click', async () => {
+    const { outside, second, label, openFormFor } = await mountScene();
+    const dragLink = document.createElement('a');
+    dragLink.href = '#drag-source';
+    dragLink.textContent = 'Drag me';
+    dragLink.style.cssText = 'position: fixed; left: 900px; top: 120px; width: 120px; height: 20px';
+    document.body.append(dragLink);
+    const clicks: Event[] = [];
+    const record = (event: Event) => clicks.push(event);
+    window.addEventListener('click', record, true);
+    try {
+      await openFormFor(target);
+
+      await userEvent.dragAndDrop(dragLink, second);
+      await frames();
+      expect(clicks).toEqual([]);
+
+      outside.focus();
+      await userEvent.keyboard('{Enter}');
+      await frames();
+      expect(clicks).toHaveLength(1);
+      expect(clicks[0]).toMatchObject({ target: outside, detail: 0, isTrusted: true });
+      expect(label()).toBe('Annotation note');
+
+      await userEvent.click(outside);
+      await vi.waitFor(() => expect(label()).toBeNull());
+    } finally {
+      window.removeEventListener('click', record, true);
+      dragLink.remove();
+    }
+  });
+
   it('leaves focus where the click put it, on a focusable page control and on one that keeps the focus in the form', async () => {
     const { sceneRoot, outside, label, field, openFormFor, openerFocus } = await mountScene();
     await openFormFor(target);

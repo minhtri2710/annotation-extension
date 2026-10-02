@@ -973,10 +973,12 @@ describe('content script entrypoint', () => {
       };
       const click = (target: EventTarget, init: MouseEventInit & { trusted?: boolean } = {}) => {
         const { trusted = true, ...rest } = init;
-        const event = new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, button: 0, ...rest });
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, button: 0, detail: 1, ...rest });
         if (trusted) dispatchTrusted(target, event);
         else target.dispatchEvent(event);
       };
+      const release = (target: EventTarget) =>
+        dispatchTrusted(target, new PointerEvent('pointerup', { bubbles: true, cancelable: true, composed: true, button: 0 }));
       const page = () => document.body.appendChild(document.createElement('p'));
       const openNote = async () => {
         await pushToolbar(true);
@@ -1014,6 +1016,37 @@ describe('content script entrypoint', () => {
         click(outside);
 
         expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+      });
+
+      it('keeps the note panel open when a press starts on the page and releases inside the overlay, and closes it for the next whole gesture', async () => {
+        await start();
+        await openNote();
+        const outside = page();
+
+        pointer(outside);
+        release(panel());
+        click(outside);
+        expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+
+        pointer(outside);
+        release(outside);
+        click(outside);
+        expect(panel().hasAttribute('aria-label')).toBe(false);
+      });
+
+      it('keeps the note panel open for a keyboard-activated click after an outside press that produced no click, and closes it for the next whole gesture', async () => {
+        await start();
+        await openNote();
+        const outside = page();
+
+        pointer(outside);
+        click(outside, { detail: 0 });
+        expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+
+        pointer(outside);
+        release(outside);
+        click(outside);
+        expect(panel().hasAttribute('aria-label')).toBe(false);
       });
 
       it.each([
