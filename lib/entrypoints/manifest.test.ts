@@ -10,6 +10,36 @@ describe('manifest permissions', () => {
   });
 });
 
+describe('manifest firefox settings', () => {
+  it('declares the gecko id, no data collection and the first Firefox that reads it', () => {
+    expect((config.manifest as UserManifest).browser_specific_settings).toEqual({
+      gecko: {
+        id: 'annotation-extension@minhtri2710',
+        strict_min_version: '140.0',
+        data_collection_permissions: { required: ['none'] },
+      },
+    });
+  });
+});
+
+describe('package scripts', () => {
+  it('zips the Chrome build and the Firefox build', () => {
+    const { scripts } = JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    );
+    expect(scripts.zip).toBe('wxt zip');
+    expect(scripts['zip:firefox']).toBe('wxt zip -b firefox');
+  });
+});
+
+describe('sources zip', () => {
+  it('leaves out the untracked task-manager files', () => {
+    expect(config.zip?.excludeSources).toEqual(
+      expect.arrayContaining(['backlog.md', 'done-archive.md']),
+    );
+  });
+});
+
 const ICONS = {
   16: 'icon/16.png',
   32: 'icon/32.png',

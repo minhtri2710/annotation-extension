@@ -15,7 +15,13 @@ export default defineConfig({
     icons,
     action: { default_icon: icons },
     permissions: ['storage', 'activeTab'],
-    browser_specific_settings: { gecko: { strict_min_version: '125.0' } },
+    browser_specific_settings: {
+      gecko: {
+        id: 'annotation-extension@minhtri2710',
+        strict_min_version: '140.0',
+        data_collection_permissions: { required: ['none'] },
+      },
+    },
     commands: {
       'capture.toggle': {
         suggested_key: {
@@ -26,4 +32,5 @@ export default defineConfig({
       },
     },
   },
+  zip: { excludeSources: ['backlog.md', 'done-archive.md'] },
 });
