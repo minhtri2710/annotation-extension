@@ -14,7 +14,7 @@ export interface PanelModeOptions {
   anchor: Pick<PanelAnchor, 'place' | 'clear'>;
   anchorToToolbar: () => { x: number; y: number; width: number; height: number };
   notePanel: Pick<NotePanel, 'render' | 'clear'>;
-  scanPanel: Pick<ScanPanel, 'render' | 'clear'>;
+  scanPanel: Pick<ScanPanel, 'render' | 'clear' | 'suspend' | 'restore'>;
   // The route watch replaces the list, so it is read at each transition.
   annotationList: () => Pick<AnnotationList, 'render' | 'clear'>;
   listToggle: HTMLElement;
@@ -24,11 +24,18 @@ export interface PanelModeOptions {
 export interface PanelMode {
   mode(): PanelModeName;
   opener(): HTMLElement | undefined;
+  // Closing a note opened from the scan brings the scan back instead.
   close(): void;
   // Closes without moving focus: for a click elsewhere on the page, which has already chosen where focus goes.
   dismiss(): void;
   toggle(mode: 'list' | 'scan'): void;
   showNote(context: ElementContext, opener: HTMLElement | undefined, seed?: string): void;
+  // Opens a note for a scan finding's element; the scan keeps its state, and its box for that element, until it returns.
+  showScanNote(context: ElementContext, seed: string): void;
+  // A new note was stored: the scan comes back if the note was opened from it.
+  returnToScan(): void;
+  // Drops the remembered scan and its box while leaving the note panel as it is.
+  forgetScan(): void;
 }
 
 export function createPanelMode(options: PanelModeOptions): PanelMode {
@@ -36,11 +43,22 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
   let panelMode: PanelModeName = 'none';
   let panelOpener: HTMLElement | undefined;
   let renderSequence = 0;
+  // The scan panel holds its state while a note opened from it is showing; only close, dismiss and returnToScan bring it back.
+  let scanSuspended = false;
 
-  const resetPanel = () => {
+  const forgetScan = () => {
+    if (!scanSuspended) return;
+    scanSuspended = false;
+    scanPanel.clear();
+  };
+  const resetPanel = (suspendScan = false) => {
     if (panelMode === 'note') notePanel.clear();
     if (panelMode === 'list') options.annotationList().clear();
-    if (panelMode === 'scan') scanPanel.clear();
+    if (panelMode === 'scan' && suspendScan) {
+      scanPanel.suspend();
+      scanSuspended = true;
+    } else if (panelMode === 'scan') scanPanel.clear();
+    else forgetScan();
     listToggle.setAttribute('aria-expanded', 'false');
     scanToggle.setAttribute('aria-expanded', 'false');
     panel.removeAttribute('aria-label');
@@ -53,9 +71,22 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
     panelOpener = opener;
     panel.setAttribute('aria-label', PANEL_LABELS[mode]);
   };
+  const restoreScan = (focusFinding: boolean) => {
+    notePanel.clear();
+    anchor.clear();
+    scanSuspended = false;
+    setPanelMode('scan', scanToggle);
+    scanToggle.setAttribute('aria-expanded', 'true');
+    scanPanel.restore(focusFinding);
+    anchor.place(anchorToToolbar);
+  };
   // Focus returns to the opener only if it was inside the panel; focus elsewhere is left alone.
   const close = () => {
     const focusWasInPanel = panel.contains(overlayRoot.activeElement);
+    if (scanSuspended) {
+      restoreScan(focusWasInPanel);
+      return;
+    }
     const opener = panelOpener;
     resetPanel();
     if (focusWasInPanel && opener?.isConnected) opener.focus();
@@ -75,8 +106,8 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
       anchor.place(anchorToToolbar);
     });
   };
-  const showNote = (context: ElementContext, opener: HTMLElement | undefined, seed?: string) => {
-    resetPanel();
+  const openNote = (context: ElementContext, opener: HTMLElement | undefined, seed: string | undefined, suspendScan: boolean) => {
+    resetPanel(suspendScan);
     setPanelMode('note', opener);
     const sequence = ++renderSequence;
     void notePanel.render(context, seed).then(() => {
@@ -89,8 +120,13 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
     mode: () => panelMode,
     opener: () => panelOpener,
     close,
-    dismiss: resetPanel,
+    dismiss: () => (scanSuspended ? restoreScan(false) : resetPanel()),
     toggle,
-    showNote,
+    showNote: (context, opener, seed) => openNote(context, opener, seed, false),
+    showScanNote: (context, seed) => openNote(context, scanToggle, seed, true),
+    returnToScan: () => {
+      if (scanSuspended) restoreScan(panel.contains(overlayRoot.activeElement));
+    },
+    forgetScan,
   };
 }

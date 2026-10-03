@@ -405,7 +405,7 @@ describe('toolbar layout (real browser)', () => {
       anchor,
       anchorToToolbar: () => shell.toolbar.getBoundingClientRect(),
       notePanel: { render: async () => undefined, clear: () => undefined },
-      scanPanel: { render: async () => undefined, clear: () => undefined },
+      scanPanel: { render: async () => undefined, clear: () => undefined, suspend: () => undefined, restore: () => undefined },
       annotationList: () => list,
       listToggle: viewAll!,
       scanToggle: scan!,

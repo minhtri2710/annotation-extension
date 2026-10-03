@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
 import { ANNOTATION_EDIT_EVENT, ANNOTATION_LIST_CLOSE_EVENT, ANNOTATION_START_EVENT, createAnnotationList } from '../lib/annotation-list/annotation-list';
-import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../lib/notes/note-panel';
+import { createNotePanel, NOTE_PANEL_ADDED_EVENT, NOTE_PANEL_CLOSE_EVENT } from '../lib/notes/note-panel';
 import { ANNOTATION_SCAN_CLOSE_EVENT, createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import { extractElementContext } from '../lib/capture/context';
@@ -108,8 +108,7 @@ export default defineContentScript({
           scan: (signal) => scanPage(window, shadowHost, signal),
           deepScan: (signal, onProgress) => deepScanPage(window, shadowHost, signal, onProgress),
           highlightRoot: shell.root,
-          // The row's button is gone once the scan panel closes, so the note panel returns focus to the Scan toggle.
-          onAnnotate: (el, finding) => panels.showNote(extractElementContext(el), scanToggle, `${finding.name}: ${finding.detail}`),
+          onAnnotate: (el, finding) => panels.showScanNote(extractElementContext(el), `${finding.name}: ${finding.detail}`),
         });
         scanPanel = activeScanPanel;
         // Live regions sit outside the panel mount so they persist while panels re-render and close.
@@ -187,6 +186,9 @@ export default defineContentScript({
         shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, () => {
           if (panels.mode() === 'note') panels.close();
         });
+        shell.panel.addEventListener(NOTE_PANEL_ADDED_EVENT, () => {
+          if (panels.mode() === 'note') panels.returnToScan();
+        });
         shell.panel.addEventListener(ANNOTATION_LIST_CLOSE_EVENT, () => {
           if (panels.mode() === 'list') panels.close();
         });
@@ -225,6 +227,7 @@ export default defineContentScript({
           if (on) hiddenNotice.announce('');
           if (!on) {
             controller?.deactivate();
+            panels.forgetScan();
             const mode = panels.mode();
             if (mode === 'list' || mode === 'scan') panels.close();
           }
@@ -247,6 +250,7 @@ export default defineContentScript({
         void refreshPins();
         stopRouteWatch = watchRoute(window, (newUrl) => {
           url = newUrl;
+          panels.forgetScan();
           if (panels.mode() !== 'none') panels.close();
           const nextList = createAnnotationList(shell.panel, newUrl);
           annotationList.live.replaceWith(nextList.live);

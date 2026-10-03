@@ -6,7 +6,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import background from '../../entrypoints/background';
 import contentScript from '../../entrypoints/content';
-import { addAnnotation } from '../annotation-storage';
+import { addAnnotation, listAnnotations } from '../annotation-storage';
 import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
 import { interceptPageEvents, releasePageEvents } from '../capture';
 import { CAPTURE_STATE_MESSAGE, CAPTURE_TOGGLE_MESSAGE } from '../capture/activation';
@@ -28,6 +28,23 @@ vi.mock('../ui/event-bus', async (importOriginal) => {
         return unsubscribe;
       };
       return { ...bus, on };
+    },
+  };
+});
+
+// Spy: counts how often the page is scanned; the real scan runs.
+const scanCalls = vi.hoisted(() => ({ scan: 0, deep: 0 }));
+vi.mock('../scan-panel/scan-panel', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../scan-panel/scan-panel')>();
+  return {
+    ...original,
+    scanPage: (...args: Parameters<typeof original.scanPage>) => {
+      scanCalls.scan += 1;
+      return original.scanPage(...args);
+    },
+    deepScanPage: (...args: Parameters<typeof original.deepScanPage>) => {
+      scanCalls.deep += 1;
+      return original.deepScanPage(...args);
     },
   };
 });
@@ -60,6 +77,8 @@ function stubPopover() {
 let restorePopover: () => void;
 
 beforeEach(() => {
+  scanCalls.scan = 0;
+  scanCalls.deep = 0;
   fakeBrowser.reset();
   vi.spyOn(Element.prototype, 'attachShadow').mockImplementation(function (this: Element, init) {
     const root = originalAttachShadow.call(this, init);
@@ -346,7 +365,7 @@ describe('content script entrypoint', () => {
     }
   });
 
-  it('Annotate on a scan finding opens the note panel for its element seeded with the finding, and closing it focuses Scan', async () => {
+  it('Annotate on a scan finding opens the note panel for its element seeded with the finding, and closing it returns to the scan', async () => {
     const image = document.createElement('img');
     image.id = 'broken';
     document.body.append(image);
@@ -370,8 +389,324 @@ describe('content script entrypoint', () => {
 
     trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!);
 
-    expect(panel().hasAttribute('aria-label')).toBe(false);
-    expect(shadow().activeElement).toBe(scan);
+    expect(panel().getAttribute('aria-label')).toBe('Page scan');
+    expect(shadow().activeElement).toBe(annotate);
+  });
+
+  describe('Annotate from a scan finding', () => {
+    const firstUrl = location.href;
+    const SEED = 'Broken or placeholder image: <img> with no src attribute';
+    const addImages = (count: number) => Array.from({ length: count }, (_, index) => {
+      const image = document.createElement('img');
+      image.id = `broken-${index}`;
+      vi.spyOn(image, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ x: 10, y: 20 + 40 * index, width: 30, height: 30 }));
+      document.body.append(image);
+      return image;
+    });
+    const outlines = (root: ParentNode = shadow()) => [...root.querySelectorAll<HTMLElement>('[data-annotation-scan-outline]')];
+    const annotateButtons = () => [...panel().querySelectorAll<HTMLButtonElement>('[data-annotation-scan-annotate]')];
+    const noteField = () => panel().querySelector<HTMLTextAreaElement>('[data-annotation-new-note]');
+    const openScan = async () => {
+      trustedClick(button('Scan'));
+      await vi.waitFor(() => expect(annotateButtons().length).toBeGreaterThan(0));
+    };
+    const annotate = async (index: number) => {
+      const row = annotateButtons()[index]!;
+      row.focus();
+      trustedClick(row);
+      await vi.waitFor(() => expect(noteField()).not.toBeNull());
+      return row;
+    };
+    const escapeFrom = (target: Element) =>
+      dispatchTrusted(target, new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+    const pointerEvent = (type: string, target: EventTarget) =>
+      dispatchTrusted(target, new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, button: 0 }));
+    const outsideClick = () => {
+      const page = document.body.appendChild(document.createElement('p'));
+      pointerEvent('pointerdown', page);
+      pointerEvent('pointerup', page);
+      dispatchTrusted(page, new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, button: 0, detail: 1 }));
+    };
+    // `emphasised` is the position of the one box the focused Annotate button emphasises; none after a return that moves no focus.
+    const expectScanBack = (before: HTMLElement[], emphasised?: number) => {
+      expect(panel().getAttribute('aria-label')).toBe('Page scan');
+      expect(button('Scan').getAttribute('aria-expanded')).toBe('true');
+      expect(annotateButtons()).toHaveLength(before.length);
+      expect(outlines()).toEqual(before);
+      for (const outline of before) expect(outline.hidden).toBe(false);
+      // Only the row holding focus emphasises its box; nothing carries over from before Annotate.
+      expect(before.filter((outline) => outline.hasAttribute('data-annotation-emphasis'))).toEqual(emphasised === undefined ? [] : [before[emphasised]]);
+    };
+    const storedContext = (selector: string) => ({
+      selector, tagName: 'div', id: selector.slice(1), classList: [], text: '',
+      boundingBox: { x: 0, y: 0, width: 10, height: 10 }, url: location.href,
+      viewport: { width: 800, height: 600 }, sourcePath: null,
+    });
+    const handlers = () => registerBackgroundMessageHandlers({ blobStore: { get: async () => undefined, put: async () => undefined, delete: async () => undefined } });
+
+    afterEach(() => history.replaceState(null, '', firstUrl));
+
+    it('keeps only the annotated finding\'s box, with its number and severity, on its element and emphasised while the note is open', async () => {
+      addImages(2);
+      await start();
+      await openScan();
+      const before = outlines();
+      expect(before).toHaveLength(2);
+      const second = before[1]!;
+      const severity = second.dataset.annotationScanOutline;
+
+      await annotate(1);
+
+      expect(outlines()).toEqual([second]);
+      expect(second.hidden).toBe(false);
+      expect(second.dataset.annotationScanOutline).toBe(severity);
+      expect(second.querySelector('[data-annotation-scan-outline-number]')?.textContent).toBe('2');
+      expect(second.hasAttribute('data-annotation-emphasis')).toBe(true);
+      expect(second.style.top).toBe('60px');
+      expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+      expect(button('Scan').getAttribute('aria-expanded')).toBe('false');
+      expect(noteField()?.value).toBe(SEED);
+    });
+
+    it.each([
+      ['its Close button', () => trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!)],
+      ['Escape inside the note panel', () => escapeFrom(noteField()!)],
+    ])('%s brings back the scan the user left and focuses the finding\'s Annotate button', async (_name, close) => {
+      addImages(2);
+      await start();
+      await openScan();
+      const before = outlines();
+      const row = await annotate(1);
+
+      close();
+
+      expectScanBack(before, 1);
+      expect(shadow().activeElement).toBe(row);
+    });
+
+    it('an outside click brings back the scan', async () => {
+      addImages(2);
+      await start();
+      await openScan();
+      const before = outlines();
+      await annotate(0);
+
+      outsideClick();
+
+      expectScanBack(before);
+    });
+
+    it('a saved note brings back the scan, focuses the finding\'s Annotate button and announces Note saved. in the note panel\'s live region', async () => {
+      handlers();
+      addImages(2);
+      await start();
+      await openScan();
+      const before = outlines();
+      const row = await annotate(1);
+
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-save]')!);
+
+      await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Page scan'));
+      expectScanBack(before, 1);
+      expect(shadow().activeElement).toBe(row);
+      expect([...shadow().querySelectorAll('[data-annotation-live]')].some((live) => live.textContent === 'Note saved.')).toBe(true);
+      expect((await listAnnotations(location.href)).map((stored) => [stored.selector, stored.note])).toEqual([['#broken-1', SEED]]);
+    });
+
+    it('keeps the note panel open with its message for an empty note and for a failed write', async () => {
+      handlers();
+      addImages(2);
+      await start();
+      await openScan();
+      await annotate(0);
+      const note = noteField()!;
+      note.value = '';
+      note.dispatchEvent(new Event('input', { bubbles: true }));
+
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-save]')!);
+
+      expect(panel().querySelector('[data-annotation-status]')?.textContent).toBe('Write a note before saving.');
+      expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+
+      note.value = 'A note';
+      note.dispatchEvent(new Event('input', { bubbles: true }));
+      vi.spyOn(browser.runtime, 'sendMessage').mockRejectedValue(new Error('Write failed'));
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-save]')!);
+
+      await vi.waitFor(() => expect(panel().querySelector('[data-annotation-status]')?.textContent).toContain('Write failed'));
+      expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+      expect(await listAnnotations(location.href)).toEqual([]);
+    });
+
+    it('keeps the note panel open when an existing annotation\'s edit is saved, and a later Close returns to the scan', async () => {
+      handlers();
+      addImages(2);
+      await addAnnotation(location.href, { note: 'Stored note', selector: '#broken-0', elementContext: storedContext('#broken-0') });
+      await start();
+      await openScan();
+      const before = outlines();
+      await annotate(0);
+      const edit = panel().querySelector<HTMLTextAreaElement>('[data-annotation-edit-note]')!;
+      edit.value = 'Changed note';
+      edit.dispatchEvent(new Event('input', { bubbles: true }));
+
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-edit]')!);
+
+      await vi.waitFor(async () => expect((await listAnnotations(location.href))[0]?.note).toBe('Changed note'));
+      await vi.waitFor(() => expect(panel().querySelector<HTMLTextAreaElement>('[data-annotation-edit-note]')?.defaultValue).toBe('Changed note'));
+      expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!);
+
+      expectScanBack(before, 0);
+    });
+
+    it('returns to the same scan: no second scan, the same summary, filter, closed group and revealed rows, and a second Annotate keeps its box', async () => {
+      addImages(12);
+      await start();
+      await openScan();
+      const summary = panel().querySelector('[data-annotation-scan-summary]')!;
+      const summaryText = summary.textContent;
+      const chips = [...panel().querySelectorAll<HTMLButtonElement>('[data-annotation-filter-value]')];
+      trustedClick(chips[1]!);
+      const group = panel().querySelector<HTMLDetailsElement>('[data-annotation-scan-group]')!;
+      group.open = false;
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-scan-more]')!);
+      expect(annotateButtons()).toHaveLength(12);
+      const before = outlines();
+      const numbers = before.map((outline) => outline.textContent);
+      await annotate(11);
+      expect(outlines()).toEqual([before[11]]);
+
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!);
+
+      expectScanBack(before, 11);
+      expect(scanCalls).toEqual({ scan: 1, deep: 0 });
+      expect(panel().querySelector('[data-annotation-scan-summary]')).toBe(summary);
+      expect(summary.textContent).toBe(summaryText);
+      expect(chips[1]!.getAttribute('aria-pressed')).toBe('true');
+      expect(chips[0]!.getAttribute('aria-pressed')).toBe('false');
+      expect(group.open).toBe(false);
+      expect(panel().querySelector('[data-annotation-scan-more]')).toBeNull();
+      expect(outlines().map((outline) => outline.textContent)).toEqual(numbers);
+
+      await annotate(0);
+      expect(outlines()).toEqual([before[0]]);
+      escapeFrom(noteField()!);
+      expectScanBack(before, 0);
+    });
+
+    it('returns to a deep scan with its Deep scan: summary and without scanning again', async () => {
+      addImages(2);
+      await start();
+      await openScan();
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-deep-scan]')!);
+      await vi.waitFor(() => expect(panel().querySelector('[data-annotation-scan-summary]')?.textContent).toMatch(/^Deep scan: /), { timeout: 5000 });
+      const before = outlines();
+      const summaryText = panel().querySelector('[data-annotation-scan-summary]')!.textContent;
+      await annotate(0);
+
+      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!);
+
+      expectScanBack(before, 0);
+      expect(panel().querySelector('[data-annotation-scan-summary]')?.textContent).toBe(summaryText);
+      expect(scanCalls).toEqual({ scan: 1, deep: 1 });
+    });
+
+    describe('does not return when the note panel is replaced or closed for another reason', () => {
+      const storedPin = async () => {
+        await addAnnotation(location.href, { note: 'Pinned note', selector: '#target', elementContext: storedContext('#target') });
+      };
+      const reasons: [name: string, stored: boolean, trigger: () => Promise<void>][] = [
+        ['View all', false, async () => void trustedClick(button('View all'))],
+        ['Start annotating', false, async () => {
+          trustedClick(button('View all'));
+          await vi.waitFor(() => expect(panel().querySelector('[data-annotation-start]')).not.toBeNull());
+          trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-start]')!);
+        }],
+        ['capture selecting an element', false, async () => {
+          await fakeBrowser.runtime.onMessage.trigger({ type: CAPTURE_TOGGLE_MESSAGE }, {}, () => {});
+          pointerEvent('pointerdown', document.getElementById('target')!);
+          await vi.waitFor(() => expect(panel().querySelector('[data-annotation-hint]')?.getAttribute('title')).toBe('#target'));
+        }],
+        ['a pin', true, async () => {
+          await vi.waitFor(() => expect(shadow().querySelector('.annotation-pin')).not.toBeNull());
+          trustedClick(shadow().querySelector('.annotation-pin')!);
+          await vi.waitFor(() => expect(panel().querySelector('[data-annotation-hint]')?.getAttribute('title')).toBe('#target'));
+        }],
+        ['Edit on a list row', true, async () => {
+          trustedClick(button('View all'));
+          await vi.waitFor(() => expect(panel().querySelector('[data-annotation-row-edit]')).not.toBeNull());
+          trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-row-edit]')!);
+          await vi.waitFor(() => expect(panel().querySelector('[data-annotation-hint]')?.getAttribute('title')).toBe('#target'));
+        }],
+        ['a route change', false, async () => {
+          history.pushState(null, '', new URL('/scan-annotate-next', firstUrl).href);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }],
+        ['the toolbar turning off', false, async () => {
+          await pushToolbar(false);
+          expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+        }],
+      ];
+
+      it.each(reasons)('%s drops the kept box and the remembered scan', async (_name, stored, trigger) => {
+        addImages(2);
+        document.body.append(Object.assign(document.createElement('div'), { id: 'target' }));
+        if (stored) await storedPin();
+        await start();
+        await pushToolbar(true);
+        await openScan();
+        await annotate(0);
+        expect(outlines()).toHaveLength(1);
+
+        await trigger();
+
+        expect(outlines()).toEqual([]);
+        if (panel().hasAttribute('aria-label')) {
+          await vi.waitFor(() => expect(panel().querySelector('button, textarea')).not.toBeNull());
+          escapeFrom(panel().querySelector('button, textarea')!);
+        }
+        expect(panel().hasAttribute('aria-label')).toBe(false);
+        expect(annotateButtons()).toEqual([]);
+        expect(outlines()).toEqual([]);
+      });
+
+      it('Scan runs a fresh scan', async () => {
+        addImages(2);
+        await start();
+        await openScan();
+        const before = outlines();
+        await annotate(0);
+        expect(outlines()).toHaveLength(1);
+
+        trustedClick(button('Scan'));
+
+        await vi.waitFor(() => expect(annotateButtons()).toHaveLength(2));
+        expect(scanCalls.scan).toBe(2);
+        expect(outlines()).toHaveLength(2);
+        for (const outline of outlines()) expect(before).not.toContain(outline);
+      });
+
+      it('tearing the overlay down drops the kept box', async () => {
+        addImages(2);
+        await start();
+        const added = vi.spyOn(document, 'addEventListener');
+        const removed = vi.spyOn(document, 'removeEventListener');
+        await openScan();
+        await annotate(0);
+        const root = shadow();
+        expect(outlines(root)).toHaveLength(1);
+
+        ctx.notifyInvalidated();
+
+        expect(outlines(root)).toEqual([]);
+        // The kept box's follow loop stops with the overlay: every scroll listener the scan added is removed.
+        const scrollListeners = added.mock.calls.filter(([type]) => type === 'scroll').map(([, listener]) => listener);
+        expect(scrollListeners.length).toBeGreaterThan(0);
+        for (const listener of scrollListeners) expect(removed.mock.calls.map(([, removedListener]) => removedListener)).toContain(listener);
+      });
+    });
   });
 
   it('Edit on a list row opens the note panel, and closing it focuses View all', async () => {

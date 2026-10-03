@@ -35,7 +35,7 @@ function setup() {
   const anchor = { place: vi.fn(), clear: vi.fn() };
   const anchorToToolbar = () => ({ x: 0, y: 0, width: 10, height: 10 });
   const notePanel = { render: vi.fn(() => Promise.resolve()), clear: vi.fn() };
-  const scanPanel = { render: vi.fn(() => Promise.resolve()), clear: vi.fn() };
+  const scanPanel = { render: vi.fn(() => Promise.resolve()), clear: vi.fn(), suspend: vi.fn(), restore: vi.fn() };
   const list = { render: vi.fn(() => Promise.resolve()), clear: vi.fn() };
   const panels = createPanelMode({
     panel,

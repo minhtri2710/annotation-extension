@@ -15,6 +15,11 @@ export interface ScanPanelOptions {
 
 export interface ScanPanel {
   render(): Promise<void>;
+  // After Annotate on a finding: takes the findings out of the panel for a note, keeping that finding's box shown and followed.
+  suspend(): void;
+  // Puts the suspended findings back as they were, every box shown again; focuses the annotated finding's Annotate button on request.
+  restore(focusAnnotate: boolean): void;
+  // Also drops a suspended scan; the panel then belongs to the note and is left alone.
   clear(): void;
   isDeepScanRunning(): boolean;
   live: HTMLElement;
@@ -71,6 +76,8 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
   let deepScan: AbortController | undefined;
   let severityFilter: Severity | 'all' = 'all';
   let focusRescan = false;
+  let annotating: { outline: Outline; button: HTMLButtonElement } | undefined;
+  let suspended: { nodes: Node[]; outline: Outline; button: HTMLButtonElement } | undefined;
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
   function setStatus(status: HTMLElement, text: string): void {
@@ -336,7 +343,8 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
   // Reads every rect before writing any style, so one pass costs one layout.
   function placeOutlines(): void {
     const rects = outlines.map((outline) => outline.el.getBoundingClientRect());
-    outlines.forEach(({ box, group }, index) => {
+    outlines.forEach((outline, index) => {
+      const { box, group } = outline;
       const rect = rects[index]!;
       box.hidden = group?.hidden === true || (rect.width === 0 && rect.height === 0);
       Object.assign(box.style, {
@@ -445,7 +453,10 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
       annotate.dataset.annotationScanAnnotate = '';
       annotate.textContent = 'Annotate';
       annotate.setAttribute('aria-label', `Annotate finding ${index + 1}: ${finding.name}`);
-      annotate.addEventListener('click', () => options.onAnnotate(el, finding));
+      annotate.addEventListener('click', () => {
+        annotating = { outline, button: annotate };
+        options.onAnnotate(el, finding);
+      });
       row.append(locate, annotate);
     } else {
       const tag = document.createElement('span');
@@ -456,12 +467,35 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     return row;
   }
 
+  function suspend(): void {
+    if (!annotating) return;
+    suspended = { nodes: [...panel.childNodes], ...annotating };
+    annotating = undefined;
+    panel.replaceChildren();
+    for (const { box } of outlines) if (box !== suspended.outline.box) box.remove();
+    emphasise(suspended.outline.box);
+  }
+
+  function restore(focusAnnotate: boolean): void {
+    if (!suspended) return;
+    const { nodes, button } = suspended;
+    suspended = undefined;
+    emphasise(undefined);
+    located = undefined;
+    panel.replaceChildren(...nodes);
+    options.highlightRoot.append(...outlines.map((outline) => outline.box));
+    placeOutlines();
+    if (focusAnnotate) button.focus();
+  }
+
   function clear(): void {
     renderVersion += 1;
     focusRescan = false;
     stopScan?.();
     removeOutlines();
-    panel.replaceChildren();
+    if (suspended) suspended = undefined;
+    else panel.replaceChildren();
+    annotating = undefined;
     announce('');
   }
 
@@ -469,5 +503,5 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     return deepScan !== undefined && !deepScan.signal.aborted;
   }
 
-  return { render, clear, isDeepScanRunning, live };
+  return { render, suspend, restore, clear, isDeepScanRunning, live };
 }

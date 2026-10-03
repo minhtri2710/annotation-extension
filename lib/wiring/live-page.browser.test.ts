@@ -7,7 +7,8 @@ import { extractElementContext } from '../capture/context';
 import { watchOutsideClick } from '../ui/outside-click';
 import { createAnnotationList } from '../annotation-list/annotation-list';
 import type { AnnotationWriteMessage } from '../annotation-messages';
-import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../notes/note-panel';
+import { createNotePanel, NOTE_PANEL_ADDED_EVENT, NOTE_PANEL_CLOSE_EVENT } from '../notes/note-panel';
+import { createScanPanel } from '../scan-panel/scan-panel';
 import { buildOverlayShell, createPanelAnchor } from '../ui/shell';
 import { createPanelMode } from './panel-mode';
 import { createPinsController, type PinsController } from '../pins/pins';
@@ -417,7 +418,7 @@ describe('closing a note panel after Save near the toolbar (real browser)', () =
       anchor,
       anchorToToolbar: () => shell.toolbar.getBoundingClientRect(),
       notePanel,
-      scanPanel: { render: async () => undefined, clear: () => undefined },
+      scanPanel: { render: async () => undefined, clear: () => undefined, suspend: () => undefined, restore: () => undefined },
       annotationList: () => ({ render: async () => undefined, clear: () => undefined }),
       listToggle: document.createElement('button'),
       scanToggle: document.createElement('button'),
@@ -506,7 +507,7 @@ describe('a click outside the note form (real browser)', () => {
       anchor,
       anchorToToolbar: () => shell.toolbar.getBoundingClientRect(),
       notePanel,
-      scanPanel: { render: async () => undefined, clear: () => undefined },
+      scanPanel: { render: async () => undefined, clear: () => undefined, suspend: () => undefined, restore: () => undefined },
       annotationList: () => list,
       listToggle: viewAll,
       scanToggle: document.createElement('button'),
@@ -696,5 +697,166 @@ describe('a click outside the note form (real browser)', () => {
 
     expect(field()!.value).toBe('Keep this draft');
     expect(shell.panel.textContent).toContain('Draft restored.');
+  });
+});
+
+describe('Annotate from a scan finding (real browser)', () => {
+  const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  let dispose: (() => void) | undefined;
+
+  afterEach(() => {
+    dispose?.();
+    dispose = undefined;
+    window.scrollTo(0, 0);
+  });
+
+  // The overlay as the content script wires it for a scan, in an open root so real pointer input can address its controls.
+  async function mountScan() {
+    await page.viewport(1280, 720);
+    const sceneHost = document.createElement('div');
+    const sceneRoot = sceneHost.attachShadow({ mode: 'open' });
+    const container = document.createElement('div');
+    sceneRoot.append(container);
+    document.body.append(sceneHost);
+    sceneHost.popover = 'manual';
+    sceneHost.showPopover();
+    const shell = buildOverlayShell(container);
+    const spacer = document.createElement('div');
+    spacer.style.cssText = 'height: 3000px';
+    const elements = [300, 420].map((top, index) => {
+      const element = document.createElement('p');
+      element.id = `scan-target-${index}`;
+      element.style.cssText = `position: absolute; margin: 0; top: ${top}px; right: ${80 + 40 * index}px; width: 150px; height: 30px`;
+      return element;
+    });
+    const outside = document.createElement('button');
+    outside.textContent = 'Page control';
+    outside.style.cssText = 'position: fixed; margin: 0; left: 20px; top: 20px; width: 120px; height: 32px';
+    document.body.append(spacer, ...elements, outside);
+    const scanToggle = document.createElement('button');
+    scanToggle.textContent = 'Scan';
+    shell.toolbar.append(scanToggle);
+    const stored: Annotation[] = [];
+    const notePanel = createNotePanel(shell.panel, {
+      listAnnotations: async () => [...stored],
+      sendAnnotationWrite: async (message) => {
+        if (message.type === 'annotation.add') {
+          stored.push({ ...annotation(message.input.selector), id: `saved-${stored.length}`, note: message.input.note });
+        }
+      },
+      captureScreenshot: vi.fn(), readBlob: vi.fn(), addAttachment: vi.fn(), deleteAttachment: vi.fn(),
+      applyCssEdits: vi.fn(), revertCssEdits: vi.fn(), revertAllCssEdits: vi.fn(),
+    });
+    const findings = elements.map((el, index) => ({
+      ruleId: 'broken-image', name: 'Broken image', description: 'Broken image', severity: 'warning' as const, el, detail: `finding ${index + 1}`,
+    }));
+    const panelMountRef: { panels?: ReturnType<typeof createPanelMode> } = {};
+    const scanPanel = createScanPanel(shell.panel, {
+      scan: async () => findings,
+      deepScan: async () => findings,
+      highlightRoot: shell.root,
+      onAnnotate: (el, finding) => panelMountRef.panels!.showScanNote(extractElementContext(el), `${finding.name}: ${finding.detail}`),
+    });
+    shell.root.append(notePanel.live, scanPanel.live);
+    const anchor = createPanelAnchor(shell.panel, shell.toolbar);
+    const panels = createPanelMode({
+      panel: shell.panel,
+      overlayRoot: sceneRoot,
+      anchor,
+      anchorToToolbar: () => shell.toolbar.getBoundingClientRect(),
+      notePanel,
+      scanPanel,
+      annotationList: () => ({ render: async () => undefined, clear: () => undefined }),
+      listToggle: document.createElement('button'),
+      scanToggle,
+    });
+    panelMountRef.panels = panels;
+    scanToggle.addEventListener('click', () => panels.toggle('scan'));
+    shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, () => panels.close());
+    shell.panel.addEventListener(NOTE_PANEL_ADDED_EVENT, () => panels.returnToScan());
+    const stopWatching = watchOutsideClick({ win: window, shadowHost: sceneHost, panels, captureActive: () => false });
+    dispose = () => {
+      stopWatching();
+      scanPanel.clear();
+      notePanel.teardown();
+      anchor.destroy();
+      sceneHost.remove();
+      spacer.remove();
+      for (const element of elements) element.remove();
+      outside.remove();
+    };
+    const label = () => shell.panel.getAttribute('aria-label');
+    const outlines = () => [...sceneRoot.querySelectorAll<HTMLElement>('[data-annotation-scan-outline]')];
+    const annotateButtons = () => [...shell.panel.querySelectorAll<HTMLButtonElement>('[data-annotation-scan-annotate]')];
+    const field = () => shell.panel.querySelector<HTMLTextAreaElement>('[data-annotation-new-note]');
+    const openScan = async () => {
+      await userEvent.click(scanToggle);
+      await vi.waitFor(() => expect(annotateButtons()).toHaveLength(2));
+      await frames();
+    };
+    const annotate = async (index: number) => {
+      await userEvent.click(annotateButtons()[index]!);
+      await vi.waitFor(() => expect(field()).not.toBeNull());
+      await frames();
+    };
+    const expectCovers = (box: HTMLElement, element: Element) => {
+      const actual = box.getBoundingClientRect();
+      const expected = element.getBoundingClientRect();
+      expectWithin(actual.left, expected.left);
+      expectWithin(actual.top, expected.top);
+      expectWithin(actual.width, expected.width);
+      expectWithin(actual.height, expected.height);
+    };
+    return { sceneRoot, shell, scanToggle, outside, elements, label, outlines, annotateButtons, field, openScan, annotate, expectCovers };
+  }
+
+  it('keeps the annotated finding\'s box on its element through a page scroll and a viewport resize', async () => {
+    const { elements, outlines, openScan, annotate, expectCovers } = await mountScan();
+    await openScan();
+    await annotate(1);
+
+    expect(outlines()).toHaveLength(1);
+    expectCovers(outlines()[0]!, elements[1]!);
+
+    window.scrollTo(0, 150);
+    await vi.waitFor(() => expect(window.scrollY).toBe(150));
+    await frames();
+    expect(elements[1]!.getBoundingClientRect().top).toBeCloseTo(270, 0);
+    expectCovers(outlines()[0]!, elements[1]!);
+
+    await page.viewport(900, 600);
+    await frames();
+    expectCovers(outlines()[0]!, elements[1]!);
+  });
+
+  it('brings the scan back after a real Add note click, with every box on its element', async () => {
+    const { shell, elements, label, outlines, annotateButtons, field, openScan, annotate, expectCovers } = await mountScan();
+    await openScan();
+    await annotate(0);
+
+    await userEvent.type(field()!, ' typed');
+    await userEvent.click(shell.panel.querySelector<HTMLButtonElement>('[data-annotation-save]')!);
+
+    await vi.waitFor(() => expect(label()).toBe('Page scan'));
+    await frames();
+    expect(annotateButtons()).toHaveLength(2);
+    expect(outlines()).toHaveLength(2);
+    outlines().forEach((box, index) => {
+      expect(box.hidden).toBe(false);
+      expectCovers(box, elements[index]!);
+    });
+  });
+
+  it('leaves focus on the page control a real outside click landed on, and brings the scan back', async () => {
+    const { sceneRoot, outside, label, outlines, annotateButtons, openScan, annotate } = await mountScan();
+    await openScan();
+    await annotate(0);
+
+    await userEvent.click(outside);
+
+    await vi.waitFor(() => expect(label()).toBe('Page scan'));
+    expect(outlines()).toHaveLength(2);
+    expect(document.activeElement).toBe(outside);
+    expect(annotateButtons()).not.toContain(sceneRoot.activeElement);
   });
 });

@@ -29,6 +29,8 @@ export interface NotePanel {
 
 // Dispatched on the panel mount when the user asks to close the note panel.
 export const NOTE_PANEL_CLOSE_EVENT = 'annotation-note-close';
+// Dispatched on the panel mount once a new note is stored and the panel shows it, so the owner may close the panel.
+export const NOTE_PANEL_ADDED_EVENT = 'annotation-note-added';
 const EMPTY_NOTE_MESSAGE = 'Write a note before saving.';
 const NOTE_SAVED_MESSAGE = 'Note saved.';
 const DELETED_ELSEWHERE_MESSAGE = 'This annotation was deleted in another tab.';
@@ -232,6 +234,11 @@ export function createNotePanel(
         if (!missing) dropDraft(message);
         statusMessage = missing ? DELETED_ELSEWHERE_MESSAGE : successMessage;
         await refresh(context);
+        if (message.type === 'annotation.add' && selectedContext === context) {
+          panel.dispatchEvent(new Event(NOTE_PANEL_ADDED_EVENT));
+          // The owner may have cleared the live region with the panel.
+          announce(NOTE_SAVED_MESSAGE);
+        }
       } catch (error) {
         statusMessage = errorMessage(error);
         await refresh(context);
