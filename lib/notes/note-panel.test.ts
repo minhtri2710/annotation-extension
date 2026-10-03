@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import { MAX_TEXT_LENGTH, type AnnotationWriteMessage } from '../annotation-messages';
 import type { ElementContext } from '../capture/context';
-import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from './note-panel';
+import { createNotePanel, NOTE_PANEL_ADDED_EVENT, NOTE_PANEL_CLOSE_EVENT } from './note-panel';
 import type { NotePanelPersistence } from './persistence';
 import { ScreenshotCaptureError } from '../screenshot/messages';
 
@@ -190,6 +190,98 @@ describe('note panel', () => {
     await vi.waitFor(() => expect(panel.textContent).toContain('capture failed'));
     expect(panel.querySelector(`[data-annotation-id="${existing.id}"]`)).not.toBeNull();
     expect(panel.querySelector('[data-annotation-screenshot]')).toBeNull();
+  });
+
+  describe('a note write that settles after the panel moved on', () => {
+    const contextB = { ...context, selector: '#other', id: 'other' };
+    const noteOnA = annotation('Note on A');
+    const noteOnB = { ...annotation('Note on B'), id: 'annotation-b', selector: contextB.selector, elementContext: contextB };
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const shownNotes = (panel: HTMLElement) =>
+      [...panel.querySelectorAll<HTMLTextAreaElement>('[data-annotation-edit-note]')].map((field) => field.value);
+
+    // Add note for A, with the write held or rejecting until `settle`, or the second storage read held until `releaseList`.
+    async function addForA(mode: 'held' | 'rejecting' | 'immediate', holdSecondList = false) {
+      const panel = document.createElement('div');
+      let settle: () => void = () => undefined;
+      let releaseList: () => void = () => undefined;
+      let listCalls = 0;
+      const listAnnotations = vi.fn((): Promise<Annotation[]> => {
+        listCalls += 1;
+        if (listCalls === 1) return Promise.resolve([]);
+        if (listCalls === 2 && holdSecondList) return new Promise((resolve) => { releaseList = () => resolve([]); });
+        return Promise.resolve([noteOnA, noteOnB]);
+      });
+      const sendAnnotationWrite = vi.fn(() => mode === 'immediate'
+        ? Promise.resolve(undefined)
+        : new Promise<undefined>((resolve, reject) => {
+          settle = mode === 'held' ? () => resolve(undefined) : () => reject(new Error('A failed'));
+        }));
+      const { notePanel } = await render(panel, [], { listAnnotations, sendAnnotationWrite });
+      const added = vi.fn();
+      panel.addEventListener(NOTE_PANEL_ADDED_EVENT, added);
+      (panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement).value = 'Note on A';
+      (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
+      await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+      return { panel, notePanel, added, listAnnotations, settle: () => settle(), releaseList: () => releaseList() };
+    }
+
+    it('leaves another element\'s note shown and announces nothing when the held add lands', async () => {
+      const { panel, notePanel, added, settle } = await addForA('held');
+      await notePanel.render(contextB);
+
+      settle();
+      await flush();
+
+      expect(shownNotes(panel)).toEqual(['Note on B']);
+      expect(added).not.toHaveBeenCalled();
+    });
+
+    it('leaves a cleared panel empty and announces nothing when the held add lands', async () => {
+      const { panel, notePanel, added, settle } = await addForA('held');
+      notePanel.clear();
+
+      settle();
+      await flush();
+
+      expect(panel.childElementCount).toBe(0);
+      expect(notePanel.live.textContent).toBe('');
+      expect(added).not.toHaveBeenCalled();
+    });
+
+    it('still updates the panel and announces once when the same element was reopened through a new context object', async () => {
+      const { panel, notePanel, added, settle } = await addForA('held');
+      await notePanel.render({ ...context });
+
+      settle();
+      await flush();
+
+      expect(shownNotes(panel)).toEqual(['Note on A']);
+      expect(added).toHaveBeenCalledTimes(1);
+    });
+
+    it('announces nothing when the panel moves to another element while the post-write read is pending', async () => {
+      const { panel, notePanel, added, listAnnotations, releaseList } = await addForA('immediate', true);
+      await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+      await notePanel.render(contextB);
+
+      releaseList();
+      await flush();
+
+      expect(shownNotes(panel)).toEqual(['Note on B']);
+      expect(added).not.toHaveBeenCalled();
+    });
+
+    it('shows no error from a held add that rejects after the panel moved to another element', async () => {
+      const { panel, notePanel, settle } = await addForA('rejecting');
+      await notePanel.render(contextB);
+
+      settle();
+      await flush();
+
+      expect(shownNotes(panel)).toEqual(['Note on B']);
+      expect(panel.textContent).not.toContain('A failed');
+    });
   });
 
   it('captures through the persistence seam and relies on background metadata update', async () => {

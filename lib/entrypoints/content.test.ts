@@ -496,6 +496,25 @@ describe('content script entrypoint', () => {
       expectScanBack(before);
     });
 
+    it('carries no emphasis over from before Annotate: a Locate on another finding is gone after an outside click, hover and leave', async () => {
+      addImages(2);
+      await start();
+      await openScan();
+      const before = outlines();
+      const rowTwo = panel().querySelector<HTMLElement>('[data-annotation-scan-number="2"]')!;
+      trustedClick(rowTwo.querySelector<HTMLButtonElement>('[data-annotation-scan-locate]')!);
+      expect(before[1]!.hasAttribute('data-annotation-emphasis')).toBe(true);
+      trustedClick(annotateButtons()[0]!);
+      await vi.waitFor(() => expect(noteField()).not.toBeNull());
+
+      outsideClick();
+      expectScanBack(before);
+      rowTwo.dispatchEvent(new MouseEvent('mouseenter'));
+      rowTwo.dispatchEvent(new MouseEvent('mouseleave'));
+
+      expect(before.filter((outline) => outline.hasAttribute('data-annotation-emphasis'))).toEqual([]);
+    });
+
     it('a saved note brings back the scan, focuses the finding\'s Annotate button and announces Note saved. in the note panel\'s live region', async () => {
       handlers();
       addImages(2);

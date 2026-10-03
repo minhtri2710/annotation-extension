@@ -214,6 +214,11 @@ export function createNotePanel(
     restoreFocus();
   }
 
+  // A settled write touches the panel only while it still shows that element's note, however often the element was reopened meanwhile.
+  function showsNoteOf(context: ElementContext): boolean {
+    return selectedContext?.url === context.url && selectedContext.selector === context.selector;
+  }
+
   async function mutate(
     message: AnnotationWriteMessage,
     context: ElementContext,
@@ -232,14 +237,16 @@ export function createNotePanel(
         const missing = (message.type === 'annotation.update' && result === null)
           || (message.type === 'annotation.delete' && result === false);
         if (!missing) dropDraft(message);
+        if (!showsNoteOf(context)) return;
         statusMessage = missing ? DELETED_ELSEWHERE_MESSAGE : successMessage;
         await refresh(context);
-        if (message.type === 'annotation.add' && selectedContext === context) {
+        if (message.type === 'annotation.add' && showsNoteOf(context)) {
           panel.dispatchEvent(new Event(NOTE_PANEL_ADDED_EVENT));
           // The owner may have cleared the live region with the panel.
           announce(NOTE_SAVED_MESSAGE);
         }
       } catch (error) {
+        if (!showsNoteOf(context)) return;
         statusMessage = errorMessage(error);
         await refresh(context);
       }
