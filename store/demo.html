@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Brightloop: shared schedules for small teams</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: #ffffff; color: #1b2430; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  .nav { display: flex; align-items: center; gap: 36px; height: 72px; padding: 0 64px; border-bottom: 1px solid #e3e7ed; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; }
+  .brand-mark { width: 26px; height: 26px; border-radius: 8px; background: #0f766e; }
+  .nav-links { display: flex; gap: 28px; margin-right: auto; }
+  .nav-links a { color: #3b4655; text-decoration: none; font-size: 15px; }
+  .signin { padding: 9px 18px; border: 1px solid #c3cad4; border-radius: 8px; background: #ffffff; font: inherit; font-size: 15px; color: #1b2430; }
+  .hero { display: grid; grid-template-columns: 1fr 440px; gap: 72px; padding: 40px 64px 32px; }
+  .badge { display: inline-block; margin: 0 0 18px; padding: 1px 3px; border: 1px solid #0f766e; border-radius: 4px; font-size: 13px; font-weight: 600; color: #0f766e; }
+  h1 { margin: 0 0 16px; font-size: 48px; line-height: 1.1; letter-spacing: -0.02em; }
+  .lede { margin: 0 0 28px; max-width: 520px; font-size: 19px; color: #b4bac4; }
+  .actions { display: flex; gap: 14px; }
+  .cta { padding: 14px 24px; border: 0; border-radius: 10px; background: #0f766e; color: #ffffff; font: inherit; font-weight: 600; }
+  .ghost { padding: 14px 24px; border: 1px solid #c3cad4; border-radius: 10px; background: #ffffff; color: #1b2430; font: inherit; font-weight: 600; }
+  .schedule { padding: 24px; border: 1px solid #e3e7ed; border-radius: 16px; background: #f6f8fa; box-shadow: 0 8px 24px rgba(27, 36, 48, 0.08); }
+  .schedule h2 { margin: 0 0 14px; font-size: 18px; }
+  .slot { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid #e3e7ed; }
+  .time { min-width: 64px; font-size: 13px; font-weight: 600; color: #0f766e; }
+  .slot span:last-child { font-size: 15px; }
+  .perks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 0 64px 24px; }
+  .perk { padding: 20px; border: 1px solid #e3e7ed; border-radius: 12px; }
+  .perk h3 { margin: 0 0 6px; font-size: 17px; }
+  .perk p { margin: 0; font-size: 15px; color: #3b4655; }
+  .promo { margin: 0 64px 20px; padding: 18px 24px; border-radius: 12px; background: #1d4ed8; color: #c9d1dc; font-size: 16px; }
+  .fine-wrap { padding: 0 64px 16px; }
+  .fine { margin: 0; font-size: 14px; color: #3b4655; }
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="brand"><span class="brand-mark"></span>Brightloop</div>
+  <nav class="nav-links"><a href="#">Product</a><a href="#">Pricing</a><a href="#">Teams</a><a href="#">Docs</a></nav>
+  <button class="signin" type="button">Sign in</button>
+</header>
+<main>
+  <section class="hero">
+    <div>
+      <p class="badge">New: shared calendars</p>
+      <h1 id="hero-title">Plan the week your whole team can keep.</h1>
+      <p class="lede">Brightloop turns a messy group chat into one schedule that everyone can read, edit and trust.</p>
+      <div class="actions">
+        <button class="cta" id="cta" type="button">Start free trial</button>
+        <button class="ghost" type="button">See how it works</button>
+      </div>
+    </div>
+    <aside class="schedule" id="schedule">
+      <h2>This week</h2>
+      <div class="slot"><span class="time">Mon 9:00</span><span>Planning session</span></div>
+      <div class="slot"><span class="time">Wed 14:30</span><span>Design review</span></div>
+      <div class="slot"><span class="time">Fri 16:00</span><span>Release check-in</span></div>
+    </aside>
+  </section>
+  <section class="perks">
+    <article class="perk"><h3>One source of truth</h3><p>Every shift, meeting and deadline lives in a single shared view.</p></article>
+    <article class="perk"><h3>Change without chaos</h3><p>Swap a slot and everyone affected is told, with the reason attached.</p></article>
+    <article class="perk"><h3>Works where you work</h3><p>Export to a calendar file or embed the week on your team page.</p></article>
+  </section>
+  <p class="promo">Annual plans are billed once per year, and you can switch back to monthly billing at any time before your next renewal date.</p>
+</main>
+<footer>
+  <div class="fine-wrap"><p class="fine">Brightloop is a fictional product used only to show the annotation extension. Every name, price and schedule on this page is made up, and nothing on it can be bought or booked. Any resemblance to a real product or company is a coincidence, and the page exists only so that notes, pins and design scans have something realistic to point at.</p></div>
+</footer>
+</body>
+</html>
