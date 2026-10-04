@@ -323,8 +323,24 @@ async function renderCards(browser) {
   save('chrome', 'icon-128.png', await page.screenshot({ type: 'png', omitBackground: true }));
   await page.setViewportSize(TILE);
   await page.setContent(
-    `<style>html,body{margin:0}body{width:${TILE.width}px;height:${TILE.height}px;box-sizing:border-box;padding:32px;background:#f6f8fa;color:#1b2430;font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}svg{display:block;width:72px;height:72px;margin-bottom:24px}h1{margin:0 0 8px;font-size:28px;line-height:1.15}p{margin:0;font-size:16px;color:#3b4655}</style>${svg}<h1>Annotation Extension</h1><p>${TAGLINE}</p>`,
+    `<style>html,body{margin:0}body{width:${TILE.width}px;height:${TILE.height}px;box-sizing:border-box;padding:32px;background:#f6f8fa;color:#1b2430;font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}svg{display:block;width:72px;height:72px;margin-bottom:24px}h1{margin:0 0 8px;font-size:28px;line-height:1.15}p{margin:0;font-size:16px;color:#3b4655}</style>${svg}<h1>Annotation Extension</h1><p>${TAGLINE.replace('. ', '.<br>')}</p>`,
   );
+  // Words per rendered line of the tagline, from the boxes the browser laid out; a line with one word is a bad break.
+  const perLine = await page.evaluate(() => {
+    const counts = new Map();
+    const walker = document.createTreeWalker(document.querySelector('p'), NodeFilter.SHOW_TEXT);
+    for (let node; (node = walker.nextNode()); ) {
+      for (const word of node.data.matchAll(/\S+/g)) {
+        const range = document.createRange();
+        range.setStart(node, word.index);
+        range.setEnd(node, word.index + word[0].length);
+        const top = Math.round(range.getBoundingClientRect().top);
+        counts.set(top, (counts.get(top) ?? 0) + 1);
+      }
+    }
+    return [...counts.values()];
+  });
+  if (perLine.some((words) => words < 2)) fail(`promo tile tagline has a line with one word: words per line ${perLine.join(', ')}`);
   save('chrome', 'promo-440x280.png', toRgb(await shoot(page)));
   await page.close();
 }
@@ -450,13 +466,20 @@ async function renderEngine(engine) {
   await toolbar.waitFor({ state: 'visible' });
   const annotate = toolbar.locator('[data-annotation-toggle]');
   if (isChromium) await annotate.filter({ hasText: 'Stop annotating' }).click();
+  // The first frame drawn is the one with the pointer where the last click left it; without it the button that click hovered rendered in one of two states per run after the pointer left.
   const calm = async () => {
+    await shoot(page);
     await page.mouse.move(4, 4);
     await page.evaluate(() => document.fonts.ready);
     await sleep(500);
   };
   const shot = async (slug) => {
     await calm();
+    const busy = await page.evaluate(() => {
+      const root = document.querySelector('annotation-extension-root').shadowRoot;
+      return { hovered: root.querySelectorAll(':hover').length, animations: root.getAnimations().length };
+    });
+    if (busy.hovered || busy.animations) fail(`${engine}: overlay not settled before shot ${slug}: ${busy.hovered} hovered, ${busy.animations} running animations`);
     const png = toRgb(await shoot(page));
     save(dir, `screenshot-${slug}.png`, png);
   };
