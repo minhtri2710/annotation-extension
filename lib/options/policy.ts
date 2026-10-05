@@ -8,7 +8,6 @@ export const defaultPolicy: SitePolicy = {
   allowlist: [],
 };
 
-/** Allowlist entries match URLs by exact hostname; ports and paths are ignored. */
 export function isEnabledForUrl(url: string, policy: SitePolicy): boolean {
   if (!policy.enabled) return false;
   if (policy.allowlist.length === 0) return true;
@@ -23,7 +22,6 @@ export function isEnabledForUrl(url: string, policy: SitePolicy): boolean {
   return policy.allowlist.some((entry) => parseAllowlistEntry(entry) === hostname);
 }
 
-/** Returns the lowercase (punycode) hostname an entry matches, or undefined when it names no host. */
 export function parseAllowlistEntry(entry: string): string | undefined {
   const value = entry.trim();
   if (!value) return undefined;
@@ -44,7 +42,6 @@ const IPV4_OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
 const IPV4 = new RegExp(`^(?:${IPV4_OCTET}\\.){3}${IPV4_OCTET}$`);
 const IPV6 = /^\[[0-9a-f:]*:[0-9a-f:]*\]$/;
 
-/** LDH labels (IDNs arrive as punycode), a dotted IPv4 address, or a bracketed IPv6 address. */
 function isHostname(hostname: string): boolean {
   if (IPV4.test(hostname) || IPV6.test(hostname)) return true;
   // A numeric last label would make the name an IPv4 address, which the check above already decided.

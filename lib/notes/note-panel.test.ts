@@ -200,7 +200,6 @@ describe('note panel', () => {
     const shownNotes = (panel: HTMLElement) =>
       [...panel.querySelectorAll<HTMLTextAreaElement>('[data-annotation-edit-note]')].map((field) => field.value);
 
-    // Add note for A, with the write held or rejecting until `settle`, or the second storage read held until `releaseList`.
     async function addForA(mode: 'held' | 'rejecting' | 'immediate', holdSecondList = false) {
       const panel = document.createElement('div');
       let settle: () => void = () => undefined;
@@ -1781,7 +1780,6 @@ describe('note panel layout', () => {
       id: 'annotation-1',
       changes: { note },
     } satisfies AnnotationWriteMessage);
-    // Each save re-reads storage and re-renders; the form is appended last, once the re-render is done.
     const saveAndSettle = async (value: string, save: () => unknown, writes: number) => {
       const before = panel.querySelector('form');
       editNote(panel).value = value;

@@ -18,18 +18,14 @@ import { createInlineConfirm, createLiveRegion, keepPanelFocus } from '../ui/she
 import { ScreenshotCaptureError } from '../screenshot/messages';
 
 export interface NotePanel {
-  /** A seed fills the new-note field when this element has no new-note draft. */
   render(context: ElementContext, seed?: string): Promise<void>;
   clear(): void;
   teardown(): void;
-  /** Re-reads the page's annotations after a storage change; typed text is never overwritten. */
   syncWithStorage(): Promise<void>;
   live: HTMLElement;
 }
 
-// Dispatched on the panel mount when the user asks to close the note panel.
 export const NOTE_PANEL_CLOSE_EVENT = 'annotation-note-close';
-// Dispatched on the panel mount once a new note is stored and the panel shows it, so the owner may close the panel.
 export const NOTE_PANEL_ADDED_EVENT = 'annotation-note-added';
 const EMPTY_NOTE_MESSAGE = 'Write a note before saving.';
 const NOTE_SAVED_MESSAGE = 'Note saved.';
@@ -44,23 +40,16 @@ export function createNotePanel(
 ): NotePanel {
   let selectedContext: ElementContext | undefined;
   let statusMessage: string | undefined;
-  // Shows statusMessage in the current render without re-rendering, so typed text survives.
   let showCurrentStatus = () => {};
-  // What the current render shows (ids, update times and page positions), and how many of this panel's writes are in flight.
   let shownVersion = '';
   let pendingWrites = 0;
   const previewUrls = new Set<string>();
-  // Unsaved text, kept in memory across re-renders and reopening: new notes by page URL and selector, edit fields by id and field.
   const drafts = new Map<string, string>();
-  // New-note draft keys whose draft is a seed the user has not edited.
   const untouchedSeeds = new Set<string>();
   let restoredDraft = false;
-  // CSS and repro groups the user left open or closed against their content default, kept in memory by annotation id and group.
   const groupStates = new Map<string, boolean>();
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
-  // Opening moves focus into the panel: the new-note field when a seed was applied, else the first note of the element, else the new-note field.
-  // A seed is kept as the new-note draft for this open, so it survives re-renders; an untouched seed is dropped on the next open, and typing makes it a real draft.
   async function render(context: ElementContext, seed?: string): Promise<void> {
     const draftKey = newNoteDraftKey(context.url, context.selector);
     if (untouchedSeeds.delete(draftKey)) drafts.delete(draftKey);
@@ -90,7 +79,6 @@ export function createNotePanel(
       statusMessage = errorMessage(error);
     }
     if (selectedContext !== context) return;
-    // Names use the annotation's 1-based position on the page, as the annotation list does.
     const positions = new Map(pageAnnotations.map((annotation, index) => [annotation.id, index + 1]));
     const annotations = pageAnnotations.filter((annotation) => annotation.selector === context.selector);
 
@@ -167,7 +155,6 @@ export function createNotePanel(
     const save = document.createElement('button');
     save.type = 'submit';
     save.dataset.annotationSave = '';
-    // The new-note save is the surface's primary only while it is the only form shown.
     if (annotations.length === 0) save.dataset.variant = 'primary';
     save.textContent = 'Add note';
     const add = () => {
@@ -214,7 +201,6 @@ export function createNotePanel(
     restoreFocus();
   }
 
-  // A settled write touches the panel only while it still shows that element's note, however often the element was reopened meanwhile.
   function showsNoteOf(context: ElementContext): boolean {
     return selectedContext?.url === context.url && selectedContext.selector === context.selector;
   }
@@ -233,7 +219,6 @@ export function createNotePanel(
     await whileWriting(async () => {
       try {
         const result = await persistence.sendAnnotationWrite(message);
-        // The background answers null (update) or false (delete) when the id is no longer stored.
         const missing = (message.type === 'annotation.update' && result === null)
           || (message.type === 'annotation.delete' && result === false);
         if (!missing) dropDraft(message);
@@ -242,7 +227,6 @@ export function createNotePanel(
         await refresh(context);
         if (message.type === 'annotation.add' && showsNoteOf(context)) {
           panel.dispatchEvent(new Event(NOTE_PANEL_ADDED_EVENT));
-          // The owner may have cleared the live region with the panel.
           announce(NOTE_SAVED_MESSAGE);
         }
       } catch (error) {
@@ -261,7 +245,6 @@ export function createNotePanel(
     return true;
   }
 
-  // A field typed back to its stored value has no draft.
   function keepDraft(field: HTMLTextAreaElement, key: string): boolean {
     field.addEventListener('input', () => {
       if (field.value === field.defaultValue) drafts.delete(key);
@@ -297,7 +280,6 @@ export function createNotePanel(
     }
   }
 
-  // This panel's own writes re-render when they finish, so only changes made elsewhere reach here.
   async function syncWithStorage(): Promise<void> {
     const context = selectedContext;
     if (!context || pendingWrites > 0) return;
@@ -378,7 +360,6 @@ export function createNotePanel(
     const note = noteSection(document, annotation, position, context, images.attachLabel, images.attachName, [...css.fields, ...repro.fields], () => save());
     const hasCss = (annotation.cssEdits?.length ?? 0) > 0;
 
-    // One Save sends every field that changed and omits the rest. A CSS change that cannot be applied sends nothing.
     function save(): void {
       const changes: AnnotationUpdate = {};
       const value = note.field.value.trim();
@@ -464,7 +445,6 @@ export function createNotePanel(
     const unsaved = document.createElement('p');
     unsaved.dataset.annotationUnsaved = '';
     unsaved.textContent = 'Unsaved changes';
-    // Save sends the note, the CSS and the repro, so a change to any of those fields is unsaved.
     const showUnsaved = () => {
       unsaved.hidden = ![note, ...editFields].some((field) => field.value !== field.defaultValue);
     };
@@ -552,7 +532,6 @@ export function createNotePanel(
     return { field: note, media, footer };
   }
 
-  // The file input sits with the note controls; previews follow the groups once their blobs are read.
   function imagesSection(
     document: Document,
     item: HTMLElement,
@@ -802,7 +781,6 @@ function screenshotFailureMessage(error: unknown): string {
   return `The screenshot needs your permission on this tab. Click the extension's ${grant} once on this tab, then select Capture screenshot again.`;
 }
 
-// Each field sits in a visible label; its accessible name starts with that label text.
 function labelledField(
   document: Document,
   position: number,

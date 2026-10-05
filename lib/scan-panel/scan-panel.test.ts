@@ -15,7 +15,6 @@ function finding(ruleId: string, name: string, severity: Severity, detail: strin
 type DeepScan = (signal: AbortSignal) => Promise<Finding[]>;
 type Scan = (signal: AbortSignal) => Promise<Finding[]>;
 
-// Cleared after each test so no panel's outline listeners outlive it.
 const openPanels: { clear(): void }[] = [];
 
 function setup(scan: Scan, deepScan: ScanPanelOptions['deepScan'] = () => new Promise<Finding[]>(() => {})) {

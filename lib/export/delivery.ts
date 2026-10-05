@@ -27,7 +27,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Runs a clipboard write after the download already happened; returns the status suffix when it fails. */
 export async function clipboardFailure(copy: () => Promise<void>): Promise<string | undefined> {
   try {
     await copy();

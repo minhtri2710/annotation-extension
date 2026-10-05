@@ -46,7 +46,6 @@ interface CssSource {
 
 const cssSourceCache = new WeakMap<ScanContext, CssSource[]>();
 
-// Same-document CSS text, read once per scan: <style> blocks, style attributes, same-origin CSSOM.
 async function cssSources(ctx: ScanContext, checkpoint: Checkpoint): Promise<CssSource[]> {
   const cached = cssSourceCache.get(ctx);
   if (cached) return cached;
@@ -87,7 +86,6 @@ function svgDimension(openTag: string, attrRe: RegExp, viewBoxValue: string | un
   return viewBoxValue === undefined ? undefined : Number.parseFloat(viewBoxValue);
 }
 
-// Bars of a data chart share one width (vertical) or one height (horizontal).
 function isBarChart(svg: Element): boolean {
   const rects = Array.from(svg.querySelectorAll('rect'));
   if (rects.length === 0) return false;

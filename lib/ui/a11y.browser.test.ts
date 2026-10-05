@@ -24,7 +24,6 @@ afterEach(async () => {
   document.body.style.removeProperty('background');
 });
 
-// Mirrors content.ts: WXT's shadow host with its `:host{all:initial !important}` reset, raised by raiseOverlay.
 function mountOverlay(theme: ThemeMode) {
   const before = document.createElement('button');
   before.textContent = 'Page before';
@@ -107,7 +106,6 @@ describe.each<ThemeMode>(['light', 'dark'])('overlay contrast in the %s scheme',
     expect(color(rest.backgroundColor).a).toBe(0);
     expect(rest.borderTopWidth).toBe('0px');
     expect(rest.borderTopLeftRadius).toBe(token('radius-md'));
-    // The badge shows the number only; the unit stays in its text for assistive technology.
     expect(unit.getBoundingClientRect().width).toBeLessThanOrEqual(1);
     expect(badge.textContent).toBe('2 annotations');
     expect(getComputedStyle(grip).cursor).toBe('grab');
@@ -381,7 +379,6 @@ describe.each(['light', 'dark'] as const)('popup primary in the %s token scheme'
 describe('popup shortcut hint', () => {
   type HintState = { kind: 'set'; shortcut: string } | { kind: 'unset' } | { kind: 'failed' };
 
-  // Mirrors popup/main.ts showShortcutHint: a read shortcut fills and shows the hint; a failed read leaves it untouched.
   function mountPopup(state: HintState, withHint = true) {
     const parsed = new DOMParser().parseFromString(popupHtml, 'text/html');
     const style = document.createElement('style');
@@ -461,7 +458,6 @@ describe('popup shortcut hint', () => {
 });
 
 describe('popup layout', () => {
-  // Loads the real popup markup; only the runtime-filled page count and shortcut hint are set here.
   function mountLayout(scheme: 'light' | 'dark' = 'light') {
     const parsed = new DOMParser().parseFromString(popupHtml, 'text/html');
     const style = document.createElement('style');
@@ -551,7 +547,6 @@ describe('popup layout', () => {
   });
 });
 
-// Quiet light and dark palette, read from computed styles on the real surfaces.
 describe.each<ThemeMode>(['light', 'dark'])('button tiers and palette on the real surfaces in the %s scheme', (theme) => {
   const pageUrl = 'https://example.com/article';
   const context: ElementContext = {

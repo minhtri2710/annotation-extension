@@ -4,7 +4,6 @@ export function applyThemeMode(root: HTMLElement, mode: ThemeMode): void {
   root.dataset.theme = mode;
 }
 
-// Keeps the overlay on the system light/dark setting, including changes while it is mounted.
 export function watchColorScheme(root: HTMLElement, view: Window): () => void {
   if (typeof view.matchMedia !== 'function') {
     applyThemeMode(root, 'light');

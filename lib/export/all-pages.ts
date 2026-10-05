@@ -9,7 +9,6 @@ export interface AllPagesExportDependencies {
   delivery: AnnotationExportDelivery;
 }
 
-/** Returns the status message for the popup. */
 export async function exportAllPages({ collect, readBlob, delivery }: AllPagesExportDependencies): Promise<string> {
   try {
     const annotations = await collect();

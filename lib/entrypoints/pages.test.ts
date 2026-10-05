@@ -13,7 +13,6 @@ import { registerBackgroundMessageHandlers } from '../wiring/background-messages
 import { buildInspectExpression } from '../devtools/devtools';
 import { readPolicy, SITE_POLICY_STORAGE_KEY, writePolicy } from '../options/storage';
 
-/** Loads an entrypoint's own index.html body (without its module script) into the happy-dom document. */
 function loadPage(entry: 'popup' | 'options' | 'devtools-panel') {
   const html = readFileSync(join(import.meta.dirname, '..', '..', 'entrypoints', entry, 'index.html'), 'utf8');
   const page = new DOMParser().parseFromString(html, 'text/html');
@@ -38,7 +37,6 @@ describe('popup page', () => {
   const PAGE = 'https://example.com/page';
   const RELOAD = 'Annotations are not available on this page. If it was open before the extension loaded, reload it.';
 
-  // Stub: the popup reads the active tab and asks it for its capture state through these two tab APIs.
   function stubTab(url: string | undefined, reply: () => Promise<unknown>) {
     const query = vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 11, url }] as never);
     const sendMessage = vi.spyOn(browser.tabs, 'sendMessage').mockImplementation(reply as never);
@@ -85,14 +83,12 @@ describe('popup page', () => {
     };
   }
 
-  // Stub: fakeBrowser's commands.getAll throws "Not implemented"; default every popup test to a set shortcut.
   beforeEach(() => {
     vi.spyOn(browser.commands, 'getAll').mockResolvedValue([{ name: 'capture.toggle', shortcut: 'Alt+Shift+Y' }] as never);
   });
 
   it('sends the capture toggle to the active tab and closes the popup', async () => {
     const { query, sendMessage } = stubTab(PAGE, async () => ({ active: false }));
-    // Stub: happy-dom's window.close would tear the test window down.
     const close = vi.spyOn(window, 'close').mockImplementation(() => {});
     await openPopup();
     await vi.waitFor(() => expect(byId<HTMLButtonElement>('toggle').disabled).toBe(false));
@@ -311,7 +307,6 @@ describe('popup page', () => {
 
   it('leaves the count empty when annotation storage fails and still enables the toggle', async () => {
     const get = browser.storage.local.get.bind(browser.storage.local);
-    // Stub: only the annotation read fails; the policy read goes to fakeBrowser storage.
     const storageGet = vi.spyOn(browser.storage.local, 'get').mockImplementation(((keys: string | null) =>
       keys === SITE_POLICY_STORAGE_KEY ? get(keys) : Promise.reject(new Error('Storage failed'))) as never);
     stubTab(PAGE, async () => ({ active: false }));
@@ -346,7 +341,6 @@ describe('popup page', () => {
     const toolbarToggle = () => byId<HTMLButtonElement>('toolbar-toggle');
 
     const TAB_KEY = 'ui:toolbar-tab:11';
-    // The real background answers the popup, which names the active tab by its id.
     const startBackground = () => background.main();
 
     it.each<[string, Record<string, boolean>, string]>([
@@ -412,7 +406,6 @@ describe('popup page', () => {
       startBackground();
       if (session) await fakeBrowser.storage.session.set(session);
       stubTab(PAGE, async () => ({ active: false }));
-      // Stub: happy-dom's window.close would tear the test window down.
       const close = vi.spyOn(window, 'close').mockImplementation(() => {});
       await openPopup();
       await vi.waitFor(() => expect(toolbarToggle().disabled).toBe(false));
@@ -461,14 +454,12 @@ describe('popup page', () => {
   describe('shortcut hint', () => {
     const UNSET = "No keyboard shortcut is set; you can add one in your browser's extension shortcut settings (chrome://extensions/shortcuts in Chrome, Manage Extension Shortcuts in the Firefox Add-ons Manager).";
 
-    // Stub: the popup reads the capture shortcut straight from the commands API.
     const stubShortcut = (shortcut?: string) =>
       vi.spyOn(browser.commands, 'getAll').mockResolvedValue([
         { name: '_execute_action', shortcut: 'Alt+P' },
         { name: 'capture.toggle', shortcut },
       ] as never);
 
-    // Stub: tabs.create would open a page; the hint must never open one.
     const stubCreate = () => vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
 
     it('names a set shortcut and describes the toggle with it', async () => {
@@ -568,7 +559,6 @@ describe('devtools panel', () => {
       },
     });
     loadPage('devtools-panel');
-    // Stub: fakeBrowser does not implement devtools.inspectedWindow.eval.
     const evaluate = vi.spyOn(browser.devtools.inspectedWindow, 'eval')
       .mockImplementation(async (expression: string) => (expression === 'location.href' ? pageUrl : undefined) as never);
     await import('../../entrypoints/devtools-panel/main');

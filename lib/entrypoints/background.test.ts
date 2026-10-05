@@ -7,7 +7,6 @@ import { listAnnotations } from '../annotation-storage';
 type CommandListener = (command: string) => Promise<void>;
 let commandListeners: CommandListener[];
 
-// Stub: fakeBrowser has no commands.onCommand (vitest.setup.ts installs a no-op); this one keeps the listeners.
 function captureCommandListeners() {
   commandListeners = [];
   Object.defineProperty(fakeBrowser.commands, 'onCommand', {
@@ -67,7 +66,6 @@ describe('background entrypoint', () => {
   describe('toolbar tab state', () => {
     const KEY = (tabId: number) => `ui:toolbar-tab:${tabId}`;
     const fromContentScript = (tabId: number) => ({ tab: { id: tabId } });
-    // A message reaches the background as it does from the popup (no tab) or from a content script (its own tab).
     async function send(message: unknown, sender: object = {}) {
       const sendResponse = vi.fn();
       await fakeBrowser.runtime.onMessage.trigger(message, sender, sendResponse);

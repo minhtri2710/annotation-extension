@@ -44,7 +44,6 @@ function annotation(id: string, selector = context.selector): Annotation {
   };
 }
 
-// The count badge needs a host; a plain button in the toolbar stands in where a test does not look at the badge.
 function addBadgeHost(toolbar: HTMLElement): HTMLButtonElement {
   const host = document.createElement('button');
   toolbar.append(host);
@@ -58,7 +57,6 @@ function setup() {
   return { toolbar, overlay, target: document.querySelector('#target') as HTMLElement };
 }
 
-// happy-dom lays nothing out, so its viewport reads 0 x 0 and no element intersects it.
 function stubViewport() {
   vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1280);
   vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(720);
@@ -70,10 +68,8 @@ function rectAt(left: number, top: number, width = 56, height = 78): DOMRect {
   };
 }
 
-// The resolve slicer reads performance.now(); a still clock keeps every pass in one slice regardless of load.
 let now = 0;
 
-// Every controller a test creates is destroyed after it, even when the test fails.
 const controllers: PinsController[] = [];
 
 function createPinsController(options: PinsControllerOptions): PinsController {
@@ -265,7 +261,6 @@ describe('pins controller', () => {
     const rect = (left: number, top: number) => ({
       x: left, y: top, left, top, right: left + 56, bottom: top + 78, width: 56, height: 78, toJSON: () => ({}),
     });
-    // happy-dom lays nothing out, so its viewport reads 0 x 0.
     vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(1280);
     vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(720);
     const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rect(12, 34));
@@ -304,7 +299,6 @@ describe('pins controller', () => {
   });
 
   describe('tooltip follows its pin on reanchor', () => {
-    // happy-dom lays nothing out, so a marker's rect is read back from the centre reanchor placed it at.
     function stubMarkerRect(marker: HTMLButtonElement) {
       vi.spyOn(marker, 'getBoundingClientRect').mockImplementation(() =>
         rectAt(parseFloat(marker.style.left) - 9, parseFloat(marker.style.top) - 9, 18, 18));
@@ -370,7 +364,6 @@ describe('pins controller', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       for (const frame of frames.splice(0)) frame(0);
       await new Promise((resolve) => setTimeout(resolve, 0));
-      // A re-place that mutated the tree would already have queued another frame here.
       expect(frames).toHaveLength(0);
       requestAnimationFrame.mockClear();
 
@@ -390,7 +383,6 @@ describe('pins controller', () => {
       const { toolbar, overlay, target } = setup();
       stubViewport();
       const getBoundingClientRect = vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rectAt(40, 60));
-      // A second pin stays in view, so each reanchor pass runs to its end.
       const second = document.createElement('button');
       second.id = 'second-target';
       document.body.append(second);
@@ -505,7 +497,6 @@ describe('pins controller', () => {
     const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
     expect([marker.style.left, marker.style.top]).toEqual(['40px', '60px']);
 
-    // The toolbar now spans x 20..120 over the pin's row; the first slot clear of it is 40 + 5 * 22.
     toolbarRect.mockReturnValue(rectAt(20, 50, 100, 30));
     controller.reanchor();
     expect([marker.style.left, marker.style.top]).toEqual(['150px', '60px']);
@@ -558,7 +549,6 @@ describe('pins controller', () => {
     for (const frame of frames.splice(0)) frame(0);
 
     expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
-    // Each reanchor pass reads the toolbar rect and each pinned element's rect once.
     expect(toolbarRect).toHaveBeenCalledTimes(1);
     expect(targetRect).toHaveBeenCalledTimes(1);
     expect(marker.style.left).toBe('150px');
@@ -599,7 +589,6 @@ describe('pins controller', () => {
     controller.destroy();
     requestAnimationFrame.mockClear();
 
-    // The document observer and the toolbar style observer, then the toolbar size observer.
     expect(mutationDisconnect).toHaveBeenCalledTimes(2);
     expect(resizeDisconnect).toHaveBeenCalledTimes(1);
 
@@ -792,7 +781,6 @@ describe('pins controller', () => {
       markerOf('annotation-1').dispatchEvent(new Event('focus'));
       markerOf('annotation-2').dispatchEvent(new MouseEvent('mouseenter'));
       expect(overlay.querySelector('[data-annotation-tooltip]')?.textContent).toBe('Note annotation-2');
-      // A throttled frame (a background tab) lets the re-resolve pass see the detached pin before reanchor hides it.
       vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
 
       target.remove();
@@ -871,7 +859,6 @@ describe('pins controller', () => {
       vi.restoreAllMocks();
     });
 
-    // Every clock read advances one slice budget, so each pass yields after exactly one track().
     function slowClock() {
       vi.mocked(performance.now).mockImplementation(() => (now += RESOLVE_SLICE_MS));
     }
@@ -1116,12 +1103,10 @@ describe('fanOut', () => {
   it('keeps 200 pins on one centre of a 360x600 viewport inside it, apart while a free slot is left', () => {
     const narrow = { width: 360, height: 600 };
     const centers = Array.from({ length: 200 }, () => ({ x: 180, y: 300 }));
-    // The band holds 15 pins per row (180 +- 7 * 22) on 9 rows (300 +- 4 * 22): 135 slots.
     const one = fanOut(centers, narrow, noToolbar);
     expectInside(one, narrow, 9);
     expectApart(one.slice(0, 135));
     expect(one.slice(135)).toEqual(Array.from({ length: 65 }, () => ({ x: 180, y: 300 })));
-    // At zoom 2 the band holds 7 pins per row (180 +- 3 * 44) on 9 rows (300 +- 4 * 44): 63 slots.
     const two = fanOut(centers, narrow, noToolbar, 2);
     expectInside(two, narrow, 18);
     expectApart(two.slice(0, 63), 2 * size);
@@ -1150,7 +1135,6 @@ describe('fanOut', () => {
   it('keeps 500 seeded random layouts free of overlaps, inside the viewport, and moves pins only when they must', () => {
     const seed = 0x9e3779b9;
     let state = seed;
-    // mulberry32
     const random = () => {
       state = (state + 0x6d2b79f5) | 0;
       let t = Math.imul(state ^ (state >>> 15), 1 | state);
@@ -1220,7 +1204,6 @@ describe('fanOut', () => {
     }
   });
 
-  // At (160, 240) of the 320x480 viewport a row holds 13 slots (160 +- 6 * 22) and the band 9 rows (240 +- 4 * 22).
   const bandCentre = { x: 160, y: 240 };
   const bandSlots = 13 * 9;
 
@@ -1248,9 +1231,6 @@ describe('fanOut', () => {
     expect(fanned[count - 1]).toEqual(bandCentre);
   });
 
-  // An all-pairs search over every candidate off the toolbar, own row first, then the rows below and above one
-  // step further out each time up to 4 steps, as the reference the banded search must match. With every
-  // candidate taken, the pin sits at its own x in the first of those rows off the toolbar, else at its centre.
   const PIN_SIZE = 18;
   const FAN_GAP = 4;
   type Rect = { left: number; top: number; right: number; bottom: number };
@@ -1265,7 +1245,6 @@ describe('fanOut', () => {
     const step = (PIN_SIZE + FAN_GAP) * zoom;
     const placed: { x: number; y: number }[] = [];
     const free = (x: number, y: number) => placed.every((pin) => Math.abs(pin.x - x) >= size || Math.abs(pin.y - y) >= size);
-    // The pin square and the toolbar share a positive area.
     const offToolbar = (x: number, y: number) =>
       Math.min(x + half, toolbar.right) <= Math.max(x - half, toolbar.left) ||
       Math.min(y + half, toolbar.bottom) <= Math.max(y - half, toolbar.top);
@@ -1294,7 +1273,6 @@ describe('fanOut', () => {
   it('places every seeded random layout and every stacked worst case, with and without a toolbar, exactly as the all-pairs search', () => {
     const seed = 0x9e3779b9;
     let state = seed;
-    // mulberry32
     const random = () => {
       state = (state + 0x6d2b79f5) | 0;
       let t = Math.imul(state ^ (state >>> 15), 1 | state);
@@ -1314,7 +1292,6 @@ describe('fanOut', () => {
         const cluster = clusters[Math.floor(random() * clusters.length)]!;
         return { x: cluster.x + between(-24, 24), y: cluster.y + between(-24, 24) };
       });
-      // A quarter of the layouts have no toolbar; the rest one over the first cluster, zero-size along one side at times.
       const left = clusters[0]!.x + between(-80, 20);
       const top = clusters[0]!.y + between(-80, 20);
       const toolbar = random() < 0.25
@@ -1335,7 +1312,6 @@ describe('fanOut', () => {
     ];
     for (const [name, corner, view, count] of stacks) {
       for (const zoom of [1, 2]) {
-        // A corner outside [half, width - half] x [half, height - half] is clamped, as pinCenter does.
         const half = (size * zoom) / 2;
         const center = {
           x: Math.min(Math.max(corner.x, half), view.width - half),
@@ -1343,7 +1319,6 @@ describe('fanOut', () => {
         };
         const centers = Array.from({ length: count }, () => ({ ...center }));
         const s = step * zoom;
-        // None; one over the centre, its row and the row below; a full-height strip over the centre's x.
         const toolbars: Rect[] = [
           noToolbar,
           { left: center.x - 3 * s, top: center.y - half, right: center.x + s, bottom: center.y + s + half },
@@ -1396,7 +1371,6 @@ describe('pin tooltip dismissal', () => {
 describe('pinCenter under page zoom', () => {
   it('keeps the whole zoomed pin inside the viewport', () => {
     const viewport = { width: 800, height: 600 };
-    // An 18 px pin under zoom 1.5 measures 27 px, so its centre stays 13.5 px from each edge.
     expect(pinCenter({ left: 2, top: 3, right: 100, bottom: 50 }, viewport, 1.5)).toEqual({ x: 13.5, y: 13.5 });
     expect(pinCenter({ left: 799, top: 599, right: 900, bottom: 700 }, viewport, 1.5)).toEqual({ x: 786.5, y: 586.5 });
   });

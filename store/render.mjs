@@ -1,4 +1,3 @@
-// Run: pnpm build && pnpm build:firefox && node store/render.mjs (renders the store listing images from the built extensions into store/chrome and store/firefox)
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -29,7 +28,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const written = [];
 const cleanups = [];
 
-// Every browser and temp directory registers here; this runs on success, on failure and when the deadline fires.
 async function cleanup() {
   while (cleanups.length) {
     const fn = cleanups.pop();
@@ -61,7 +59,6 @@ function checkBuilds() {
   }
 }
 
-// A temp copy of the build whose overlay shadow root is open, so locators reach into it. No rendered pixel changes.
 function prepareBuild(dir, tmp) {
   const copy = path.join(tmp, 'extension');
   fs.cpSync(path.join(ROOT, '.output', dir), copy, { recursive: true });
@@ -100,7 +97,6 @@ function freePort() {
   });
 }
 
-// Installs a temporary add-on over the Firefox remote debugging protocol and returns its moz-extension uuid.
 function installTemporaryAddon(port, addonPath, geckoId) {
   return new Promise((resolve, reject) => {
     const sock = net.connect(port, '127.0.0.1');
@@ -132,7 +128,6 @@ function installTemporaryAddon(port, addonPath, geckoId) {
   });
 }
 
-// A second connection to the Firefox remote debugging protocol: requests are matched to replies by actor, notifications are kept by type.
 class Rdp {
   constructor(sock) {
     this.sock = sock;
@@ -191,7 +186,6 @@ class Rdp {
     return reply;
   }
 
-  // Evaluates one expression and returns its primitive result.
   async evaluatePlain(consoleActor, text) {
     const { resultID } = await this.request(consoleActor, { type: 'evaluateJSAsync', text });
     const done = await this.wait((m) => m.type === 'evaluationResult' && m.resultID === resultID, 'evaluation');
@@ -199,7 +193,6 @@ class Rdp {
     return done.result;
   }
 
-  // Runs an async function body in the console's global and returns its JSON-able result, polled from a global the body's promise sets.
   async evaluate(consoleActor, body) {
     await this.evaluatePlain(
       consoleActor,
@@ -226,8 +219,6 @@ class Rdp {
   }
 }
 
-// The popup asks for the active tab of its own window; as a tab of its own it would see itself, so it is shown the demo page's tab.
-// It also stays open after a click, where a browser would close the popup.
 const popupTabs = (pageUrl) => {
   if (!/-extension:$/.test(location.protocol)) return;
   window.close = () => {};
@@ -262,7 +253,6 @@ const chunk = (type, data) => {
   return out;
 };
 
-// Playwright writes 8-bit RGBA; the store images are opaque, so the alpha channel is dropped (colour type 2).
 function toRgb(png) {
   if (png[25] === 2) return png;
   if (png[24] !== 8 || png[25] !== 6 || png[28] !== 0) fail('screenshot is not an 8-bit non-interlaced RGBA PNG');
@@ -325,7 +315,6 @@ async function renderCards(browser) {
   await page.setContent(
     `<style>html,body{margin:0}body{width:${TILE.width}px;height:${TILE.height}px;box-sizing:border-box;padding:32px;background:#f6f8fa;color:#1b2430;font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}svg{display:block;width:72px;height:72px;margin-bottom:24px}h1{margin:0 0 8px;font-size:28px;line-height:1.15}p{margin:0;font-size:16px;color:#3b4655}</style>${svg}<h1>Annotation Extension</h1><p>${TAGLINE.replace('. ', '.<br>')}</p>`,
   );
-  // Words per rendered line of the tagline, from the boxes the browser laid out; a line with one word is a bad break.
   const perLine = await page.evaluate(() => {
     const counts = new Map();
     const walker = document.createTreeWalker(document.querySelector('p'), NodeFilter.SHOW_TEXT);
@@ -345,8 +334,6 @@ async function renderCards(browser) {
   await page.close();
 }
 
-// Renders the real popup.html in Firefox without Playwright, which cannot attach to moz-extension pages: the parent process opens it in a
-// background tab (so the popup's own active-tab query sees the demo page), the tab's console clicks the real switch, and the parent draws the snapshot.
 async function firefoxPopupPng(rdp, parent, base, tmp) {
   const system = 'Services.scriptSecurityManager.getSystemPrincipal()';
   await rdp.evaluate(
@@ -445,7 +432,6 @@ async function renderEngine(engine) {
   page.setDefaultTimeout(STEP_TIMEOUT_MS);
   await page.goto(`${DEMO_ORIGIN}/`);
 
-  // The popup in a tab of its own: with the tab query pointed at the demo page, its real buttons act on that page.
   await ctx.addInitScript(popupTabs, `${DEMO_ORIGIN}/`);
   const openPopup = async () => {
     const popup = await ctx.newPage();
@@ -484,7 +470,6 @@ async function renderEngine(engine) {
     save(dir, `screenshot-${slug}.png`, png);
   };
 
-  // 3 scan: first, on the page as the author wrote it
   await toolbar.getByRole('button', { name: 'Scan' }).click();
   await panel.locator('[data-annotation-scan-summary]').waitFor();
   await page.locator('annotation-extension-root').waitFor({ state: 'attached' });
@@ -498,7 +483,6 @@ async function renderEngine(engine) {
   await shot('3-scan');
   await toolbar.getByRole('button', { name: 'Scan' }).click();
 
-  // 1 pins: three notes added through the note panel
   const pins = page.locator('.annotation-pin');
   const startAnnotating = async () => {
     if ((await annotate.getAttribute('aria-pressed')) !== 'true') await annotate.click();
@@ -514,20 +498,17 @@ async function renderEngine(engine) {
   if ((await annotate.getAttribute('aria-pressed')) === 'true') await annotate.click();
   await shot('1-pins');
 
-  // 2 note: a fourth element picked, its note typed and not added
   await startAnnotating();
   await clickAt(page, page.locator(DRAFT.target), DRAFT.dx);
   await panel.locator('textarea:visible').fill(DRAFT.text);
   await shot('2-note');
   await panel.getByRole('button', { name: 'Close' }).click();
 
-  // 4 list
   await toolbar.getByRole('button', { name: 'View all' }).click();
   await panel.locator('[data-annotation-export]').waitFor();
   await shot('4-list');
   await toolbar.getByRole('button', { name: 'View all' }).click();
 
-  // 5 popup: the page and popup.html as two renders, the popup placed at the top right as a browser places it
   let popupPng;
   if (isChromium) {
     await popup.bringToFront();

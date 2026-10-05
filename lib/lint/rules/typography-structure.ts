@@ -241,8 +241,6 @@ async function overusedFont(ctx: ScanContext, checkpoint: Checkpoint): Promise<P
   }];
 }
 
-
-// The most frequent size; undefined when two sizes tie for most frequent.
 function dominantSize(samples: number[]): number | undefined {
   const counts = new Map<number, number>();
   for (const sample of samples) counts.set(sample, (counts.get(sample) ?? 0) + 1);

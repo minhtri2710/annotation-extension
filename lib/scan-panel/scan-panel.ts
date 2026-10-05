@@ -15,11 +15,8 @@ export interface ScanPanelOptions {
 
 export interface ScanPanel {
   render(): Promise<void>;
-  // After Annotate on a finding: takes the findings out of the panel for a note, keeping that finding's box shown and followed.
   suspend(): void;
-  // Puts the suspended findings back as they were, every box shown again; focuses the annotated finding's Annotate button on request.
   restore(focusAnnotate: boolean): void;
-  // Also drops a suspended scan; the panel then belongs to the note and is left alone.
   clear(): void;
   isDeepScanRunning(): boolean;
   live: HTMLElement;
@@ -173,7 +170,6 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     panel.append(cancel);
     cancel.focus();
 
-    // The visible text updates at most once a second and the live region only at 25% steps.
     let shownAt = Number.NEGATIVE_INFINITY;
     let announcedStep = 0;
     const onProgress = (fraction: number) => {
@@ -314,7 +310,6 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
         SEVERITY_ORDER.indexOf(a[0]!.severity) - SEVERITY_ORDER.indexOf(b[0]!.severity) ||
         a[0]!.name.localeCompare(b[0]!.name),
     );
-    // Element findings are numbered in display order, including rows "+N more" reveals later.
     const outlineOf = new Map<Finding, Outline>();
     for (const finding of ordered.flat()) {
       if (finding.el?.isConnected) {
@@ -426,7 +421,6 @@ export function createScanPanel(panel: HTMLElement, options: ScanPanelOptions): 
     if (outline) {
       const { el, box } = outline;
       row.dataset.annotationScanNumber = String(outline.number);
-      // Hover or focus in another row drops a Locate emphasis; leaving a row falls back to it.
       const enter = () => {
         if (located !== box) located = undefined;
         emphasise(box);

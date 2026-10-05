@@ -1,7 +1,5 @@
 export const SHADOW_SELECTOR_DELIMITER = ' >>> ';
 
-// One CSS selector per root, outermost first: the first part resolves in the document and each later
-// part in the open shadowRoot of the element the previous part matched.
 export function buildSelector(element: Element): string {
   const parts: string[] = [];
   for (let current: Element | null = element; current; ) {
@@ -63,7 +61,6 @@ function buildScopedSelector(element: Element, root: Document | ShadowRoot): str
     const selector = segments.join(' > ');
     if (root.querySelector(selector) === element) return selector;
 
-    // Light-DOM paths anchor at html; a shadow path ends here, so pin its top segment to the root's children.
     if (!parent && isShadowRoot(root) && currentElement.parentNode === root) {
       segments[0] = `${segment}:not(* > ${currentElement.localName})`;
       const anchored = segments.join(' > ');

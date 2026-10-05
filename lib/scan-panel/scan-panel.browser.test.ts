@@ -28,7 +28,6 @@ function box(margin: string): HTMLElement {
   return el;
 }
 
-// Mirrors content.ts: the scan panel in the overlay shell, opened and closed by the real Scan toggle.
 function mountScan(findings: Finding[], theme: 'light' | 'dark', scan: () => Promise<Finding[]> = async () => findings, deepScan: () => Promise<Finding[]> = () => new Promise<Finding[]>(() => {})) {
   const host = document.createElement('div');
   document.body.append(host);

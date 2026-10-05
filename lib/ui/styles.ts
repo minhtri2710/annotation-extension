@@ -47,7 +47,6 @@ ${ANNOTATION_DARK_TOKENS}
   max-width: calc(100% - 2 * var(--annotation-space-4));
 }
 
-/* Every toolbar control, the count included, is one 32px high box on one line. */
 [data-annotation-shell] [data-annotation-mount="toolbar"] > * {
   height: 32px;
   white-space: nowrap;
@@ -95,7 +94,6 @@ ${ANNOTATION_DARK_TOKENS}
   to { opacity: 1; transform: none; }
 }
 
-/* The count sits on the View all button's top-right corner; it is not a toolbar item. */
 [data-annotation-shell] [data-annotation-list-toggle] {
   position: relative;
 }
@@ -124,7 +122,6 @@ ${ANNOTATION_DARK_TOKENS}
   display: none;
 }
 
-/* The badge shows the number; the unit stays in the text for assistive technology. */
 [data-annotation-shell] [data-annotation-badge-unit] {
   position: absolute;
   width: 1px;
@@ -169,7 +166,6 @@ ${ANNOTATION_DARK_TOKENS}
   margin-top: var(--annotation-space-3);
 }
 
-/* Header: pin number, the element label on one truncated line, Close. The "Notes" heading stays in the tree for assistive technology. */
 [data-annotation-shell] [data-annotation-note-header],
 [data-annotation-shell] [data-annotation-list-header],
 [data-annotation-shell] [data-annotation-scan-header] {
@@ -178,7 +174,6 @@ ${ANNOTATION_DARK_TOKENS}
   align-items: center;
 }
 
-/* The header stays in view while the panel body scrolls: it takes the panel's top padding, so no content shows above it. */
 [data-annotation-shell] [data-annotation-mount="panel"]:has(> [data-annotation-note-header], > [data-annotation-list-header], > [data-annotation-scan-header]) {
   padding-top: 0;
 }
@@ -243,7 +238,6 @@ ${ANNOTATION_DARK_TOKENS}
   color: var(--annotation-color-accent);
 }
 
-/* Cards share the panel's one padding; a divider, not a box, separates two of them. */
 [data-annotation-shell] article[data-annotation-note-card] {
   display: flex;
   flex-direction: column;
@@ -281,7 +275,6 @@ ${ANNOTATION_DARK_TOKENS}
   outline-offset: 2px;
 }
 
-/* Footer: Delete at the start, then the save status, Resolve and Save at the end, on one row; the delete prompt takes a row of its own. */
 [data-annotation-shell] [data-annotation-note-actions] {
   flex-wrap: nowrap;
   padding-top: var(--annotation-space-3);
@@ -362,7 +355,6 @@ ${ANNOTATION_DARK_TOKENS}
   resize: vertical;
 }
 
-/* The note is the main field of its card, so it is taller than the CSS and repro fields, which keep the 3-line floor above. */
 [data-annotation-shell] textarea[data-annotation-edit-note] {
   min-height: calc(4 * 1.4em + 2 * var(--annotation-space-1) + 2px);
 }
@@ -488,14 +480,12 @@ ${ANNOTATION_DARK_TOKENS}
   max-width: 100%;
 }
 
-/* Three tiers, none with a border. Secondary is the base: a neutral fill. */
 [data-annotation-shell] [data-annotation-mount] button:hover,
 [data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover {
   background: var(--annotation-color-hover);
   color: var(--annotation-color-text);
 }
 
-/* Primary: the one accent fill of a surface. */
 [data-annotation-shell] [data-annotation-mount] button[data-variant="primary"],
 [data-annotation-shell] [data-annotation-mount] button[data-variant="primary"]:hover,
 [data-annotation-shell] [data-annotation-mount] button[data-variant="primary"]:active {
@@ -509,7 +499,6 @@ ${ANNOTATION_DARK_TOKENS}
   filter: brightness(0.92);
 }
 
-/* Ghost: transparent and muted until hovered. */
 [data-annotation-shell] [data-annotation-mount] button[data-variant="quiet"],
 [data-annotation-shell] [data-annotation-mount] label[data-annotation-attach],
 [data-annotation-shell] [data-annotation-mount="toolbar"] > button:not([data-variant]),
@@ -529,14 +518,12 @@ ${ANNOTATION_DARK_TOKENS}
   color: var(--annotation-color-text);
 }
 
-/* A toggled icon control and a pressed segment read as selected through the accent. */
 [data-annotation-shell] [data-annotation-mount="toolbar"] > button[aria-expanded="true"],
 [data-annotation-shell] [data-annotation-mount] button[data-annotation-help][aria-expanded="true"] {
   background: var(--annotation-color-surface-raised);
   color: var(--annotation-color-accent);
 }
 
-/* Danger: red text on a transparent base; only a confirm button is filled. */
 [data-annotation-shell] [data-annotation-mount] button[data-variant="danger"],
 [data-annotation-shell] [data-annotation-mount] button[data-variant="danger"]:active {
   background: transparent;
@@ -556,7 +543,6 @@ ${ANNOTATION_DARK_TOKENS}
   font-weight: var(--annotation-font-weight-medium);
 }
 
-/* Icon-only controls are square. */
 [data-annotation-shell] [data-annotation-mount] button:has(> svg) {
   width: 32px;
   min-width: 32px;
@@ -580,7 +566,6 @@ ${ANNOTATION_DARK_TOKENS}
   font-weight: var(--annotation-font-weight-medium);
 }
 
-/* Adjacent buttons keep a token gap, also where the row wraps. */
 [data-annotation-shell] [data-annotation-deep-scan],
 [data-annotation-shell] [data-annotation-rescan] {
   margin: 0 var(--annotation-space-2) var(--annotation-space-2) 0;
@@ -614,7 +599,6 @@ ${ANNOTATION_DARK_TOKENS}
   margin: 0 0 var(--annotation-space-2);
 }
 
-/* One segmented control: a neutral track with the pressed segment ringed in the accent. */
 [data-annotation-shell] [data-annotation-filter] {
   display: flex;
   flex-wrap: wrap;
@@ -650,7 +634,6 @@ ${ANNOTATION_DARK_TOKENS}
   list-style: none;
 }
 
-/* One line per finding: number chip, the detail on one truncated line (its full text is the title), then the actions. */
 [data-annotation-shell] [data-annotation-scan-finding] {
   display: flex;
   align-items: center;
@@ -658,7 +641,6 @@ ${ANNOTATION_DARK_TOKENS}
   font-size: var(--annotation-font-size-caption);
 }
 
-/* Only the detail shrinks: the buttons keep their natural width and their text on one line. */
 [data-annotation-shell] [data-annotation-scan-finding] button {
   flex: none;
 }
@@ -831,7 +813,6 @@ ${ANNOTATION_DARK_TOKENS}
   border-top: 1px solid var(--annotation-color-divider);
 }
 
-/* The export buttons and Clear all are one row of the footer; Clear all sits at the far end. */
 [data-annotation-shell] [data-annotation-list-footer] [data-annotation-export],
 [data-annotation-shell] [data-annotation-list-footer] [data-annotation-export-actions] {
   display: contents;
@@ -851,7 +832,6 @@ ${ANNOTATION_DARK_TOKENS}
   gap: var(--annotation-space-2);
 }
 
-/* Number, one-line note and the icon actions share the first line; the muted element label and the status chip share the second. */
 [data-annotation-shell] article[data-annotation-row] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

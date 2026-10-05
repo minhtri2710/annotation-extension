@@ -15,7 +15,6 @@ import { ANNOTATION_SCAN_CLOSE_EVENT } from '../scan-panel/scan-panel';
 import type { ToolbarPrefs } from '../ui/ui-prefs';
 import { readToolbarTab } from '../wiring/toolbar-tab-messages';
 
-// Spy: the content script's event bus is closure-private; the real bus runs, and each `on` records its unsubscriber.
 const busSubscriptions = vi.hoisted(() => [] as { event: PropertyKey; unsubscribe: import('vitest').Mock }[]);
 vi.mock('../ui/event-bus', async (importOriginal) => {
   const original = await importOriginal<typeof import('../ui/event-bus')>();
@@ -32,7 +31,6 @@ vi.mock('../ui/event-bus', async (importOriginal) => {
   };
 });
 
-// Spy: counts how often the page is scanned; the real scan runs.
 const scanCalls = vi.hoisted(() => ({ scan: 0, deep: 0 }));
 vi.mock('../scan-panel/scan-panel', async (importOriginal) => {
   const original = await importOriginal<typeof import('../scan-panel/scan-panel')>();
@@ -57,13 +55,11 @@ let readyState: DocumentReadyState;
 const attachedRoots = new WeakMap<Element, ShadowRoot>();
 const originalAttachShadow = Element.prototype.attachShadow;
 
-// Stub: happy-dom's document is always 'complete'; the getter lets a test start the script at document_start.
 function stubReadyState(state: DocumentReadyState) {
   readyState = state;
   vi.spyOn(document, 'readyState', 'get').mockImplementation(() => readyState);
 }
 
-// Stub: happy-dom has no popover API, which raiseOverlay uses to lift the host into the top layer.
 function stubPopover() {
   const proto = HTMLElement.prototype as { showPopover?: () => void };
   const original = proto.showPopover;
@@ -427,14 +423,12 @@ describe('content script entrypoint', () => {
       pointerEvent('pointerup', page);
       dispatchTrusted(page, new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, button: 0, detail: 1 }));
     };
-    // `emphasised` is the position of the one box the focused Annotate button emphasises; none after a return that moves no focus.
     const expectScanBack = (before: HTMLElement[], emphasised?: number) => {
       expect(panel().getAttribute('aria-label')).toBe('Page scan');
       expect(button('Scan').getAttribute('aria-expanded')).toBe('true');
       expect(annotateButtons()).toHaveLength(before.length);
       expect(outlines()).toEqual(before);
       for (const outline of before) expect(outline.hidden).toBe(false);
-      // Only the row holding focus emphasises its box; nothing carries over from before Annotate.
       expect(before.filter((outline) => outline.hasAttribute('data-annotation-emphasis'))).toEqual(emphasised === undefined ? [] : [before[emphasised]]);
     };
     const storedContext = (selector: string) => ({
@@ -720,7 +714,6 @@ describe('content script entrypoint', () => {
         ctx.notifyInvalidated();
 
         expect(outlines(root)).toEqual([]);
-        // The kept box's follow loop stops with the overlay: every scroll listener the scan added is removed.
         const scrollListeners = added.mock.calls.filter(([type]) => type === 'scroll').map(([, listener]) => listener);
         expect(scrollListeners.length).toBeGreaterThan(0);
         for (const listener of scrollListeners) expect(removed.mock.calls.map(([, removedListener]) => removedListener)).toContain(listener);
@@ -980,8 +973,6 @@ describe('content script entrypoint', () => {
     const requests = (send: { mock: { calls: unknown[][] } }, type: string) =>
       send.mock.calls.map(([message]) => message).filter((message) => (message as { type?: string }).type === type);
 
-    // Stub: the real background answers the content script as its own tab (fakeBrowser sends no sender), and its
-    // tab messages reach the content script's runtime listeners.
     function routeToBackground() {
       background.main();
       vi.spyOn(browser.tabs, 'sendMessage').mockImplementation(((_tabId: number, message: unknown) =>
@@ -990,7 +981,6 @@ describe('content script entrypoint', () => {
         new Promise((resolve) => { void fakeBrowser.runtime.onMessage.trigger(message, { tab: { id: TAB } } as never, resolve); })) as never);
     }
 
-    // Stub: answers the content script's first state read through `answer`.
     const stubRead = (answer: () => Promise<unknown>) =>
       vi.spyOn(browser.runtime, 'sendMessage').mockImplementation((() => answer()) as never);
 

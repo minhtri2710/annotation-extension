@@ -211,7 +211,6 @@ function isVisuallyHidden(ctx: ScanContext, el: Element): boolean {
   try {
     if (el.matches(srOnlySelector) || el.closest(srOnlySelector) !== null) return true;
   } catch {
-    // The selector is static and valid; keep the guard aligned with DOM APIs.
   }
 
   const position = styleValue(ctx, el, 'position');

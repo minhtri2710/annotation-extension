@@ -125,7 +125,6 @@ async function showTabState(): Promise<void> {
   }
 }
 
-// Runs only where Start annotating is offered, so the button is enabled under the same condition; an unreadable state counts as off.
 async function showToolbarState(tabId: number): Promise<void> {
   toolbarTabId = tabId;
   try {

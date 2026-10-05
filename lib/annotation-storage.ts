@@ -29,7 +29,6 @@ export async function addAnnotation(pageUrl: string, input: AnnotationInput): Pr
   });
 }
 
-/** Stores an annotation exactly as given; returns false, writing nothing, when its id is already on the page. */
 export async function restoreAnnotation(
   annotation: Annotation,
   blobs: ReadonlyArray<readonly [string, Blob]>,

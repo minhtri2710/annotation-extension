@@ -46,7 +46,6 @@ function label() {
   return root.querySelector('[data-annotation-highlight-label]') as HTMLElement;
 }
 
-// The label reads `<description> · <W>×<H>`; this is the description part.
 function labelName() {
   return label().textContent!.replace(/ · \d+×\d+$/, '');
 }
@@ -225,8 +224,6 @@ describe('deep target', () => {
     stubRect(closedHost, 100);
     controller.activate();
 
-    // happy-dom does not retarget composedPath() at a closed root; a browser presents the host as
-    // composedPath()[0] to a document listener, so the event is dispatched at the host here.
     pointer('pointermove', closedHost);
     expect(labelName()).toBe('x-sealed#sealed');
     pointer('pointerdown', closedHost);

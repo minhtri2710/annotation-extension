@@ -3,7 +3,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { watchColorScheme } from './theme';
 
-// A stub prefers-color-scheme query: an EventTarget whose `matches` flips and fires `change`.
 function stubView(dark: boolean) {
   const query = Object.assign(new EventTarget(), { matches: dark }) as MediaQueryList & { matches: boolean };
   const removed = vi.spyOn(query, 'removeEventListener');

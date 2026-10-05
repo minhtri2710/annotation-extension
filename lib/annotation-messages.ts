@@ -41,7 +41,6 @@ export function isAnnotationErrorResponse(value: unknown): value is AnnotationEr
   return isRecord(value) && value.ok === false && typeof value.error === 'string';
 }
 
-/** Sends a message to the background; an error response throws its text and a malformed response throws invalidError. */
 export async function sendBackgroundRequest<M, R>(
   message: M,
   isResponse: (value: unknown) => value is R,
@@ -57,9 +56,7 @@ export function createAnnotationErrorResponse(error: unknown): AnnotationErrorRe
   return { ok: false, error: errorMessage(error) };
 }
 
-// One definition for the write guards and the JSON import: ids fit the minted UUIDs with room to spare; any other text field and any list is bounded.
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-/** In UTF-16 code units. */
 export const MAX_TEXT_LENGTH = 10_000;
 export const MAX_LIST_LENGTH = 1_000;
 const LIMITS = `each text is at most ${MAX_TEXT_LENGTH} characters and each list at most ${MAX_LIST_LENGTH} items`;
@@ -70,7 +67,6 @@ export function isText(value: unknown): value is string {
   return typeof value === 'string' && value.length <= MAX_TEXT_LENGTH;
 }
 
-/** A page the storage can key: an http, https or file URL within the text cap. */
 export function isPageUrl(value: unknown): value is string {
   if (!isText(value)) return false;
   try {
@@ -98,7 +94,6 @@ export function isAnnotationWriteType(value: unknown): boolean {
     ['annotation.add', 'annotation.update', 'annotation.delete', 'annotation.clear'].includes(value.type);
 }
 
-/** Why a write message is refused, in words for the user; undefined when it is valid. */
 export function annotationWriteError(value: unknown): string | undefined {
   if (!isRecord(value) || !isAnnotationWriteType(value)) return INVALID_CHANGE;
   const pageUrlError = textError(value.pageUrl, 'The page URL') ??
@@ -126,7 +121,6 @@ function idError(value: unknown): string | undefined {
   return typeof value === 'string' && ID_PATTERN.test(value) ? undefined : 'The annotation id is not valid.';
 }
 
-// An add requires note, selector and element details; an update may leave any field out.
 function annotationFieldsError(value: unknown, required: boolean): string | undefined {
   if (!isRecord(value) || 'screenshot' in value || 'attachments' in value) return INVALID_CHANGE;
   if (value.status !== undefined && !isAnnotationStatus(value.status)) return INVALID_CHANGE;

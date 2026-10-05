@@ -9,8 +9,6 @@ afterEach(() => {
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
-// Waits until scrollY leaves its starting value (Firefox can start a smooth
-// scroll a few frames late), then until it holds for 3 frames in a row, at most 2 s.
 async function scrollSettled(): Promise<void> {
   const deadline = performance.now() + 2000;
   const start = scrollY;

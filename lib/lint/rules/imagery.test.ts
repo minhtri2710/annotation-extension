@@ -129,7 +129,6 @@ describe('imagery lint rules through the real engine', () => {
     it('does not fire at 9 vertices, on-grid vertices, or a path with 2 curves', async () => {
       const nine = offGrid.split(', ').slice(0, 9).join(', ');
       const onGrid = Array.from({ length: 10 }, (_, i) => `${(i % 5) * 25}% ${i % 2 ? 50 : 100}%`).join(', ');
-      // Rust counts off-grid numbers against the vertex count: 9 off-grid numbers over 10 vertices passes.
       const nineOffGrid = offGridXs.map((x, i) => `${i === 0 ? 25 : x}% 0%`).join(', ');
       expect(await ruleFindings('organic-clip-path', '<div></div>', `.a { clip-path: polygon(${nine}); }`)).toEqual([]);
       expect(await ruleFindings('organic-clip-path', '<div></div>', `.a { clip-path: polygon(${onGrid}); }`)).toEqual([]);
@@ -200,7 +199,6 @@ describe('imagery lint rules through the real engine', () => {
 
     it('does not fire on a real src, a fragment src, or a non-img element', async () => {
       document.body.innerHTML = '<img src="a.png"><img src="#hero"><video></video><div src=""></div>';
-      // happy-dom never fetches images yet reports them complete; pin the not-yet-loaded state.
       for (const img of document.querySelectorAll('img')) Object.defineProperty(img, 'complete', { configurable: true, value: false });
       expect((await collectFindings(imageryRules, createScanContext(window), new AbortController().signal)).filter((finding) => finding.ruleId === 'broken-image')).toEqual([]);
     });

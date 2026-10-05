@@ -20,7 +20,6 @@ function labelText() {
   return root.querySelector('[data-annotation-highlight-label]')!.textContent!;
 }
 
-// The description part of the `<description> · <W>×<H>` label.
 function label() {
   return labelText().replace(/ · \d+×\d+$/, '');
 }

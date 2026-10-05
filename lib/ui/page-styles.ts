@@ -46,7 +46,6 @@ body.annotation-page--popup .annotation-page__card {
   box-shadow: none;
 }
 
-/* The options card: one centred column, sections one gap apart, no shadow. */
 body.annotation-page--options .annotation-page__card {
   box-sizing: border-box;
   display: flex;
@@ -165,7 +164,6 @@ body.annotation-page--options .annotation-page__form button {
   flex: 1 1 12rem;
 }
 
-/* Secondary is the base tier: a neutral fill and no border. */
 .annotation-page__card button {
   display: inline-flex;
   align-items: center;
@@ -195,7 +193,6 @@ body.annotation-page--options .annotation-page__form button {
   background: var(--annotation-color-hover);
 }
 
-/* Primary: the one accent fill of the page. */
 .annotation-page__card button[data-variant="primary"],
 .annotation-page__card button[data-variant="primary"]:active {
   background: var(--annotation-color-accent);
@@ -209,7 +206,6 @@ body.annotation-page--options .annotation-page__form button {
   filter: brightness(0.92);
 }
 
-/* Ghost: transparent and muted until hovered. */
 .annotation-page__card button[data-variant="quiet"] {
   min-height: 2rem;
   padding: var(--annotation-space-1) var(--annotation-space-2);
@@ -231,7 +227,6 @@ body.annotation-page--options .annotation-page__form button {
   background: var(--annotation-color-hover);
 }
 
-/* Popup layout: Start annotating is the full-width primary, then the tab switch, then the exports on one row. */
 body.annotation-page--popup .annotation-page__card > button[data-variant="primary"] {
   width: 100%;
 }

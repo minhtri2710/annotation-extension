@@ -35,7 +35,6 @@ describe('lint color math', () => {
     expect(parseColor('oklch(1 0 0)')).toEqual({ r: 255, g: 255, b: 255, a: 1 });
     expect(parseColor('oklch(0 0 0)')).toEqual({ r: 0, g: 0, b: 0, a: 1 });
 
-    // CSS Color 4's published OKLCH red reference: oklch(62.7955% 0.257683 29.2339).
     expect(parseColor('oklch(62.7955% 0.257683 29.2339)')).toEqual({ r: 255, g: 0, b: 0, a: 1 });
     expect(parseColor('oklab(40% 0.1 0.1)')).toEqual({ r: 129, g: 34, b: 0, a: 1 });
     expect(parseColor('lab(50% 20% -30%)')).toEqual({ r: 135, g: 105, b: 183, a: 1 });

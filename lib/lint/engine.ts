@@ -93,7 +93,6 @@ export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: A
     signal.throwIfAborted();
     sliceStart = performance.now();
   };
-  // Page rules await this inside their loops; when no yield is due it costs one microtask.
   const checkpoint: Checkpoint = () => (sliceDue() ? yieldSlice() : SLICE_NOT_DUE);
 
   for (const el of elements) {
@@ -112,7 +111,6 @@ export async function collectFindings(rules: Rule[], ctx: ScanContext, signal: A
     }
   }
 
-  // Hits were collected across yields; drop those on elements the page removed meanwhile.
   return findings.filter((finding) => !finding.el || finding.el.isConnected);
 }
 

@@ -15,7 +15,6 @@ export interface PanelModeOptions {
   anchorToToolbar: () => { x: number; y: number; width: number; height: number };
   notePanel: Pick<NotePanel, 'render' | 'clear'>;
   scanPanel: Pick<ScanPanel, 'render' | 'clear' | 'suspend' | 'restore'>;
-  // The route watch replaces the list, so it is read at each transition.
   annotationList: () => Pick<AnnotationList, 'render' | 'clear'>;
   listToggle: HTMLElement;
   scanToggle: HTMLElement;
@@ -24,17 +23,12 @@ export interface PanelModeOptions {
 export interface PanelMode {
   mode(): PanelModeName;
   opener(): HTMLElement | undefined;
-  // Closing a note opened from the scan brings the scan back instead.
   close(): void;
-  // Closes without moving focus: for a click elsewhere on the page, which has already chosen where focus goes.
   dismiss(): void;
   toggle(mode: 'list' | 'scan'): void;
   showNote(context: ElementContext, opener: HTMLElement | undefined, seed?: string): void;
-  // Opens a note for a scan finding's element; the scan keeps its state, and its box for that element, until it returns.
   showScanNote(context: ElementContext, seed: string): void;
-  // A new note was stored: the scan comes back if the note was opened from it.
   returnToScan(): void;
-  // Drops the remembered scan and its box while leaving the note panel as it is.
   forgetScan(): void;
 }
 
@@ -43,7 +37,6 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
   let panelMode: PanelModeName = 'none';
   let panelOpener: HTMLElement | undefined;
   let renderSequence = 0;
-  // The scan panel holds its state while a note opened from it is showing; only close, dismiss and returnToScan bring it back.
   let scanSuspended = false;
 
   const forgetScan = () => {
@@ -80,7 +73,6 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
     scanPanel.restore(focusFinding);
     anchor.place(anchorToToolbar);
   };
-  // Focus returns to the opener only if it was inside the panel; focus elsewhere is left alone.
   const close = () => {
     const focusWasInPanel = panel.contains(overlayRoot.activeElement);
     if (scanSuspended) {

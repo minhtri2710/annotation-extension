@@ -45,7 +45,6 @@ const sender = {
   },
 };
 
-/** Real signatures, so the image gate accepts the fixture bytes. */
 const PNG = '\x89PNG\r\n\x1a\n';
 const WEBP = 'RIFF\0\0\0\0WEBP';
 
@@ -95,7 +94,6 @@ describe('background message routing', () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
         reads += 1;
         if (reads === 2) releaseReads();
-        // With one queue the second read cannot start while the first waits, so time out to let the first continue.
         await Promise.race([bothReads, new Promise((resolve) => setTimeout(resolve, 25))]);
       }
       return originalGet(keys);

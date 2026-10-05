@@ -78,8 +78,7 @@ function fromLinearSrgb(red: number, green: number, blue: number): Rgba {
   };
 }
 
-// Ported from impeccable's `crates/foundation/src/color.rs` oklab/lab
-// conversion routines; the output channels are clamped to sRGB gamut.
+// Ported from impeccable's `crates/foundation/src/color.rs` oklab/lab conversion routines.
 function oklabToRgb(lightness: number, a: number, b: number): Rgba {
   const l = lightness + 0.3963377774 * a + 0.2158037573 * b;
   const m = lightness - 0.1055613458 * a - 0.0638541728 * b;

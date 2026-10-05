@@ -1,4 +1,3 @@
-// Run: node scripts/render-icons.mjs (renders assets/icon.svg to public/icon/{16,32,48,128}.png)
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';

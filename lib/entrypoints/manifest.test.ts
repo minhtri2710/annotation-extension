@@ -82,9 +82,6 @@ describe('manifest icons', () => {
   });
 
   it.each(Object.entries(ICONS))('%s has a transparent top-left corner', (_size, path) => {
-    // Pixel (0, 0) leads the first scanline after its filter byte, and every PNG filter type
-    // leaves the first pixel's raw bytes unchanged, so no unfiltering is needed.
-    // Byte 4 is alpha only for colour type 6; an opaque RGB image has no alpha channel.
     const png = readIcon(path);
     expect(png[25]).toBe(6);
     expect(inflateSync(idatData(png))[4]).toBe(0);

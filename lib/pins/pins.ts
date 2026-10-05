@@ -12,7 +12,6 @@ export interface PinsControllerOptions {
   document: Document;
   container: HTMLElement;
   toolbar: HTMLElement;
-  // Where the count badge sits. The host is described by the badge.
   badgeHost: HTMLElement;
   onActivate?: (annotation: Annotation) => void;
 }
@@ -39,14 +38,12 @@ const PULSE_CLASS = 'locate-pulse';
 const NOTE_PREVIEW_LENGTH = 120;
 const PIN_SIZE = 18;
 const FAN_GAP = 4;
-// Overflow rows are searched at most this many row steps below and above a pin's centre.
 const FAN_ROWS = 4;
 const TOOLTIP_GAP = 8;
 const TOOLTIP_MARGIN = 8;
 export const RERESOLVE_DEBOUNCE_MS = 250;
 export const RERESOLVE_MAX_WAIT_MS = 1000;
 export const RERESOLVE_BACKOFF_CAP_MS = 30_000;
-// Same budget as the lint engine's SCAN_SLICE_MS.
 export const RESOLVE_SLICE_MS = 12;
 // Below the note, list and scan panel (2147483645) and the toolbar (2147483646) so neither is painted over, above the page.
 const MARKER_STYLE = [
@@ -71,8 +68,6 @@ interface Viewport {
   height: number;
 }
 
-// An element that does not intersect the viewport, including a display: none one with an all-zero rect,
-// shows no pin.
 export function intersectsViewport(
   rect: { left: number; top: number; right: number; bottom: number },
   viewport: Viewport,
@@ -80,8 +75,6 @@ export function intersectsViewport(
   return rect.right > 0 && rect.bottom > 0 && rect.left < viewport.width && rect.top < viewport.height;
 }
 
-// For a rect that intersects the viewport, the pin is centred on its top-left corner, pulled fully inside
-// the viewport. A pin under page zoom measures PIN_SIZE * zoom.
 export function pinCenter(
   rect: { left: number; top: number; right: number; bottom: number },
   viewport: Viewport,
@@ -91,16 +84,6 @@ export function pinCenter(
   return { x: clamp(rect.left, half, viewport.width - half), y: clamp(rect.top, half, viewport.height - half) };
 }
 
-// On-screen pins are placed in list order so no two PIN_SIZE * zoom squares overlap: each keeps its
-// centre when that is free, else takes the first free slot k * (PIN_SIZE + FAN_GAP) * zoom to the right
-// that stays inside the viewport, then the first free one to the left, keeping its y. A slot whose square
-// overlaps the toolbar rect counts as taken, own centre included; one only touching its edge is free, and a
-// toolbar rect with zero width or height excludes nothing. A row with no free slot left sends the pin to
-// the nearest row with one, (PIN_SIZE + FAN_GAP) * zoom below, then above, then twice that, and so on up to
-// FAN_ROWS steps, skipping rows outside the viewport and trying the same slots in the same order. When
-// every slot in that band is taken, the pin sits at its own x in the first band row in the same order
-// whose slot there is off the toolbar, overlapping other pins, or at its own centre when there is none.
-// Every centre lies inside [half, width - half] x [half, height - half], as pinCenter returns it.
 export function fanOut(
   centers: { x: number; y: number }[],
   viewport: Viewport,
@@ -113,7 +96,6 @@ export function fanOut(
   const blocks = toolbar.right > toolbar.left && toolbar.bottom > toolbar.top;
   const onToolbar = (x: number, y: number) =>
     blocks && x - half < toolbar.right && x + half > toolbar.left && y - half < toolbar.bottom && y + half > toolbar.top;
-  // Row r: 0 own, then 1 below, 2 above, 3 two below, ...
   const offset = (r: number) => (r % 2 ? (r + 1) / 2 : -r / 2) * step;
   const inView = (r: number, rowY: number) => r === 0 || (rowY >= half && rowY <= viewport.height - half);
   // Placed pins in cells of one pin size, indexed [row band + 1][column + 1] so a neighbour index is never
@@ -140,7 +122,6 @@ export function fanOut(
     }
     return false;
   };
-  // The first free slot from k on in the row at y, or FULL.
   const freeSlot = (x: number, y: number, k: number) => {
     const band = Math.floor(y / size);
     if (k === 0) {
@@ -198,7 +179,6 @@ export function fanOut(
   });
 }
 
-// Right of the pin, or left of it when the right side has no room, then clamped into the viewport.
 export function placeTooltip(
   pin: { left: number; top: number; right: number },
   size: Viewport,
@@ -237,7 +217,6 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   let tooltip: HTMLDivElement | undefined;
   let tooltipPin: TrackedPin | undefined;
   let destroyed = false;
-  // Doubles after each re-resolve pass that pins nothing new; 1 again once one does or the set changes.
   let backoff = 1;
   let sliceTimer: number | undefined;
   let resolving = false;
@@ -264,11 +243,9 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     }
     if (visible.length === 0) return;
 
-    // Every marker lives in the same container, so they share one zoom.
     const zoom = cssZoom(visible[0]!.marker);
     const centers = rects.map((rect) => pinCenter(rect, size, zoom));
     fanOut(centers, size, options.toolbar.getBoundingClientRect(), zoom).forEach(({ x, y }, i) => placeFixed(visible[i]!.marker, { left: x, top: y }));
-    // A shown tooltip follows its pin; a pin hidden above has already cleared tooltipPin.
     if (tooltip && tooltipPin) positionTooltip(tooltip, tooltipPin);
   };
 
@@ -322,7 +299,6 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
   toolbarResizes.observe(options.toolbar);
   options.document.addEventListener('scroll', scheduleReanchor, true);
   view?.addEventListener('resize', scheduleReanchor, true);
-  // WCAG 1.4.13: Escape dismisses the tooltip without moving focus or the pointer.
   const dismissTooltip = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && tooltip) hideTooltip();
   };
@@ -381,8 +357,6 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
     maxWaitTimer = undefined;
   }
 
-  // Tracks in list order, yielding a macrotask whenever a slice reaches RESOLVE_SLICE_MS, so pins
-  // appear progressively. setAnnotations and destroy cancel a running pass through cancelPass.
   function resolvePending(pending: PendingAnnotation[], adjustBackoff: boolean): void {
     const pinnedBefore = trackedPins.length;
     let next = 0;
@@ -475,7 +449,6 @@ export function createPinsController(options: PinsControllerOptions): PinsContro
       tooltip.setAttribute(TOOLTIP_ATTRIBUTE, '');
       tooltip.className = 'annotation-pin-tooltip';
       tooltip.setAttribute('role', 'tooltip');
-      // The pointer may move from the pin onto the tooltip; leaving it for anything but the pin hides it.
       tooltip.addEventListener('mouseleave', (event) => {
         if (!tooltipPin || event.relatedTarget === tooltipPin.marker) return;
         tooltipPin.hovered = false;

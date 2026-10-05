@@ -21,7 +21,6 @@ declare module 'vitest' {
 const pageUrl = 'https://example.com/article';
 const cleanups: (() => void)[] = [];
 
-// Mirrors content.ts: WXT's shadow host with its `:host{all:initial !important}` reset, raised by raiseOverlay.
 function mountOverlay() {
   const host = document.createElement('div');
   document.body.append(host);
@@ -32,7 +31,6 @@ function mountOverlay() {
   shadow.append(reset, container);
   const shell = buildOverlayShell(container);
   raiseOverlay(host);
-  // The production toolbar's controls, so its width at small viewports is realistic.
   const [annotate] = ['Annotate', 'Move toolbar', 'Scan', 'View all', 'Hide toolbar on this tab'].map((label) => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -195,7 +193,6 @@ describe('overlay layout on hostile pages (real browser)', () => {
     expect(dialog.matches(':modal')).toBe(true);
     await userEvent.click(inside);
     expect(dialogClicked).toHaveBeenCalledTimes(1);
-    // While the page's modal is open the overlay sits under it and is inert, like the rest of the page.
     const point = center(annotate.getBoundingClientRect());
     expect(document.elementFromPoint(point.x, point.y)).not.toBe(host);
     dialog.close();
@@ -211,7 +208,6 @@ describe('overlay layout on hostile pages (real browser)', () => {
   });
 });
 
-// The overlay shell with nothing in the toolbar yet, for tests that add the production controls themselves.
 function mountShell() {
   const host = document.createElement('div');
   document.body.append(host);
@@ -255,7 +251,6 @@ describe('toolbar layout (real browser)', () => {
     });
     cleanups.push(() => controls.destroy());
     await controls.ready;
-    // The badge pops in with a scale animation; boxes are measured once it has finished.
     const settled = async () => {
       await nextFrame();
       await Promise.all(shell.root.getAnimations({ subtree: true }).map((animation) => animation.finished));
@@ -295,7 +290,6 @@ describe('toolbar layout (real browser)', () => {
     cleanups.push(() => controls.destroy());
     await controls.ready;
 
-    // A space that layout drops has no width, so the first character of the unit is measured as rendered.
     const renderedSpaceWidth = () => {
       const unit = shell.toolbar.querySelector('[data-annotation-badge-unit]')!;
       const range = document.createRange();
@@ -544,7 +538,6 @@ describe('pin stacking (real browser)', () => {
     const notePanel = notePanelFor(shell.panel, [annotation('a1', 'First note'), annotation('a2', 'Second note')]);
     cleanups.push(() => notePanel.teardown());
     await notePanel.render(context());
-    // A toolbar with no box that the pins can be laid out against, so no pin is moved off the real toolbar.
     const noBox = document.createElement('div');
     document.body.append(noBox);
     const pins = createPinsController({ document, container: shell.root, toolbar: noBox, badgeHost: noBox.appendChild(document.createElement('button')) });
@@ -673,14 +666,12 @@ describe('panels stay inside small viewports (real browser)', () => {
 });
 
 describe('panel placement against the toolbar (real browser)', () => {
-  // The panel enters with a short translate animation; boxes are measured once it has finished.
   async function settled(shell: { root: HTMLElement }): Promise<void> {
     await nextFrame();
     await Promise.all(shell.root.getAnimations({ subtree: true }).map((animation) => animation.finished));
     await nextFrame();
   }
 
-  // Fills the panel so its natural height is `natural` px, whatever its padding and border.
   function fillTo(panel: HTMLElement, natural: number): HTMLElement {
     const block = document.createElement('div');
     panel.append(block);
@@ -735,7 +726,6 @@ describe('panel placement against the toolbar (real browser)', () => {
     fillTo(shell.panel, 3000);
     anchor.place(() => ({ x: 40, y: 60, width: 100, height: 30 }));
     await settled(shell);
-    // The anchor's cap is below the stylesheet's, so measuring uncapped would clamp a scroll at the bottom.
     shell.panel.scrollTop = shell.panel.scrollHeight;
     const scrolled = shell.panel.scrollTop;
     expect(scrolled).toBeGreaterThan(200);
@@ -827,10 +817,6 @@ describe('long unbroken text wraps inside panels at 320 px (real browser)', () =
 describe('overlay layout with classic scrollbars (real browser)', () => {
   const TOLERANCE = 0.5;
 
-  // Classic scrollbars take room that 100vw and innerWidth still count; the visible viewport is clientWidth.
-  // Playwright hides scrollbars, so only the instance that provides classicScrollbars requires a real gap;
-  // the other instances run these as non-regression checks.
-  // The flag must match the instance name, so dropping or misplacing `provide` fails instead of skipping the gap check.
   async function classicScrollbars(projectName: string | undefined) {
     expect(inject('classicScrollbars') === true, `classicScrollbars on ${projectName}`)
       .toBe(projectName === 'browser (chromium classic scrollbars)');
@@ -900,7 +886,6 @@ describe('overlay layout with classic scrollbars (real browser)', () => {
     cleanups.push(() => controls.destroy());
     await controls.ready;
     const grip = shell.toolbar.querySelector<HTMLElement>('[data-annotation-toolbar-grip]')!;
-    // Synthetic pointer events carry no active pointer for the browser to capture.
     grip.setPointerCapture = () => undefined;
     const start = center(grip.getBoundingClientRect());
     const send = (type: string, x: number, y: number) =>

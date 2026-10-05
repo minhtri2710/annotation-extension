@@ -10,8 +10,6 @@ export function scrollToElement(el: Element): void {
   el.scrollIntoView(reduce ? { block: 'center', inline: 'nearest', behavior: 'instant' } : { block: 'center', inline: 'nearest' });
 }
 
-// A smooth or later scroll moves elements under fixed boxes, so `update` re-runs once per frame after any
-// scroll (capture) or window resize. Returns the function that detaches the listeners and any pending frame.
 export function followFrames(document: Document, update: () => void): () => void {
   const view = document.defaultView!;
   let frame: number | undefined;

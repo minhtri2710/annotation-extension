@@ -43,7 +43,6 @@ function parseSourceHint(value: string): SourcePath | null {
     const source = normalizeSource(parsed);
     if (source) return source;
   } catch {
-    // Source hints are best effort and may be plain file paths.
   }
 
   const match = /^(.*?)(?::(\d+))(?::\d+)?$/.exec(trimmed);

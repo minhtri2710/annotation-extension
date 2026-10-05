@@ -3,8 +3,6 @@ const STEP_VIEWPORT_RATIO = 0.7;
 const STEP_SETTLE_MS = 40;
 const FINAL_SETTLE_MS = 700;
 
-// Scrolls top to bottom so on-scroll reveal handlers run, then restores the user's position and settles.
-// onProgress receives the fraction of steps swept after each step settles.
 export async function revealSweep(win: Window, signal: AbortSignal, onProgress?: (fraction: number) => void): Promise<void> {
   signal.throwIfAborted();
   const { scrollX, scrollY } = win;

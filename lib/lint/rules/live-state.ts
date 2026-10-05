@@ -100,7 +100,6 @@ async function edgeFlushCards(ctx: ScanContext, checkpoint: Checkpoint): Promise
   for (const scroller of Array.from(ctx.doc.querySelectorAll('*'))) {
     await checkpoint();
     if (!isScroller(ctx, scroller)) continue;
-    // A snap rail start-aligns its first card by design.
     const snap = styleValue(ctx, scroller, 'scroll-snap-type');
     if (snap && snap !== 'none') continue;
     if (scroller.scrollWidth <= scroller.clientWidth + EDGE_SCROLL_EXTRA_PX) continue;
@@ -162,7 +161,6 @@ async function firstViewportColumnOverflow(ctx: ScanContext, checkpoint: Checkpo
     const pageTop = sectionRect.top + ctx.scrollY;
     const pageBottom = pageTop + sectionRect.height;
     if (pageTop >= FIRST_VIEWPORT_SECTION_TOP_RATIO * viewportHeight || pageBottom <= viewportHeight) continue;
-    // A page shell holding main is the site layout, not an opening section.
     if (section.querySelector('main') !== null) continue;
     const columns: Array<{ el: Element; top: number; contentHeight: number }> = [];
     for (const child of Array.from(section.children)) {
@@ -191,7 +189,6 @@ async function firstViewportColumnOverflow(ctx: ScanContext, checkpoint: Checkpo
     if (Math.abs(tall.top - shortest.top) > FIRST_VIEWPORT_COLUMNS_MAX_TOP_DELTA_RATIO * viewportHeight) continue;
     if (tall.contentHeight <= FIRST_VIEWPORT_TALL_HEIGHT_RATIO * viewportHeight) continue;
     if (shortest.contentHeight > FIRST_VIEWPORT_SHORT_HEIGHT_RATIO * viewportHeight) continue;
-    // A navigation or complementary sidebar is expected to end long before the content.
     if (shortest.el.closest(FIRST_VIEWPORT_SIDEBAR_SELECTOR) !== null) continue;
     findings.push({
       el: section,

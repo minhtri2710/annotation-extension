@@ -8,7 +8,6 @@ export function isSupportedImageMimeType(value: string): value is SupportedImage
   return (SUPPORTED_IMAGE_MIME_TYPES as readonly string[]).includes(value);
 }
 
-/** The one image rule for every blob write and the import: a supported type, a bounded size, and bytes that are that type. */
 export async function validateImageBlob(blob: Blob, mimeType = blob.type): Promise<void> {
   if (!isSupportedImageMimeType(mimeType)) throw new Error(`Unsupported image mime type: ${mimeType}.`);
   if (blob.size === 0) throw new Error('Image must not be empty.');
@@ -16,7 +15,6 @@ export async function validateImageBlob(blob: Blob, mimeType = blob.type): Promi
   if ((await imageTypeOf(blob)) !== mimeType) throw new Error(`Image bytes are not ${mimeType}.`);
 }
 
-/** The supported image type the bytes are, by their signature; undefined for anything else. */
 export async function imageTypeOf(blob: Blob): Promise<SupportedImageMimeType | undefined> {
   const bytes = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
   const startsWith = (signature: string, offset = 0) =>

@@ -18,7 +18,6 @@ function chunks(png: Buffer, type: string): Buffer[] {
   return found;
 }
 
-// Decodes an 8-bit PNG to raw scanlines: inflate the joined IDAT data, then undo the five filter types.
 function decode(png: Buffer, channels: number): Buffer {
   const width = png.readUInt32BE(16);
   const height = png.readUInt32BE(20);

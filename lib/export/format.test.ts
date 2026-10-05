@@ -158,7 +158,6 @@ describe('All-pages Markdown formatter', () => {
   });
 });
 
-/** Lines outside fenced code blocks; fences may sit inside a list item (indented up to 3 spaces). */
 function linesOutsideFences(markdown: string): string[] {
   const outside: string[] = [];
   let fence = 0;

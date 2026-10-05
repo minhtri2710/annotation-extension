@@ -22,7 +22,6 @@ let controller: CaptureController | undefined;
 let pins: PinsController | undefined;
 let selected: ElementContext[];
 
-// The overlay host as the content script mounts it: a shadow host raised into the top layer.
 function mountHost() {
   host = document.createElement('div');
   root = host.attachShadow({ mode: 'closed' });
@@ -150,11 +149,9 @@ describe('clicks inside frames (real browser)', () => {
     await new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
     let frameClicks = 0;
     frame.contentDocument!.addEventListener('click', () => frameClicks++);
-    // The test document must hold focus first, as a page the user is working in does.
     await userEvent.click(outside);
     startCapture();
 
-    // A real click at the frame's centre lands in the frame's own document.
     await userEvent.click(frame);
     expect(frameClicks).toBe(1);
 
@@ -206,7 +203,6 @@ describe('a page that stops events at window capture (real browser)', () => {
   };
 
   beforeEach(() => {
-    // The content script installs its listeners at document_start, before any page script.
     interceptPageEvents(window);
     pageSaw = [];
     for (const type of HOSTILE) window.addEventListener(type, hostile, true);
@@ -323,7 +319,6 @@ describe('a page that stops events at window capture (real browser)', () => {
     viewAll.style.removeProperty('inset');
     viewAll.style.removeProperty('width');
     viewAll.style.removeProperty('height');
-    // The stretched control is clipped to the panel, so the real click must land inside the panel.
     const clickInPanel = async () => {
       const box = shell.panel.getBoundingClientRect();
       host.style.cssText = `position: fixed; margin: 0; inset: auto; left: ${box.left + box.width / 2 - 7}px; top: ${box.top + box.height / 2 - 7}px; width: 14px; height: 14px`;
@@ -382,7 +377,6 @@ describe('a page that stops events at window capture (real browser)', () => {
 describe('closing a note panel after Save near the toolbar (real browser)', () => {
   it('leaves the panel unclamped with Close in view and clickable after Save grows a panel that started clamped', async () => {
     await page.viewport(1280, 720);
-    // Programmatic clicks stand in for the user's; the guard that drops them has its own cases above.
     stopOverlayGuard?.();
     stopOverlayGuard = undefined;
     const container = document.createElement('div');
@@ -425,7 +419,6 @@ describe('closing a note panel after Save near the toolbar (real browser)', () =
     });
     shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, () => panels.close());
     try {
-      // The empty form is 40 px taller than the room down to the toolbar, yet still fits the viewport below its box.
       await notePanel.render(context);
       const bare = shell.panel.offsetHeight;
       const barRect = shell.toolbar.getBoundingClientRect();
@@ -467,7 +460,6 @@ describe('a click outside the note form (real browser)', () => {
     releasePageEvents(window);
   });
 
-  // The overlay as the content script builds it, in an open root so real pointer input can address its controls.
   async function mountScene() {
     await page.viewport(1280, 720);
     const sceneHost = document.createElement('div');
@@ -710,7 +702,6 @@ describe('Annotate from a scan finding (real browser)', () => {
     window.scrollTo(0, 0);
   });
 
-  // The overlay as the content script wires it for a scan, in an open root so real pointer input can address its controls.
   async function mountScan() {
     await page.viewport(1280, 720);
     const sceneHost = document.createElement('div');

@@ -44,7 +44,6 @@ const THEATER_RE = /\b\w+\s+theater\b/i;
 
 const bodyTexts = new WeakMap<ScanContext, string>();
 
-// Browser path of checkEmDashOveruseDOM: body innerText when non-empty, else textContent, whitespace collapsed.
 function bodyText(ctx: ScanContext): string {
   const cached = bodyTexts.get(ctx);
   if (cached !== undefined) return cached;

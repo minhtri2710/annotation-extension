@@ -30,7 +30,6 @@ export class JsonImportError extends Error {
   }
 }
 
-/** One validated entry: the annotation to store as given, and its blobs keyed for the blob store. */
 export interface JsonImportEntry {
   annotation: Annotation;
   blobs: [string, Blob][];
@@ -45,7 +44,6 @@ export interface JsonExportDependencies {
   copy(json: string): Promise<void>;
 }
 
-/** In UTF-16 code units of the file text, so a file over it is also over it in bytes. */
 export const MAX_IMPORT_LENGTH = 200 * 1024 * 1024;
 export const IMPORT_PORT_NAME = 'annotation.import-json';
 // Chrome's 64 MiB per-message limit; worst-case JSON escaping is 6 bytes per code unit, so 48 MiB.
@@ -85,7 +83,6 @@ export async function serialize(
   return { json: JSON.stringify(entries), missing };
 }
 
-/** Returns the status message for the popup. */
 export async function exportJson({ collect, blobStore, download, copy }: JsonExportDependencies): Promise<string> {
   try {
     const annotations = await collect();
@@ -101,12 +98,10 @@ export async function exportJson({ collect, blobStore, download, copy }: JsonExp
   }
 }
 
-/** Refuses a file over the size cap by its byte size, before it is read into memory. */
 export function importFileSizeError(file: Blob): string | undefined {
   return file.size > MAX_IMPORT_LENGTH ? TOO_LARGE : undefined;
 }
 
-/** Validates every entry before returning; any invalid entry rejects the whole file. */
 export async function parseImport(
   json: string,
   dimensions: ImageDimensions = imageDimensions,
@@ -173,7 +168,6 @@ export async function importAll(
   return { imported: written.length, skipped };
 }
 
-/** Returns the status message for the popup. */
 export async function importJson(
   json: string,
   blobStore: BlobStore = createBlobStore(),
@@ -349,10 +343,6 @@ async function parseImage(value: unknown, label: 'screenshot' | 'attachment', fa
   return blob;
 }
 
-/**
- * A copy of the annotation's text fields from known keys only, in one key order, so export, import and re-export agree
- * byte for byte whichever writer stored the annotation. The caller has already checked every field.
- */
 function knownFields(annotation: Annotation): Annotation {
   const { elementContext: context, repro, cssEdits } = annotation;
   const { boundingBox, viewport, sourcePath } = context;

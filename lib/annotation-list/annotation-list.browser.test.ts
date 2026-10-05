@@ -97,7 +97,6 @@ describe('annotation list in a real browser', () => {
     list.clear();
   });
 
-  // A panel in a real shadow root over a page that has the annotated element, so no row is flagged missing.
   async function renderedList(annotations: Annotation[], onboardingOpen: boolean) {
     const target = document.createElement('p');
     target.id = 'labelled';

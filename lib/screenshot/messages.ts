@@ -19,7 +19,6 @@ export type ScreenshotCaptureMessage = {
   devicePixelRatio: number;
 };
 
-// Why a screenshot capture failed; the background classifies it and the note panel words it.
 export type ScreenshotCaptureFailure =
   | { kind: 'needs-grant'; shortcut?: string }
   | { kind: 'failed'; reason: string };

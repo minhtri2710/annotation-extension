@@ -44,8 +44,6 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
   hide.dataset.annotationToolbarHide = '';
   setIconButton(hide, 'eye-off', 'Hide toolbar on this tab');
 
-  // ARIA toolbar pattern: one tab stop (roving tabindex), moved by Left/Right/Home/End with wrap.
-  // The grip keeps its arrow keys and Home for moving the toolbar; End still leaves it.
   let stop: HTMLButtonElement | undefined;
   const items = () =>
     Array.from(toolbar.querySelectorAll('button')).filter((button) => !button.disabled && !button.hidden);
@@ -85,7 +83,6 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
   const persist = () => prefs.write({ position }).catch(() => undefined);
 
   const clamp = (next: Position) => {
-    // A bar left past the right edge wraps narrower than it is, so its size is measured from the left edge.
     const { left, right } = toolbar.style;
     toolbar.style.left = '0px';
     toolbar.style.right = 'auto';
@@ -164,7 +161,6 @@ export function createToolbarControls(options: ToolbarControlsOptions): ToolbarC
     if (position.x !== x || position.y !== y) options.onPositionChange();
   }
 
-  // A hidden bar has no box to measure, so a resize leaves its position alone and it is fitted to the viewport when it shows again.
   const onResize = () => {
     if (!toolbar.hidden) refit();
   };

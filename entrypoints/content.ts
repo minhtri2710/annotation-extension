@@ -73,8 +73,6 @@ export default defineContentScript({
       toolbarOn = on;
       applyToolbar?.(on);
     };
-    // Annotating is never active in a tab whose bar is off: the background turns this tab on first, and a
-    // failed turn-on starts nothing.
     const toggleCapture = () => {
       if (toolbarOn) {
         controller?.toggle();
@@ -111,7 +109,6 @@ export default defineContentScript({
           onAnnotate: (el, finding) => panels.showScanNote(extractElementContext(el), `${finding.name}: ${finding.detail}`),
         });
         scanPanel = activeScanPanel;
-        // Live regions sit outside the panel mount so they persist while panels re-render and close.
         shell.root.append(activeNotePanel.live, annotationList.live, activeScanPanel.live);
         // Outside the toolbar so it is still announced once the toolbar is hidden.
         const hiddenNotice = createLiveRegion(document);
@@ -174,7 +171,6 @@ export default defineContentScript({
             if (context) panels.showNote(context, pin && !shell.panel.contains(pin) ? pin : undefined);
           },
         });
-        // A row's control is gone once the list closes, so the note panel returns focus to the list's opener.
         shell.panel.addEventListener(ANNOTATION_EDIT_EVENT, (event) => {
           const annotation = (event as CustomEvent<Annotation>).detail;
           panels.showNote(resolveLiveElementContext(document, annotation) ?? annotation.elementContext, panels.opener());
@@ -323,8 +319,6 @@ export default defineContentScript({
       },
     });
 
-    // An open tab follows the site policy: disallowing the page tears the overlay down as leaving does,
-    // allowing it mounts the overlay without a reload. The latest read wins.
     let policySequence = 0;
     const applyPolicy = async () => {
       const sequence = ++policySequence;
@@ -346,7 +340,6 @@ export default defineContentScript({
     ctx.onInvalidated(() => browser.storage.onChanged.removeListener(settingsChanged));
     await applyPolicy();
 
-    // The tab's state is tracked whether or not the overlay is mounted, so an overlay the site policy mounts later shows it.
     const toolbarChanged = (message: unknown) => {
       if (isToolbarChangedMessage(message)) showToolbar(message.on);
     };

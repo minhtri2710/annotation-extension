@@ -32,7 +32,6 @@ export function isCaptureShortcutMessage(value: unknown): value is CaptureShortc
   return isRecord(value) && value.type === CAPTURE_SHORTCUT_MESSAGE;
 }
 
-/** Resolves the capture command's shortcut; the empty string means none is set. */
 export async function readCaptureShortcut(): Promise<string> {
   const response = await sendBackgroundRequest<CaptureShortcutMessage, { shortcut: string }>(
     { type: CAPTURE_SHORTCUT_MESSAGE },
@@ -50,7 +49,6 @@ const READABLE_SHORTCUT_KEYS: Readonly<Record<string, string>> = {
   PageDown: 'Page Down',
 };
 
-/** Reads the capture command's shortcut from the commands API in readable form (manifest key names spelled out); the empty string means none is set. */
 export async function lookupCaptureShortcut(): Promise<string> {
   const commands = await browser.commands.getAll();
   const shortcut = commands.find((command) => command.name === CAPTURE_TOGGLE_MESSAGE)?.shortcut ?? '';

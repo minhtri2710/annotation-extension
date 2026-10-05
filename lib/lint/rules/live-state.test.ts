@@ -58,7 +58,6 @@ function first<T>(values: T[]): T {
   return values[0]!;
 }
 
-// happy-dom has no elementsFromPoint; an empty stack means no point is hit.
 beforeEach(() => {
   resetDocument();
   Object.defineProperty(document, 'elementsFromPoint', { configurable: true, value: (): Element[] => [] });

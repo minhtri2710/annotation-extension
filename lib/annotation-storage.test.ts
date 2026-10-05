@@ -16,7 +16,6 @@ import type { Annotation, AnnotationInput } from './annotation';
 import type { BlobStore } from './blob-store';
 import { attachmentKey, screenshotKey } from './blob-store';
 
-/** Bytes behind a real signature, so the storage image gate accepts them. */
 const png = (tail: string) => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), tail], { type: 'image/png' });
 
 const firstPage = 'https://example.com/docs?mode=full#intro';
@@ -55,7 +54,6 @@ class MemoryBlobStore implements BlobStore {
   }
 }
 
-/** Stores an annotation with a screenshot through restoreAnnotation, as a fresh write would store it. */
 async function restoreWithScreenshot(
   pageUrl: string,
   input: AnnotationInput,
@@ -345,7 +343,6 @@ describe('annotation storage', () => {
 });
 
 describe('the image gate at every blob write', () => {
-  // JPEG bytes declared as PNG: what a .jpg renamed to .png looks like.
   const jpegAsPng = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])], { type: 'image/png' });
 
 

@@ -75,7 +75,6 @@ async function measureHiddenText(ctx: ScanContext, checkpoint: Checkpoint): Prom
       if (node.nodeType === node.TEXT_NODE) length += collapse(node.textContent ?? '').length;
     }
     if (length === 0) continue;
-    // Visibility inherits and a descendant can override it, so it is judged on the text's own element.
     if (HIDDEN_VISIBILITY_RE.test(ctx.style(el).getPropertyValue('visibility'))) continue;
     const state = stateOf(el);
     if (state === 'excluded') continue;

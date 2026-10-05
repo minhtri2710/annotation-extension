@@ -167,7 +167,6 @@ describe('note panel in a real browser', () => {
     await userEvent.keyboard('{Control>}{Enter}{/Control}');
     await vi.waitFor(() => expect(shell.panel.querySelector('[data-annotation-edit-note]')).not.toBeNull());
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
-    // The saved note folds the form behind Add another note, so focus moves to the panel heading.
     expect(shadow.activeElement).toBe(shell.panel.querySelector('h2'));
     expect(document.activeElement).not.toBe(document.body);
     expect(notePanel.live.textContent).toBe('Note saved.');

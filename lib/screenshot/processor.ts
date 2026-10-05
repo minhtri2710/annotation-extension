@@ -16,7 +16,6 @@ export type ScreenshotProcessor = (
 
 const MAX_LONGEST_SIDE = 1600;
 
-/** Browser-only decode/crop/encode glue; the processor is injected in unit tests. */
 export const processScreenshot: ScreenshotProcessor = async (
   captureDataUrl,
   boundingBox,

@@ -149,8 +149,6 @@ describe('text-occlusion on floating labels in a real browser', () => {
     await expectUnchecked(await load(field(';position:relative;z-index:1;background:#fff')), 1);
   });
 
-  // A cover outside the field, overlapping the label; the truth page is the same page with a
-  // hit-testable label.
   const outside = (css: string, body: string) => (labelCss: string) => page(
     `.field{position:relative;width:300px}.field input{display:block;box-sizing:border-box;width:100%;height:56px;padding-top:24px}.field label{position:absolute;left:12px;top:6px;font-size:14px;color:#333;pointer-events:none}.cover{background:#fff;width:300px;height:60px}${css}.field label{${labelCss}}`,
     body,

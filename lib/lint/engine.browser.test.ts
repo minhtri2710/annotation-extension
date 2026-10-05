@@ -18,14 +18,12 @@ async function buildFixture(target: number): Promise<void> {
       + '<ul><li>One<ul><li>Nested a</li><li>Nested b</li></ul></li><li>Two</li></ul>';
     main.append(section);
   }
-  // Settle the fixture's first style and layout pass so it is not charged to the scan.
   document.body.getBoundingClientRect();
   await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 
 const nativeSetTimeout = globalThis.setTimeout;
 
-// A setTimeout(0) heartbeat: the longest gap between beats, including engine and machine-load time. Printed, not asserted.
 function heartbeat(): () => number {
   let last = performance.now();
   let longest = 0;
@@ -43,8 +41,6 @@ function heartbeat(): () => number {
   };
 }
 
-// The scan yields only through setTimeout, so a synchronous stretch of our code runs from a timer callback
-// (or the call) to the next setTimeout call. Scheduling delay between tasks is not counted.
 function yieldStretches(): () => number {
   let stretchStart = performance.now();
   let longest = 0;
@@ -79,11 +75,9 @@ async function scanStretches(rules: Rule[]): Promise<{ stretch: number; gap: num
 const ATTEMPTS = 5;
 const IDLE_BETWEEN_ATTEMPTS_MS = 1_000;
 
-// OS preemption only adds wall time, so a spec passes once one attempt, on a fresh fixture, is within budget.
 async function bestOf(measure: () => Promise<{ ms: number; note: string }>): Promise<{ best: number; notes: string }> {
   const results: { ms: number; note: string }[] = [];
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    // Idle between attempts so one burst of external load does not inflate them all.
     if (attempt > 0) await new Promise((resolve) => nativeSetTimeout(resolve, IDLE_BETWEEN_ATTEMPTS_MS));
     document.body.replaceChildren();
     results.push(await measure());

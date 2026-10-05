@@ -27,7 +27,6 @@ export default defineConfig({
             instances: [
               { browser: 'chromium' },
               { browser: 'firefox' },
-              // Playwright hides scrollbars by default; this instance shows classic ones for the overlay layout spec.
               {
                 browser: 'chromium',
                 name: 'browser (chromium classic scrollbars)',

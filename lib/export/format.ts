@@ -14,7 +14,6 @@ export function attachmentAssetFilename(annotationId: string, index: number, mim
   return `annotations-${annotationId}-attachment-${index + 1}.${imageAssetExtension(mimeType)}`;
 }
 
-// The blob key and export filename of each image: the screenshot first, then attachments in index order.
 export function annotationAssets(annotation: Annotation): { key: string; filename: string }[] {
   const assets = annotation.screenshot
     ? [{ key: screenshotKey(annotation.id), filename: screenshotAssetFilename(annotation.id, annotation.screenshot.mimeType) }]
@@ -117,12 +116,10 @@ function formatAnnotationBlock(annotation: Annotation, number: number, headingLe
   return lines.filter((line): line is string => line !== undefined).join('\n');
 }
 
-/** User text on one line: line breaks become spaces and the characters that start links, HTML, tables or code are escaped. */
 function inline(text: string): string {
   return text.replace(/\r\n?|\n/g, ' ').replace(/[\\`[\]<>|]/g, '\\$&');
 }
 
-/** User text as a fenced block, fenced by more backticks than any run inside it; indent keeps it inside a list item. */
 function fenced(text: string, indent = ''): string {
   const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
   const fence = '`'.repeat(Math.max(3, longestRun + 1));

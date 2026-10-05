@@ -31,11 +31,8 @@ export interface AnnotationList {
   live: HTMLElement;
 }
 
-// Dispatched on the panel mount with the annotation as detail when a row's Edit is clicked.
 export const ANNOTATION_EDIT_EVENT = 'annotation-edit';
-// Dispatched on the panel mount when the empty list's Start annotating is clicked.
 export const ANNOTATION_START_EVENT = 'annotation-start';
-// Dispatched on the panel mount when the list's Close is clicked.
 export const ANNOTATION_LIST_CLOSE_EVENT = 'annotation-list-close';
 const LOCATE_MISSING_MESSAGE = 'Element not found on this page';
 
@@ -52,7 +49,6 @@ const productionPersistence: AnnotationListPersistence = {
   writeOnboardingOpen,
 };
 
-// undefined means the shortcut could not be read.
 function onboardingSteps(shortcut: string | undefined): string[] {
   const first = shortcut === undefined
     ? `Click Annotate, then click any element to leave a note. You can set a keyboard shortcut in ${SHORTCUT_SETTINGS}.`
@@ -140,7 +136,6 @@ export function createAnnotationList(
     restoreFocus();
   }
 
-  // The title with the count, the "How it works" toggle and Close.
   function createHeader(document: Document, heading: HTMLElement, count: number, onboarding: HTMLElement): HTMLElement {
     const header = document.createElement('header');
     header.dataset.annotationListHeader = '';
@@ -172,7 +167,6 @@ export function createAnnotationList(
     return header;
   }
 
-  // Coming back from the browser's shortcut settings (the tab becoming visible or its window regaining focus) updates only the first step, so the rest of the list keeps its state.
   function refreshShortcut(): void {
     if (panel.ownerDocument.visibilityState !== 'visible') return;
     const version = renderVersion;
@@ -183,7 +177,6 @@ export function createAnnotationList(
     });
   }
 
-  // Clear all deletes nothing by itself; it swaps in an inline prompt, and only its Delete all clears.
   function createFooter(document: Document, annotations: Annotation[]): HTMLDivElement {
     const footer = document.createElement('div');
     footer.dataset.annotationListFooter = '';
@@ -208,7 +201,6 @@ export function createAnnotationList(
     return clear;
   }
 
-  // Filtering hides rows in place, so rows keep their pin numbers and the pressed chip keeps focus.
   function createStatusFilter(document: Document, annotations: Annotation[], rows: HTMLElement): DocumentFragment {
     const group = document.createElement('div');
     group.dataset.annotationFilter = '';
@@ -377,7 +369,6 @@ export function createAnnotationList(
       const element = resolveSelector(document, annotation.selector);
       if (element) {
         row.querySelector('[data-annotation-locate-missing]')?.remove();
-        // The panel mount sits in the shell root, the same root the scan panel highlights into.
         highlight.show(panel.parentElement!, element);
         announce(`Annotation ${position} located.`);
         return;
@@ -411,7 +402,6 @@ export function createAnnotationList(
     row.append(missing);
   }
 
-  // An action re-renders only if clear() did not run while it was pending.
   async function mutate(message: AnnotationWriteMessage): Promise<void> {
     const version = clearVersion;
     try {

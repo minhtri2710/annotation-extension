@@ -35,11 +35,6 @@ export interface PanelAnchor {
 const PANEL_MARGIN = 10;
 const PANEL_PLACEMENT = ['position', 'top', 'left', 'right', 'bottom', 'max-height'] as const;
 
-// Keeps a placed panel inside the viewport and clear of the toolbar, which paints above it: it goes
-// below its box only when it fits down to the toolbar's top (or the viewport's bottom where the toolbar
-// is not in its way), otherwise above; its height is capped to the free room below its top (the panel
-// scrolls internally, and a focused control is scrolled fully into view), and it is placed again
-// whenever its content, its size or the window changes, until it is cleared.
 export function createPanelAnchor(panel: HTMLElement, toolbar: HTMLElement): PanelAnchor {
   const document = panel.ownerDocument;
   const win = document.defaultView!;
@@ -163,7 +158,6 @@ export function buildOverlayShell(container: HTMLElement): OverlayShell {
   return { root, toolbar, panel };
 }
 
-// A polite status region; announce writes only when the text changes, so a re-render does not re-announce.
 export function createLiveRegion(document: Document): { element: HTMLParagraphElement; announce(text: string): void } {
   const element = document.createElement('p');
   element.dataset.annotationLive = '';
@@ -185,8 +179,6 @@ export interface InlineConfirmOptions {
   dataPrefix: string;
 }
 
-// Clicking the trigger swaps it for an inline prompt; only the prompt's confirm button acts.
-// Returns the dismiss function, which swaps the trigger back and focuses it.
 export function createInlineConfirm(document: Document, options: InlineConfirmOptions): () => void {
   const { trigger, dataPrefix } = options;
   const prompt = document.createElement('div');
@@ -225,9 +217,6 @@ export function createInlineConfirm(document: Document, options: InlineConfirmOp
   return dismiss;
 }
 
-// Call before a panel re-render; the returned function refocuses the equivalent control
-// (same data-annotation-* attributes, same annotation) or the panel heading, so focus never
-// drops to <body>. It does nothing when focus was outside the panel.
 export function keepPanelFocus(panel: HTMLElement): () => void {
   const root = panel.getRootNode() as Document | ShadowRoot;
   const active = root.activeElement;
@@ -243,7 +232,6 @@ export function keepPanelFocus(panel: HTMLElement): () => void {
     if (panel.contains(root.activeElement)) return;
     const target = selector ? panel.querySelector<HTMLElement>(`${scope}${selector}`) : null;
     target?.focus();
-    // A matching control that is folded away cannot take focus.
     if (!panel.contains(root.activeElement)) panel.querySelector<HTMLElement>('h2')?.focus();
   };
 }

@@ -14,7 +14,6 @@ export interface CaptureController {
   activate(): void;
   deactivate(): void;
   destroy(): void;
-  /** Polite live region announcing each capture target change and frame refusals. */
   live: HTMLElement;
 }
 
@@ -72,7 +71,6 @@ const HINT_STYLE = [
 const CURSOR_ATTRIBUTE = 'data-annotation-capture-cursor';
 const CURSOR_CSS = 'html, html * { cursor: crosshair !important; }';
 const SHADOW_CURSOR_CSS = '* { cursor: crosshair !important; }';
-// Upper bound for a committed gesture's trailing events (pointerup/mouseup/click) when no click ever arrives.
 const GESTURE_TIMEOUT_MS = 1000;
 const KEYBOARD_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter']);
 const NON_RENDERED_TAGS = new Set(['script', 'style', 'template', 'noscript', 'link', 'meta']);
@@ -100,12 +98,6 @@ export function guardUntrustedOverlayEvents(root: ShadowRoot): () => void {
   };
 }
 
-/**
- * Registers, once per window, the capture-phase listeners that must run before the page's own, so a page
- * that stops propagation at window capture cannot disable capture. The content script calls this first at
- * document_start and releases it when its context is invalidated; controllers route through the same set.
- * With no route (capture idle) a listener does nothing beyond one size check.
- */
 export function interceptPageEvents(win: Window): Set<PageEventRoute> {
   const existing = hubs.get(win);
   if (existing) return existing.routes;
@@ -119,7 +111,6 @@ export function interceptPageEvents(win: Window): Set<PageEventRoute> {
   return routes;
 }
 
-/** Removes the window's capture-phase listeners and drops its routes. */
 export function releasePageEvents(win: Window): void {
   const hub = hubs.get(win);
   if (!hub) return;
@@ -128,16 +119,11 @@ export function releasePageEvents(win: Window): void {
   for (const type of INTERCEPTED_EVENTS) win.removeEventListener(type, hub.listener, true);
 }
 
-/** The CSS zoom an element inherits (from the page's html or body); 1 where the engine has no CSS zoom. */
 export function cssZoom(element: Element): number {
   return element.currentCSSZoom ?? 1;
 }
 
-/**
- * Writes client-rect px into a fixed overlay box. The top-layer host inherits the page's zoom, which scales
- * every px written to the box, while client rects are already zoomed; dividing by the box's zoom cancels it.
- * The box must be rendered (not hidden) when this runs, or its zoom reads as 1.
- */
+// The box must be rendered (not hidden) when this runs, or its zoom reads as 1.
 export function placeFixed(element: HTMLElement, box: Partial<Record<'left' | 'top' | 'width' | 'height', number>>): void {
   const zoom = cssZoom(element);
   for (const [property, value] of Object.entries(box)) element.style.setProperty(property, `${value / zoom}px`);
@@ -162,7 +148,6 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
   const cursor = options.document.createElement('style');
   cursor.setAttribute(CURSOR_ATTRIBUTE, '');
   cursor.textContent = CURSOR_CSS;
-  // Document styles do not reach into shadow roots; this sheet is appended to each open root the pointer enters.
   const shadowCursor = new CSSStyleSheet();
   shadowCursor.replaceSync(SHADOW_CURSOR_CSS);
   const cursorRoots = new Set<ShadowRoot>();
@@ -195,15 +180,12 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     commit(element);
   };
 
-  // Gesture swallower: installed on a committed pointerdown, removed by the trailing click,
-  // by the next pointerdown (new gesture), by GESTURE_TIMEOUT_MS, or by destroy().
   const handleGestureEvent = (event: Event) => {
     if (isExtensionEvent(event, options.shadowHost)) return;
     swallow(event);
     if (event.type === 'click') stopGestureSwallow();
   };
 
-  // Every intercepted event while capture is active or a committed gesture is being swallowed.
   const route = (event: Event) => {
     switch (event.type) {
       case 'pointermove':
@@ -273,7 +255,6 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     if (focused?.localName === 'iframe') (focused as HTMLIFrameElement).blur();
   }
 
-  // Appends only, so the page's own sheets keep their order; a page reassignment that drops it heals on the next move.
   // A page root whose adoptedStyleSheets throws keeps its own cursor; capture itself must keep working.
   function adoptShadowCursor(element: Element) {
     const root = element.getRootNode();
@@ -315,7 +296,6 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     if (!KEYBOARD_KEYS.has(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-    // The first key with nothing highlighted only sets the starting point.
     if (!hoveredElement) {
       moveTo(startElement());
       return;
@@ -360,7 +340,6 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     return sibling;
   }
 
-  // An open shadow root's content comes before light-DOM children; a closed root reads as null.
   function firstChildOf(element: Element): Element | null {
     const inShadow = element.shadowRoot ? [...element.shadowRoot.children].find(isWalkable) : undefined;
     return inShadow ?? [...element.children].find(isWalkable) ?? null;
@@ -380,7 +359,6 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     );
   }
 
-  // A keyboard move with no target is a no-op.
   function moveTo(element: Element | null | undefined) {
     if (!element || !isSelectable(element)) return;
     const reduce = options.document.defaultView?.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -449,13 +427,11 @@ export function createCaptureController(options: CaptureControllerOptions): Capt
     live.remove();
   };
 
-  // Keeps the highlight on the element through smooth scrolls, nested scrollers and resizes.
   function scheduleFollow() {
     if (!hoveredElement || followFrame !== undefined) return;
     followFrame = options.document.defaultView?.requestAnimationFrame(() => {
       followFrame = undefined;
       if (!active) return;
-      // A hovered element removed since the last move reads as hovering nothing, as a pointer move off it would.
       if (!hoveredElement?.isConnected) retrace = [];
       setHoveredElement(hoveredElement?.isConnected ? hoveredElement : null);
     });
@@ -503,8 +479,6 @@ function swallow(event: Event) {
   event.stopImmediatePropagation();
 }
 
-// composedPath()[0] is the deepest element the page can see: inside open shadow roots it is the
-// deep target; a closed root retargets it to the host.
 function resolveTarget(event: MouseEvent, document: Document): Element | null {
   const deep = event.composedPath()[0];
   // nodeType, not instanceof: targets from another realm (an iframe, Firefox Xray wrappers) fail instanceof.

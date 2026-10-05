@@ -168,7 +168,6 @@ function matchesSelector(el: Element, selectorText: string): boolean {
   }
 }
 
-// A reduced-motion guard means a reduce rule switches the element's animation off, or every rule that sets it only applies under no-preference.
 function reducedMotionGuarded(el: Element, ctx: ScanContext, name: string | undefined): boolean {
   const inline = (el as Partial<ElementCSSInlineStyle>).style?.getPropertyValue('animation-name') ?? '';
   if (name && splitCssList(inline).includes(name)) return false;

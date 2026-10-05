@@ -14,7 +14,6 @@ let toolbar: HTMLDivElement;
 let overlay: HTMLDivElement;
 let controller: PinsController | undefined;
 
-// The count badge needs a host; a plain button in the toolbar stands in where a test does not look at the badge.
 function addBadgeHost(host: HTMLElement): HTMLButtonElement {
   const button = document.createElement('button');
   host.append(button);
@@ -45,7 +44,6 @@ function annotation(index: number, selector: string): Annotation {
   };
 }
 
-// 500 sections x 50 divs x (div + span) = 50,000 elements plus the sections.
 function buildPage(): HTMLElement {
   const page = document.createElement('main');
   const row = '<div><span>x</span></div>'.repeat(50);
@@ -54,9 +52,6 @@ function buildPage(): HTMLElement {
   return page;
 }
 
-// Times the controller's resolve slices: it yields with setTimeout(slice, 0), so only zero-delay
-// callbacks are timed. Test tooling (vi.waitFor polling) and the re-resolve timers use real delays
-// and pass through untimed, as does the page-wide heartbeat below.
 function timeTimerCallbacks(): number[] {
   const durations: number[] = [];
   const original = window.setTimeout.bind(window);
@@ -71,8 +66,6 @@ function timeTimerCallbacks(): number[] {
   return durations;
 }
 
-// Information only: the longest gap between 4 ms heartbeat ticks also counts other tests' tasks,
-// GC and machine load, so it is printed but never asserted on.
 function startHeartbeat(): () => number {
   const original = window.setTimeout.bind(window);
   let last = performance.now();
@@ -95,7 +88,6 @@ beforeEach(() => {
   document.body.replaceChildren();
   toolbar = document.createElement('div');
   overlay = document.createElement('div');
-  // Production mounts pins in the extension's fixed overlay layer, out of the page's flow.
   overlay.style.cssText = 'position: fixed; inset: 0; pointer-events: none';
   document.body.append(toolbar, overlay);
 });
@@ -108,8 +100,6 @@ afterEach(() => {
 });
 
 describe('pin resolve cost on a 50k-element page (real browser)', () => {
-  // Preemption only adds wall time, so the spec passes on the first of up to 3 fresh runs that
-  // yields more than once with its longest slice within budget; a real over-budget stretch fails all 3.
   it('pins 200 annotations in list order with no resolve slice over 50 ms in the best of 3 runs', async () => {
     const runs: Array<{ slices: number; longest: number }> = [];
     for (let run = 0; run < 3; run += 1) {
@@ -123,7 +113,6 @@ describe('pin resolve cost on a 50k-element page (real browser)', () => {
         annotation(index, buildSelector(spans[index * step]!)),
       );
       controller = createPinsController({ document, container: overlay, toolbar, badgeHost: addBadgeHost(toolbar) });
-      // Settle the fresh page's first style and layout outside the measured window.
       page.getBoundingClientRect();
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const stopHeartbeat = startHeartbeat();
@@ -394,7 +383,6 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
   describe('when the toolbar moves or changes size', () => {
     let controls: ToolbarControls | undefined;
 
-    // A run of these specs alone starts at the runner's default viewport, not the 1280 x 720 the edge tests restore.
     beforeEach(async () => {
       await browserPage.viewport(1280, 720);
     });
@@ -404,7 +392,6 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
       controls = undefined;
     });
 
-    // Mounted as in production: the pins controller first, then the toolbar buttons and controls.
     function mountToolbar(stored: ToolbarPrefs = { position: null }) {
       const { shell } = mountShell();
       controller = createPinsController({ document, container: shell.root, toolbar: shell.toolbar, badgeHost: addBadgeHost(shell.toolbar) });
@@ -416,7 +403,6 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
       controls = createToolbarControls({
         toolbar: shell.toolbar,
         win: window,
-        // Storage answers after the page has rendered, as chrome.storage may.
         prefs: { read: () => frames().then(() => stored), write: async () => undefined },
         onHide: () => undefined,
         onPositionChange: () => undefined,
@@ -429,8 +415,6 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
       return shell.root.querySelector<HTMLElement>('.annotation-pin')!;
     }
 
-    // The badge count is part of the toolbar's width, so the target is placed relative to the toolbar
-    // measured after its annotation is set.
     function annotateBeside(shell: OverlayShell, place: (bar: DOMRect) => { x: number; y: number }) {
       const target = placeTarget('left: 0; top: 0');
       const marker = annotate(shell);
@@ -455,7 +439,6 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     it('moves a pin off the toolbar after an arrow key on the grip moves the toolbar over it', async () => {
       const shell = mountToolbar();
       await controls!.ready;
-      // The pin's own centre lies 30 px left of the toolbar, clear of it until the toolbar moves 64 px left.
       const { marker, bar, own } = annotateBeside(shell, (bar) => ({ x: bar.left - 30, y: bar.top + bar.height / 2 }));
       await frames();
       expect(center(marker.getBoundingClientRect()).x).toBeCloseTo(own.x, 0);
@@ -475,7 +458,6 @@ describe('pins and their tooltip at the viewport edges (real browser)', () => {
     it('moves a pin off the toolbar after the toolbar grows over it, and puts it back on its own centre when the toolbar shrinks', async () => {
       const shell = mountToolbar();
       await controls!.ready;
-      // The pin's own centre lies 30 px left of the toolbar; a wide button added to the bar grows it leftward over that centre.
       const { marker, bar: narrow, own } = annotateBeside(shell, (bar) => ({ x: bar.left - 30, y: bar.top + bar.height / 2 }));
       await frames();
       expect(overlaps(marker.getBoundingClientRect(), narrow)).toBe(false);

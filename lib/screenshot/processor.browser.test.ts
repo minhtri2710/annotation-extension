@@ -6,7 +6,6 @@ const BLUE = [0, 0, 255];
 const GREEN = [0, 255, 0];
 const YELLOW = [255, 255, 0];
 
-/** A PNG data URL whose left half is red and right half is blue. */
 async function splitImage(width: number, height: number): Promise<string> {
   const canvas = new OffscreenCanvas(width, height);
   const context = canvas.getContext('2d');
@@ -24,7 +23,6 @@ async function splitImage(width: number, height: number): Promise<string> {
   });
 }
 
-/** A PNG data URL split into quadrants: red top-left, blue top-right, green bottom-left, yellow bottom-right. */
 async function quadrantImage(width: number, height: number): Promise<string> {
   const canvas = new OffscreenCanvas(width, height);
   const context = canvas.getContext('2d');
@@ -83,8 +81,6 @@ describe('processScreenshot', () => {
 
     const capture = await quadrantImage(400, 200);
 
-    // Device-pixel crop is x 170..250, y 80..150: the vertical split (x 200) lands at output column 30 of 80,
-    // the horizontal split (y 100) at output row 20 of 70.
     const result = await processScreenshot(capture, { x: 85, y: 40, width: 40, height: 35 }, 2);
 
     expect([result.width, result.height]).toEqual([80, 70]);
@@ -104,7 +100,6 @@ describe('processScreenshot', () => {
   it('rounds the output size of a fractional devicePixelRatio crop to the nearest pixel', async () => {
     const capture = await quadrantImage(400, 200);
 
-    // Device-pixel crop at dpr 1.5 is x 180..241.5, y 60..124.5 (61.5 x 64.5), so the output rounds to 62 x 65.
     const result = await processScreenshot(capture, { x: 120, y: 40, width: 41, height: 43 }, 1.5);
 
     expect([result.width, result.height]).toEqual([62, 65]);
@@ -115,8 +110,6 @@ describe('processScreenshot', () => {
     expectColor(image.pixel(0, 64), GREEN);
     expectColor(image.pixel(61, 64), YELLOW);
 
-    // At dpr 1.25 each axis gets one device size below .5 and one above, so ceil or floor on either axis fails.
-    // Box 41 x 43 is 51.25 x 53.75 device pixels (51 x 54); box 43 x 41 is 53.75 x 51.25 (54 x 51).
     const cases: [number, number, number, number][] = [
       [41, 43, 51, 54],
       [43, 41, 54, 51],
@@ -155,8 +148,6 @@ describe('processScreenshot', () => {
   it('downscales a fractional devicePixelRatio crop from its unrounded device size', async () => {
     const capture = await splitImage(3100, 1300);
 
-    // At dpr 1.25 box 2400.4 x 1000.36 is 3000.5 x 1250.45 device pixels; scale 1600 / 3000.5 gives 1600 x 666.81, so 1600 x 667.
-    // Rounding the device size first (3001 x 1250) would give 1600 x 666.
     const result = await processScreenshot(capture, { x: 0, y: 0, width: 2400.4, height: 1000.36 }, 1.25);
 
     expect([result.width, result.height]).toEqual([1600, 667]);
@@ -169,8 +160,6 @@ describe('processScreenshot', () => {
   it('scales by the unrounded longest side when rounding it would change the short side', async () => {
     const capture = await splitImage(3100, 2200);
 
-    // At dpr 1 box 3000.4 x 2118 is 3000.4 x 2118 device pixels; scale 1600 / 3000.4 gives 1600 x 1129.449, so 1600 x 1129.
-    // Scaling by the rounded longest side (1600 / 3000) would give 1600 x 1129.6, so 1600 x 1130.
     const result = await processScreenshot(capture, { x: 0, y: 0, width: 3000.4, height: 2118 }, 1);
 
     expect([result.width, result.height]).toEqual([1600, 1129]);
@@ -183,8 +172,6 @@ describe('processScreenshot', () => {
   it('scales by the unrounded longest side, not the rounded-up one', async () => {
     const capture = await splitImage(3100, 1100);
 
-    // At dpr 1 box 3000.4 x 1010 is 3000.4 x 1010 device pixels; scale 1600 / 3000.4 gives 1600 x 538.595, so 1600 x 539.
-    // Scaling by the rounded-up longest side (1600 / 3001) would give 1599.680 x 538.487, so 1600 x 538.
     const result = await processScreenshot(capture, { x: 0, y: 0, width: 3000.4, height: 1010 }, 1);
 
     expect([result.width, result.height]).toEqual([1600, 539]);
@@ -197,8 +184,6 @@ describe('processScreenshot', () => {
   it('scales the unrounded crop size, not the rounded one, before rounding the output size', async () => {
     const capture = await splitImage(3100, 1100);
 
-    // At dpr 1 box 3000.4 x 1002.4 is 3000.4 x 1002.4 device pixels; scale 1600 / 3000.4 gives 1600 x 534.542, so 1600 x 535.
-    // Rounding the crop size first (3000 x 1002) and then scaling gives 1599.787 x 534.329, so 1600 x 534.
     const result = await processScreenshot(capture, { x: 0, y: 0, width: 3000.4, height: 1002.4 }, 1);
 
     expect([result.width, result.height]).toEqual([1600, 535]);

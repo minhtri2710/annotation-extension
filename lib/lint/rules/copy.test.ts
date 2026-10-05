@@ -8,7 +8,6 @@ function resetDocument(): void {
   document.documentElement.innerHTML = '<head></head><body></body>';
 }
 
-// happy-dom has no layout, so its innerText does not match a browser's rendered text.
 function setBodyText(text: string, innerText: string = text): void {
   document.body.textContent = text;
   Object.defineProperty(document.body, 'innerText', { configurable: true, get: () => innerText });

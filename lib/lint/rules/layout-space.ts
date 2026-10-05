@@ -266,7 +266,6 @@ async function collectInlineSpacing(ctx: ScanContext, checkpoint: Checkpoint): P
       if (Number.isFinite(value) && value > 0 && value < MONOTONOUS_MAX_SPACING_PX) values.push(Math.round(value));
     }
   };
-  // A margin or padding shorthand carries up to four lengths.
   const addLengths = (raw: string): void => {
     for (const token of raw.trim().split(/\s+/)) addLength(token);
   };

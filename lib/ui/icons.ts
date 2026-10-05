@@ -1,6 +1,5 @@
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
-// 24x24 stroke icons drawn as path data; each entry is one or more `d` strings.
 const ICON_PATHS = {
   grip: ['M9 6h.01', 'M15 6h.01', 'M9 12h.01', 'M15 12h.01', 'M9 18h.01', 'M15 18h.01'],
   scan: ['M4 9V5h4', 'M16 5h4v4', 'M20 15v4h-4', 'M8 19H4v-4', 'M8 12h8'],
@@ -13,7 +12,6 @@ const ICON_PATHS = {
 
 export type IconName = keyof typeof ICON_PATHS;
 
-// Decorative: the control that holds the icon carries the accessible name.
 export function createIcon(document: Document, name: IconName): SVGSVGElement {
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -34,7 +32,6 @@ export function createIcon(document: Document, name: IconName): SVGSVGElement {
   return svg;
 }
 
-// An icon-only control: the name is its aria-label and its tooltip.
 export function setIconButton(button: HTMLButtonElement, name: IconName, label: string): void {
   button.replaceChildren(createIcon(button.ownerDocument, name));
   button.setAttribute('aria-label', label);

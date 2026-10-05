@@ -70,14 +70,12 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
 const dimensions = async () => ({ width: 10, height: 20 });
 
 const SIGNATURES: Record<string, string> = { 'image/png': '\x89PNG\r\n\x1a\n', 'image/jpeg': '\xff\xd8\xff', 'image/webp': 'RIFF\0\0\0\0WEBP' };
-/** Base64 of a payload behind the image signature the import checks. */
 function image(payload: string, mimeType = 'image/png'): string {
   return btoa(SIGNATURES[mimeType] + payload);
 }
 function imageBlob(payload: string, mimeType: string): Blob {
   return new Blob([Uint8Array.from(SIGNATURES[mimeType] + payload, (character) => character.charCodeAt(0))], { type: mimeType });
 }
-/** The payload after the signature, for byte comparisons. */
 async function payload(blob: Blob | undefined): Promise<string | undefined> {
   return blob?.slice(SIGNATURES[blob.type]!.length).text();
 }
@@ -513,7 +511,6 @@ describe('write path and import share one set of caps', () => {
   const edits = (length: number) => Array.from({ length }, () => ({ property: 'color', value: 'red', original: 'blue' }));
   const pageAt = (length: number) => 'https://example.com/' + 'a'.repeat(length - 'https://example.com/'.length);
   const input = (overrides: Record<string, unknown>) => ({ note: 'n', selector: '#x', elementContext: secondElementContext, ...overrides });
-  // Each variant puts one field or list at the given length.
   const variants: [string, (length: number, list: number) => AnnotationWriteMessage][] = [
     ['note', (length) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ note: at(length) }) })],
     ['repro field', (length) => ({ type: 'annotation.add', pageUrl: secondPage, input: input({ repro: { steps: [], expected: at(length), actual: '' } }) })],
@@ -547,7 +544,6 @@ describe('write path and import share one set of caps', () => {
     const written = annotation({ screenshot: { mimeType: 'image/webp', width: 10, height: 20, byteLength: shot.size } });
     await restoreAnnotation(written, [[screenshotKey(written.id), shot]], store);
     await addAttachment(firstPage, written.id, { id: 'att-png', name: 'a.png', mimeType: 'image/png', byteLength: imageBlob('a', 'image/png').size }, imageBlob('a', 'image/png'), store);
-    // A JPEG saved as .png: the picker stores it as image/jpeg under its own name.
     await addAttachment(firstPage, written.id, { id: 'att-jpeg', name: 'photo.png', mimeType: 'image/jpeg', byteLength: imageBlob('j', 'image/jpeg').size }, imageBlob('j', 'image/jpeg'), store);
     const first = await serialize(await storedAnnotations(), store);
     expect(first.missing).toBe(0);

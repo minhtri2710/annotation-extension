@@ -8,7 +8,6 @@ const DATABASE_NAME = 'annotation-extension-blobs';
 const DATABASE_VERSION = 1;
 const OBJECT_STORE_NAME = 'blobs';
 
-/** Browser-only IndexedDB adapter; happy-dom does not provide IndexedDB. */
 export function createBlobStore(): BlobStore {
   return new IndexedDbBlobStore();
 }

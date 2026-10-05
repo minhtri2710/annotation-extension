@@ -288,8 +288,6 @@ function isHitTestable(ctx: ScanContext, el: Element): boolean {
   return styleValue(ctx, el, 'pointer-events') !== 'none';
 }
 
-// The topmost element painted above the victim at the point that is not its descendant or
-// ancestor, or undefined when the victim is not hit there or nothing else is above it.
 function occluderAt(ctx: ScanContext, victim: Element, x: number, y: number): Element | undefined {
   const stack = ctx.doc.elementsFromPoint(x, y);
   const index = stack.findIndex((el) => victim.contains(el));
