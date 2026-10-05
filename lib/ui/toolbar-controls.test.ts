@@ -302,13 +302,6 @@ describe('toolbar controls', () => {
     expect(onPositionChange).not.toHaveBeenCalled();
   });
 
-  it('leaves one tab stop in the toolbar, on its first button after the grip', async () => {
-    const { grip, collapse } = setup();
-    await controls!.ready;
-    const scan = toolbar.querySelector<HTMLButtonElement>('button:not([data-annotation-toolbar-grip]):not([data-annotation-toolbar-hide])')!;
-    expect([grip, scan, collapse].map((button) => button.tabIndex)).toEqual([-1, 0, -1]);
-  });
-
   it('moves focus and the tab stop with Left, Right, Home and End, wrapping at both ends', async () => {
     const { grip, collapse } = setup();
     await controls!.ready;

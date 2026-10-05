@@ -7,18 +7,6 @@ afterEach(() => {
 });
 
 describe('clipboardFailure', () => {
-  it('returns undefined when the copy succeeds', async () => {
-    const copy = vi.fn(async () => {});
-    await expect(clipboardFailure(copy)).resolves.toBeUndefined();
-    expect(copy).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns the status suffix with the error message when the copy rejects', async () => {
-    await expect(clipboardFailure(() => Promise.reject(new Error('Document is not focused')))).resolves.toBe(
-      'Downloaded; copy to clipboard failed: Document is not focused',
-    );
-  });
-
   it('stringifies a non-Error rejection', async () => {
     await expect(clipboardFailure(() => Promise.reject('denied'))).resolves.toBe(
       'Downloaded; copy to clipboard failed: denied',

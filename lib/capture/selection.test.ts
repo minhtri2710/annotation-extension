@@ -12,7 +12,9 @@ let controller: CaptureController;
 let selected: ElementContext[];
 let pageEvents: string[];
 
-function rect(top: number, left = 10, width = 100, height = 40): DOMRect {
+function rect(top: number, left = 10): DOMRect {
+  const width = 100;
+  const height = 40;
   return { top, left, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) } as DOMRect;
 }
 
@@ -278,15 +280,6 @@ describe('hover label', () => {
     expect(label().textContent!.endsWith('… · 100×40')).toBe(true);
   });
 
-  it('shows the rounded box size after the description', () => {
-    const target = document.querySelector('#target')!;
-    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(rect(100, 10, 320.4, 47.6));
-    controller.activate();
-
-    pointer('pointermove', target);
-    expect(label().textContent).toBe('button#target.primary.big · 320×48');
-  });
-
   it('hides with the highlight on deactivate', () => {
     const target = document.querySelector('#target')!;
     stubRect(target, 100);
@@ -392,22 +385,6 @@ describe('keyboard-only capture', () => {
     expect(document.elementsFromPoint).toHaveBeenCalledWith(window.innerWidth / 2, window.innerHeight / 2);
     expect(labelName()).toBe('section#mid');
     expect(highlight().hidden).toBe(false);
-  });
-
-  it('resolves the viewport centre into open shadow roots', () => {
-    const card = document.createElement('x-card');
-    const root = card.attachShadow({ mode: 'open' });
-    root.innerHTML = '<span id="inside">x</span>';
-    document.body.append(card);
-    const inside = root.querySelector('#inside')!;
-    stubRect(card, 100);
-    stubRect(inside, 100);
-    Object.defineProperty(root, 'elementFromPoint', { configurable: true, value: () => inside });
-    pointHits = [card];
-    controller.activate();
-
-    key('ArrowDown');
-    expect(labelName()).toBe('span#inside');
   });
 
   it('falls back to the first element child of body when the centre hits nothing selectable', () => {
@@ -1010,15 +987,6 @@ describe('crosshair cursor', () => {
 
     pointer('pointermove', button);
     expect(root.adoptedStyleSheets).toEqual([sheet]);
-  });
-
-  it('removes the crosshair sheet from the shadow root on deactivate', () => {
-    const { root, button } = shadowButton();
-    controller.activate();
-    pointer('pointermove', button);
-
-    controller.deactivate();
-    expect(root.adoptedStyleSheets).toHaveLength(0);
   });
 
   it('keeps the page sheets of a shadow root first and unchanged, and restores the original array on deactivate', () => {

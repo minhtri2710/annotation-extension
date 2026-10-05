@@ -79,6 +79,15 @@ describe('scanPage', () => {
     expect(hit).toContain(other);
     expect(hit).toContain(document.body);
   });
+
+  it('leaves the deep-scan rule out of the default quick scan', async () => {
+    const hidden = document.createElement('p');
+    hidden.style.opacity = '0';
+    hidden.textContent = 'x'.repeat(300);
+    document.body.append(hidden);
+    const findings = await scanPage(window, document.createElement('div'), new AbortController().signal);
+    expect(findings.map((f) => f.ruleId)).not.toContain('content-hidden-at-rest');
+  });
 });
 
 describe('scan panel', () => {

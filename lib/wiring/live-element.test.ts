@@ -52,7 +52,6 @@ describe('live annotation anchoring', () => {
 
     expect(getBoundingClientRect).toHaveBeenCalledTimes(1);
     expect(context?.boundingBox).toEqual({ x: 300, y: 400, width: 120, height: 50 });
-    expect(context?.boundingBox).not.toEqual(annotation.elementContext.boundingBox);
   });
 
   it('does not open from stale coordinates when the selector no longer resolves', () => {

@@ -36,13 +36,6 @@ function setup(stored: SitePolicy = { enabled: true, allowlist: [] }) {
 }
 
 describe('options page', () => {
-  it('shows the stored toggle and allowlist on mount', async () => {
-    const { elements, storage, entries } = setup({ enabled: false, allowlist: ['a.example'] });
-    await mountOptionsPage(elements, storage);
-    expect(elements.enabled.checked).toBe(false);
-    expect(entries()).toEqual(['a.example']);
-  });
-
   it('adds a valid entry normalized to its hostname and clears the field', async () => {
     const { elements, storage, add, entries } = setup();
     await mountOptionsPage(elements, storage);

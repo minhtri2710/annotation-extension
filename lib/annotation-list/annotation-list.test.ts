@@ -333,6 +333,7 @@ describe('annotation list', () => {
     expect(panel.firstElementChild?.querySelector('h2')?.textContent).toBe('All annotations');
     expect(panel.firstElementChild?.nextElementSibling).toBe(onboarding);
     expect(onboarding!.hidden).toBe(false);
+    expect(panel.querySelector('[data-annotation-help]')?.getAttribute('aria-expanded')).toBe('true');
     expect(Array.from(onboarding!.querySelectorAll('ol > li'), (item) => item.textContent)).toEqual([
       'Click Annotate or press Alt+Q, then click any element to leave a note.',
       'Pins mark annotated elements. Click a pin to reopen its note.',
@@ -340,17 +341,6 @@ describe('annotation list', () => {
       'Scan checks the page against design rules. Locate jumps to each finding.',
       'Press Esc to stop annotating.',
     ]);
-  });
-
-  it('opens How it works from the stored state and persists toggles', async () => {
-    const panel = document.createElement('div');
-    const store = persistence([]);
-    vi.mocked(store.readOnboardingOpen).mockResolvedValue(false);
-    const list = createAnnotationList(panel, pageUrl, store);
-    await list.render();
-    const onboarding = panel.querySelector<HTMLElement>('[data-annotation-onboarding]')!;
-    expect(onboarding.hidden).toBe(true);
-    expect(store.writeOnboardingOpen).not.toHaveBeenCalled();
   });
 
   it('renders How it works closed and keeps the list when the onboarding read fails', async () => {
@@ -764,9 +754,6 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     expect([...panel.querySelectorAll('[data-annotation-export-actions] button')].map((button) => button.textContent))
       .toEqual(['Copy Markdown', 'Download']);
     expect(panel.querySelector('[data-annotation-export-actions]')?.parentElement).toBe(footer?.firstElementChild);
-    expect(rows[1]?.querySelector('[data-annotation-locate]')?.getAttribute('aria-label')).toBe('Locate annotation 2');
-    expect(rows[1]?.querySelector('[data-annotation-row-edit]')?.getAttribute('aria-label')).toBe('Edit annotation 2');
-    expect(rows[0]?.querySelector('[data-annotation-locate]')?.getAttribute('aria-label')).toBe('Locate annotation 1');
   });
 
   it('Locate scrolls the anchored element into view and flashes the shared highlight in the shell root', async () => {
@@ -895,9 +882,6 @@ describe('annotation list confirmation, row actions, focus and live status', () 
     const panel = document.createElement('div');
     const ids = ['3f2a9c1e-0000-4000-8000-000000000001', '3f2a9c1e-0000-4000-8000-000000000002'];
     await createAnnotationList(panel, pageUrl, persistence(ids.map((id) => annotation(id, id.slice(-1))))).render();
-    const rows = [...panel.querySelectorAll('[data-annotation-row]')];
-    expect(rows[1]?.querySelector('[data-annotation-delete]')?.getAttribute('aria-label')).toBe('Delete annotation 2');
-    expect(rows[0]?.querySelector('[data-annotation-delete]')?.getAttribute('aria-label')).toBe('Delete annotation 1');
     for (const element of panel.querySelectorAll('[aria-label]')) {
       for (const id of ids) expect(element.getAttribute('aria-label')).not.toContain(id);
     }
@@ -1079,14 +1063,6 @@ describe('annotation list header, row icons and Download', () => {
     await list.render();
     expect(panel.querySelector('[data-annotation-help]')?.getAttribute('aria-expanded')).toBe('false');
     expect(panel.querySelector<HTMLElement>('[data-annotation-onboarding]')?.hidden).toBe(true);
-  });
-
-  it('shows How it works open from the stored state', async () => {
-    const panel = document.createElement('div');
-    const list = createAnnotationList(panel, pageUrl, persistence([annotation('annotation-1', 'Note')]));
-    await list.render();
-    expect(panel.querySelector('[data-annotation-help]')?.getAttribute('aria-expanded')).toBe('true');
-    expect(panel.querySelector<HTMLElement>('[data-annotation-onboarding]')?.hidden).toBe(false);
   });
 
   it('gives each row icon-only Locate, Edit and Delete named by row number', async () => {

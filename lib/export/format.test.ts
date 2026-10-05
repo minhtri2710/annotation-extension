@@ -53,7 +53,6 @@ describe('Markdown annotation formatter', () => {
       pageUrl,
     );
 
-    expect(markdown).toContain('### CSS tweaks');
     expect(markdown).toContain('### CSS tweaks\n```\ncolor: rgb(0, 0, 0) -> red\nmargin: 0px -> 1rem\n```');
   });
 

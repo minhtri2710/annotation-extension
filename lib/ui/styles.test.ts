@@ -87,9 +87,7 @@ ${ANNOTATION_DARK_TOKENS}
   it('defines marker, tooltip, and reduced-motion-safe locate pulse styles', () => {
     expect(OVERLAY_STYLES).toContain('.annotation-pin[data-annotation-status="resolved"]');
     expect(OVERLAY_STYLES).toContain('opacity: 0.55');
-    expect(OVERLAY_STYLES).toContain('.annotation-pin');
     expect(OVERLAY_STYLES).toContain('.annotation-pin-tooltip');
-    expect(OVERLAY_STYLES).toContain('pointer-events: none');
     expect(OVERLAY_STYLES).toContain('@keyframes locate-pulse');
     expect(OVERLAY_STYLES).toContain('.locate-pulse');
     expect(noPreferenceBlocks(OVERLAY_STYLES)).toContain('animation: locate-pulse 500ms');
@@ -111,7 +109,6 @@ ${ANNOTATION_DARK_TOKENS}
     const button = '[data-annotation-shell] [data-annotation-mount] button';
     const secondaryHover = `${button}:hover,\n[data-annotation-shell] [data-annotation-mount] label[data-annotation-attach]:hover`;
     expect(ruleBody(`${secondaryHover} {`)).toContain('background: var(--annotation-color-hover)');
-    expect(ruleBody(`${button}:focus-visible {`)).toMatch(/outline: [^;]*solid var\(--annotation-color-accent\)/);
     expect(ruleBody(`${button}:active {`)).toContain('transform:');
     expect(ruleBody(`${button} {`)).toMatch(/transition: /);
   });

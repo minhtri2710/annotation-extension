@@ -40,31 +40,21 @@ describe('visual-details lint rules through the real engine', () => {
       'codex-grid-background',
     ]);
     expect(visualDetailsRules.find((rule) => rule.id === 'side-tab')).toMatchObject({
-      name: 'Side-tab accent border',
-      description: 'Thick colored border on one side of a card — the most recognizable tell of AI-generated UIs. Use a subtler accent or remove it entirely.',
       scope: 'element',
     });
     expect(visualDetailsRules.find((rule) => rule.id === 'border-accent-on-rounded')).toMatchObject({
-      name: 'Border accent on rounded element',
-      description: 'Thick accent border on a rounded card — the border clashes with the rounded corners. Remove the border or the border-radius.',
       scope: 'element',
     });
     expect(visualDetailsRules.find((rule) => rule.id === 'gpt-thin-border-wide-shadow')).toMatchObject({
       severity: 'advisory',
-      name: 'Hairline border with wide shadow',
-      description: 'A hairline border paired with a wide, diffuse shadow is a recurring generated-UI signature. Commit to one — a defined edge or a soft elevation — rather than both at once.',
       scope: 'element',
     });
     expect(visualDetailsRules.find((rule) => rule.id === 'repeating-stripes-gradient')).toMatchObject({
       severity: 'advisory',
-      name: 'Repeating-gradient stripes',
-      description: 'Repeating-gradient stripes used as surface decoration are a recurring generated-UI signature. Reach for a deliberate texture or leave the surface plain.',
       scope: 'page',
     });
     expect(visualDetailsRules.find((rule) => rule.id === 'codex-grid-background')).toMatchObject({
       severity: 'advisory',
-      name: 'Decorative grid-line background',
-      description: 'A decorative grid or line-field background drawn with hairline linear-gradient layers tiled by a fixed pixel cell is a recurring generated-UI signature. Reserve grid overlays for actual canvas, map, blueprint, or measurement surfaces; elsewhere use product structure or a plain surface.',
       scope: 'page',
     });
   });

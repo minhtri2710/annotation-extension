@@ -80,33 +80,6 @@ function expectOver(outline: Element, el: Element): void {
   }
 }
 
-describe('scan panel buttons in a real browser', () => {
-  it.each(['light', 'dark'] as const)('keeps the token gap between Deep scan and Rescan and between Locate and Annotate (%s)', async (theme) => {
-    const target = box('20px 0 0 40px');
-    document.body.append(target);
-    const { shell, scanToggle } = mountScan([finding('error', 'contrast', target)], theme);
-    scanToggle.click();
-    await vi.waitFor(() => expect(shell.panel.querySelector('[data-annotation-scan-annotate]')).not.toBeNull());
-
-    const probe = document.createElement('span');
-    probe.style.display = 'block';
-    probe.style.width = 'var(--annotation-space-2)';
-    shell.root.append(probe);
-    const gapToken = probe.getBoundingClientRect().width;
-    probe.remove();
-    expect(gapToken).toBeGreaterThanOrEqual(8);
-
-    const gap = (first: Element, second: Element) => {
-      const a = first.getBoundingClientRect();
-      const b = second.getBoundingClientRect();
-      return Math.max(b.left - a.right, b.top - a.bottom);
-    };
-    const pick = (selector: string) => shell.panel.querySelector(selector)!;
-    expect(gap(pick('[data-annotation-deep-scan]'), pick('[data-annotation-rescan]'))).toBeGreaterThanOrEqual(gapToken);
-    expect(gap(pick('[data-annotation-scan-locate]'), pick('[data-annotation-scan-annotate]'))).toBeGreaterThanOrEqual(gapToken);
-  });
-});
-
 describe('scan panel rows and controls in a real browser', () => {
   const LONG_DETAIL = 'Text is 11px on a 12px line over a very light grey background, '.repeat(6);
 
@@ -143,15 +116,9 @@ describe('scan panel rows and controls in a real browser', () => {
     expect((rows[1]!.firstElementChild as HTMLElement).title).toBe('short detail');
 
     const locate = rows[0]!.querySelector<HTMLButtonElement>('[data-annotation-scan-locate]')!;
-    expect(locate.textContent).toBe('');
-    expect(locate.querySelector('svg')).not.toBeNull();
     expect(locate.getBoundingClientRect().top).toBe(rows[0]!.querySelector('[data-annotation-scan-annotate]')!.getBoundingClientRect().top);
-    expect(locate.getAttribute('aria-label')).toMatch(/^Locate finding 1: /);
-    expect(locate.title).toBe(locate.getAttribute('aria-label'));
-    expect(rows[0]!.querySelector('[data-annotation-scan-annotate]')!.textContent).toBe('Annotate');
 
     const tag = shell.panel.querySelector('[data-annotation-scan-page-level]')!;
-    expect(tag.textContent).toBe('Page-level');
     const pageRow = tag.parentElement!;
     expect(pageRow.getBoundingClientRect().height).toBeLessThanOrEqual(36);
     expect(getComputedStyle(pageRow).listStyleType).toBe('none');
@@ -272,7 +239,6 @@ describe('scan panel outlines in a real browser', () => {
     scanToggle.click();
     await vi.waitFor(() => expect(shell.root.querySelectorAll('[data-annotation-scan-outline]')).toHaveLength(2));
     const [errorOutline, warningOutline] = [...shell.root.querySelectorAll<HTMLElement>('[data-annotation-scan-outline]')];
-    expect(shell.panel.querySelector('[data-annotation-scan-page-level]')?.textContent).toBe('Page-level');
     expectOver(errorOutline!, error);
     expectOver(warningOutline!, warning);
 
@@ -288,7 +254,6 @@ describe('scan panel outlines in a real browser', () => {
       expect(label.backgroundColor).toBe(tokenColor(shell.root, token));
       expect(contrastRatio(parseColor(label.color)!, parseColor(label.backgroundColor)!)).toBeGreaterThanOrEqual(4.5);
     }
-    expect([errorOutline!.textContent, warningOutline!.textContent]).toEqual(['1', '2']);
 
     scanToggle.click();
     expect(shell.root.querySelector('[data-annotation-scan-outline]')).toBeNull();

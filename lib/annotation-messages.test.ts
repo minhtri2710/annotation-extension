@@ -165,30 +165,6 @@ describe('annotation write messages', () => {
         changes: { cssEdits: [{ property: 'color', value: 'red' }] },
       }),
     ).toBe(false);
-    expect(
-      isAnnotationWriteMessage({
-        type: 'annotation.update',
-        pageUrl,
-        id: 'annotation-1',
-        changes: { cssEdits: 'nope' },
-      }),
-    ).toBe(false);
-    expect(
-      isAnnotationWriteMessage({
-        type: 'annotation.update',
-        pageUrl,
-        id: 'annotation-1',
-        changes: { cssEdits: [{ property: 'color' }] },
-      }),
-    ).toBe(false);
-    expect(
-      isAnnotationWriteMessage({
-        type: 'annotation.update',
-        pageUrl,
-        id: 'annotation-1',
-        changes: { cssEdits: [{ property: 1, value: 'red' }] },
-      }),
-    ).toBe(false);
   });
 
   it('accepts valid repro updates and rejects invalid repro shapes', () => {

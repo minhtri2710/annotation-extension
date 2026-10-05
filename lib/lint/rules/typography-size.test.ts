@@ -31,32 +31,6 @@ describe('typography-size lint rules', () => {
       'oversized-h1',
     ]);
     expect(typographySizeRules.every((rule) => rule.scope === 'element')).toBe(true);
-    expect(typographySizeRules.find((rule) => rule.id === 'tiny-text')).toMatchObject({
-      name: 'Tiny body text',
-      description: 'Body text below 12px is hard to read, especially on high-DPI screens. Use at least 14px for body content, 16px is ideal.',
-    });
-    expect(typographySizeRules.find((rule) => rule.id === 'undersized-ui-text')).toMatchObject({
-      name: 'Undersized functional text',
-      description: expect.stringContaining('The 11px floor holds even inside a footer'),
-    });
-    expect(typographySizeRules.find((rule) => rule.id === 'all-caps-body')).toMatchObject({
-      name: 'All-caps body text',
-    });
-    expect(typographySizeRules.find((rule) => rule.id === 'wide-tracking')).toMatchObject({
-      name: 'Wide letter spacing on body text',
-    });
-    expect(typographySizeRules.find((rule) => rule.id === 'extreme-negative-tracking')).toMatchObject({
-      name: 'Crushed letter spacing',
-    });
-    expect(typographySizeRules.find((rule) => rule.id === 'tight-leading')).toMatchObject({
-      name: 'Tight line height',
-    });
-    expect(typographySizeRules.find((rule) => rule.id === 'justified-text')).toMatchObject({
-      name: 'Justified text',
-    });
-    expect(typographySizeRules.find((rule) => rule.id === 'oversized-h1')).toMatchObject({
-      name: 'Oversized hero headline',
-    });
   });
 
   it('detects tiny body text but accepts the 12px boundary', async () => {

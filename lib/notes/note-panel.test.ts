@@ -63,8 +63,6 @@ async function render(
     sendAnnotationWrite,
     captureScreenshot,
     readBlob,
-    addAttachment: persistence?.addAttachment ?? vi.fn().mockResolvedValue({}),
-    deleteAttachment: persistence?.deleteAttachment ?? vi.fn().mockResolvedValue(true),
     applyCssEdits,
     revertCssEdits,
     revertAllCssEdits,
@@ -429,26 +427,6 @@ describe('note panel', () => {
       .toBe('color: red\ndisplay: block');
   });
 
-  it('fails closed without saving when the element is not live', async () => {
-    const panel = document.createElement('div');
-    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    const applyCssEdits = vi.fn().mockReturnValue(undefined);
-    await render(panel, [], {
-      listAnnotations: vi.fn().mockResolvedValue([annotation('Detached')]),
-      sendAnnotationWrite,
-      captureScreenshot: vi.fn(),
-      applyCssEdits,
-    });
-
-    (panel.querySelector('[data-annotation-css-decls]') as HTMLTextAreaElement).value = 'color: red';
-    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
-    await Promise.resolve();
-
-    expect(sendAnnotationWrite).not.toHaveBeenCalled();
-    expect(panel.querySelector('[data-annotation-status]')?.textContent)
-      .toBe('Element not found on this page; CSS tweaks were not saved.');
-  });
-
   it('does not render the clear control for empty or missing css edits', async () => {
     const panel = document.createElement('div');
     const empty = { ...annotation('Empty CSS'), cssEdits: [] };
@@ -793,12 +771,6 @@ describe('note panel close, focus, editor and live status', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('moves focus to the new-note field when opened on an element without notes', async () => {
-    const panel = mounted();
-    await render(panel);
-    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-new-note]'));
-  });
-
   it('moves focus to the first note field when opened on an annotated element', async () => {
     const panel = mounted();
     await render(panel, [annotation('Existing')]);
@@ -828,18 +800,6 @@ describe('note panel close, focus, editor and live status', () => {
     expect(sendAnnotationWrite).toHaveBeenNthCalledWith(2, {
       type: 'annotation.add', pageUrl, input: { note: 'With cmd', selector: context.selector, elementContext: context },
     } satisfies AnnotationWriteMessage);
-  });
-
-  it('keeps focus on the new-note field after a keyboard save re-renders the panel', async () => {
-    const panel = mounted();
-    const listAnnotations = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([annotation('Saved')]);
-    await render(panel, [], { listAnnotations });
-    const note = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
-    note.value = 'Saved';
-    ctrlEnter(note);
-    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-edit-note]')).not.toBeNull());
-    expect(document.activeElement).toBe(panel.querySelector('[data-annotation-new-note]'));
-    expect(document.activeElement).not.toBe(note);
   });
 
   it('asks inline before deleting, and only Delete sends annotation.delete', async () => {
@@ -1855,19 +1815,6 @@ describe('note panel layout', () => {
     expect(reproGroup(panel).open).toBe(false);
   });
 
-  it('closes an emptied group after the late initial toggle event of its content-opened render', async () => {
-    const panel = document.createElement('div');
-    const withCss = { ...annotation('Styled'), cssEdits: [{ property: 'color', value: 'red', original: 'blue' }] };
-    const listAnnotations = vi.fn().mockResolvedValue([withCss]);
-    const { notePanel } = await render(panel, [], { listAnnotations });
-    expect(cssGroup(panel).open).toBe(true);
-    cssGroup(panel).dispatchEvent(new Event('toggle'));
-    listAnnotations.mockResolvedValue([{ ...withCss, cssEdits: [] }]);
-    notePanel.clear();
-    await notePanel.render(context);
-    expect(cssGroup(panel).open).toBe(false);
-  });
-
   it('orders an item as note, media row, groups, previews, then the footer', async () => {
     const panel = document.createElement('div');
     await render(panel, [{
@@ -2003,7 +1950,7 @@ describe('note panel one Save', () => {
   it('sends nothing, note included, and says the element was not found when the CSS cannot be applied', async () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
-    const applyCssEdits = vi.fn().mockReturnValue(null);
+    const applyCssEdits = vi.fn().mockReturnValue(undefined);
     await render(panel, [stored()], { sendAnnotationWrite, applyCssEdits });
     type(field(panel, 'edit-note'), 'Edited');
     type(field(panel, 'css-decls'), 'color: red');

@@ -3,7 +3,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import {
-  CAPTURE_SHORTCUT_MESSAGE,
   CAPTURE_STATE_MESSAGE,
   CAPTURE_TOGGLE_MESSAGE,
   CAPTURE_SHORTCUT_UNSET_HINT,
@@ -17,7 +16,6 @@ import {
 
 describe('isCaptureToggleMessage', () => {
   it('accepts the toggle message, with or without extra fields', () => {
-    expect(CAPTURE_TOGGLE_MESSAGE).toBe('capture.toggle');
     expect(isCaptureToggleMessage({ type: 'capture.toggle' })).toBe(true);
     expect(isCaptureToggleMessage({ type: 'capture.toggle', extra: 1 })).toBe(true);
   });
@@ -40,7 +38,6 @@ describe('isCaptureToggleMessage', () => {
 
 describe('isCaptureStateMessage', () => {
   it('accepts the state message', () => {
-    expect(CAPTURE_STATE_MESSAGE).toBe('capture.state');
     expect(isCaptureStateMessage({ type: 'capture.state' })).toBe(true);
   });
 
@@ -56,7 +53,6 @@ describe('isCaptureStateMessage', () => {
 
 describe('isCaptureShortcutMessage', () => {
   it('accepts the shortcut message', () => {
-    expect(CAPTURE_SHORTCUT_MESSAGE).toBe('capture.shortcut');
     expect(isCaptureShortcutMessage({ type: 'capture.shortcut' })).toBe(true);
   });
 

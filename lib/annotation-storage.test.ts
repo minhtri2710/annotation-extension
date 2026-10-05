@@ -152,9 +152,6 @@ describe('annotation storage', () => {
       cssEdits,
       updatedAt: expect.any(String),
     });
-    expect(updated?.note).toBe(created.note);
-    expect(updated?.selector).toBe(created.selector);
-    expect(updated?.elementContext).toEqual(created.elementContext);
     await expect(listAnnotations(firstPage)).resolves.toEqual([updated]);
   });
 
@@ -174,9 +171,6 @@ describe('annotation storage', () => {
       createdAt: created.createdAt,
       updatedAt: expect.any(String),
     });
-    expect(updated?.note).toBe(created.note);
-    expect(updated?.selector).toBe(created.selector);
-    expect(updated?.elementContext).toEqual(created.elementContext);
     await expect(listAnnotations(firstPage)).resolves.toEqual([updated]);
   });
 

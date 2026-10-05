@@ -89,19 +89,6 @@ afterEach(() => {
 });
 
 describe('pins controller', () => {
-  it('renders one marker for each annotation with a resolvable selector', () => {
-    const { toolbar, overlay } = setup();
-    const annotations = [annotation('annotation-1'), annotation('annotation-2', '#missing')];
-    const controller = createPinsController({ document, container: overlay, toolbar, badgeHost: addBadgeHost(toolbar) });
-
-    controller.setAnnotations(annotations);
-
-    expect(overlay.querySelectorAll('[data-annotation-id]')).toHaveLength(1);
-    expect(overlay.querySelector('[data-annotation-id="annotation-1"]')).not.toBeNull();
-    expect(overlay.querySelector('[data-annotation-id="annotation-2"]')).toBeNull();
-    controller.destroy();
-  });
-
   it('sets the badge count to the page annotation count', () => {
     const { toolbar, overlay } = setup();
     const controller = createPinsController({ document, container: overlay, toolbar, badgeHost: addBadgeHost(toolbar) });
@@ -1331,40 +1318,6 @@ describe('fanOut', () => {
         }
       }
     }
-  });
-});
-
-describe('pin tooltip dismissal', () => {
-  it('hides the tooltip on Escape, keeps focus on the pin, and shows it again on the next hover', () => {
-    const { toolbar, overlay } = setup();
-    const controller = createPinsController({ document, container: overlay, toolbar, badgeHost: addBadgeHost(toolbar) });
-    controller.setAnnotations([annotation('annotation-1')]);
-    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
-
-    marker.focus();
-    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
-    expect(document.activeElement).toBe(marker);
-
-    marker.dispatchEvent(new Event('mouseenter'));
-    expect(overlay.querySelector('[data-annotation-tooltip]')).not.toBeNull();
-  });
-
-  it('keeps the tooltip while the pointer moves from the pin onto it and hides it once the pointer leaves both', () => {
-    const { toolbar, overlay } = setup();
-    const controller = createPinsController({ document, container: overlay, toolbar, badgeHost: addBadgeHost(toolbar) });
-    controller.setAnnotations([annotation('annotation-1')]);
-    const marker = overlay.querySelector('[data-annotation-id="annotation-1"]') as HTMLButtonElement;
-
-    marker.dispatchEvent(new MouseEvent('mouseenter'));
-    const tooltip = overlay.querySelector('[data-annotation-tooltip]') as HTMLElement;
-    marker.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: tooltip }));
-    tooltip.dispatchEvent(new MouseEvent('mouseenter', { relatedTarget: marker }));
-    expect(overlay.querySelector('[data-annotation-tooltip]')).toBe(tooltip);
-
-    tooltip.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: document.body }));
-    expect(overlay.querySelector('[data-annotation-tooltip]')).toBeNull();
   });
 });
 

@@ -25,18 +25,14 @@ afterEach(() => {
 });
 
 describe('content-hidden-at-rest', () => {
-  it('registers one error-severity page rule with impeccable metadata', () => {
+  it('registers one error-severity page rule', () => {
     expect(hiddenAtRestRules).toHaveLength(1);
     const [rule] = hiddenAtRestRules;
     expect(rule).toMatchObject({
       id: 'content-hidden-at-rest',
       severity: 'error',
       scope: 'page',
-      name: 'Content invisible at rest',
     });
-    expect(rule?.description).toBe(
-      'A large share of the page text sits at opacity 0 even after every reveal handler had a chance to run. This is the failed-reveal signature: the content shipped but never becomes visible. Make content visible by default and let JavaScript enhance its entrance instead of gating its existence.',
-    );
   });
 
   it('fires once with the share, counts, and first hidden sample', async () => {

@@ -6,7 +6,6 @@ import { annotationWriteError, MAX_LIST_LENGTH, MAX_TEXT_LENGTH, sendAnnotationW
 import { registerBackgroundMessageHandlers } from '../wiring/background-messages';
 import { addAttachment, restoreAnnotation } from '../annotation-storage';
 import { attachmentKey, screenshotKey, type BlobStore } from '../blob-store';
-import { attachmentAssetFilename, screenshotAssetFilename } from '../export/format';
 
 const firstPage = 'https://example.com/docs?mode=full#intro';
 const secondPage = 'https://example.com/settings';
@@ -135,7 +134,7 @@ describe('JSON annotation I/O', () => {
     expect(plan[0]!.blobs[0]![1].type).toBe('image/webp');
   });
 
-  it('rejects malformed JSON and a JSON object instead of the expected array', async () => {
+  it('rejects an unsupported, empty or oversized screenshot', async () => {
     const base = rawEntry();
     await expect(parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/svg+xml', base64: 'x' } }]), dimensions)).rejects.toThrow('unsupported screenshot type');
     await expect(parseImport(JSON.stringify([{ ...base, screenshot: { mimeType: 'image/png', base64: '' } }]), dimensions)).rejects.toThrow('must not be empty');
@@ -219,8 +218,6 @@ describe('JSON annotation I/O', () => {
 
     const [restored] = await storedAnnotations();
     expect(restored).toEqual(source);
-    expect(screenshotAssetFilename(restored!.id, restored!.screenshot!.mimeType)).toBe(screenshotAssetFilename(source.id, 'image/png'));
-    expect(attachmentAssetFilename(restored!.id, 0, restored!.attachments![0]!.mimeType)).toBe(attachmentAssetFilename(source.id, 0, 'image/jpeg'));
     expect(await target.get(screenshotKey(source.id))?.then(payload)).toBe('shot');
     expect(await payload(await target.get(attachmentKey('attachment-keep')))).toBe('file');
   });

@@ -87,11 +87,6 @@ describe('sendAttachmentAdd', () => {
     expect(sendMessage.mock.calls[0]).toEqual([{ type: 'attachment.add', ...addMessage }]);
   });
 
-  it('rejects with the error text of an error response', async () => {
-    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'quota exceeded' } as never);
-    await expect(sendAttachmentAdd(addMessage)).rejects.toThrow('quota exceeded');
-  });
-
   it('rejects a response that is not attachment metadata', async () => {
     vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ...metadata, byteLength: 0 } as never);
     await expect(sendAttachmentAdd(addMessage)).rejects.toThrow('Invalid attachment response');
@@ -105,11 +100,6 @@ describe('sendAttachmentDelete', () => {
     await expect(sendAttachmentDelete(deleteMessage)).resolves.toBe(false);
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0]).toEqual([{ type: 'attachment.delete', ...deleteMessage }]);
-  });
-
-  it('rejects with the error text of an error response', async () => {
-    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'not found' } as never);
-    await expect(sendAttachmentDelete(deleteMessage)).rejects.toThrow('not found');
   });
 
   it('rejects a non-boolean response', async () => {

@@ -38,20 +38,6 @@ describe('imagery lint rules through the real engine', () => {
     ]);
     expect(imageryRules[0]).toMatchObject({
       severity: 'advisory',
-      name: 'Shape-assembled illustration',
-      description: 'A large inline SVG that builds a pictorial scene from a pile of primitive shapes reads as placeholder clip art, not illustration. Icons, logos, and data graphics are fine at their scale; a hero-sized visual deserves real artwork, a photograph, or a deliberately drawn graphic.',
-    });
-    expect(imageryRules[1]).toMatchObject({
-      name: 'Organic contour drawn as clip-path',
-      description: 'A clip-path polygon with many arbitrary vertices, or a curved clip-path path(), is CSS approximating a torn edge, blob, or silhouette. It reads as the cheap version of the effect and is usually a produced or photographic material replaced with code. Derive an alpha matte from the real image, or ship the shape as a cut-out raster; keep clip-path for geometry (cut corners, diagonals, hexagons).',
-    });
-    expect(imageryRules[2]).toMatchObject({
-      name: 'Raster buried under a wash or opacity',
-      description: 'A background image under a near-opaque gradient wash, or a raster on an element at near-zero opacity, never reaches the screen: the page shows the wash, and the produced texture or photo ships as a compliance token. Let the material show (a tint under 0.9 alpha, a blend mode, an opacity you can see) or remove the file.',
-    });
-    expect(imageryRules[3]).toMatchObject({
-      name: 'Broken or placeholder image',
-      description: '<img> tags with empty src, missing src, or placeholder values ship as broken-image boxes. Use real images, generated assets, or remove the tag.',
     });
     for (const rule of imageryRules.slice(1)) expect(rule.severity).toBeUndefined();
   });

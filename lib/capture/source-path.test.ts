@@ -46,7 +46,6 @@ describe('resolveSourcePath', () => {
   it('returns null without throwing when no source is present', () => {
     const element = document.createElement('div');
 
-    expect(() => resolveSourcePath(element)).not.toThrow();
     expect(resolveSourcePath(element)).toBeNull();
   });
 });

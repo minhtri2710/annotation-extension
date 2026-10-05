@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { isAnnotationErrorResponse } from '../annotation-messages';
 import {
   isBlobReadMessage,
   isScreenshotCaptureFailure,
@@ -101,6 +100,7 @@ describe('screenshot messages', () => {
   it('rejects a malformed read response', async () => {
     vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ ok: false, error: 'missing' } as never);
     await expect(sendBlobRead('screenshot:annotation-1')).rejects.toThrow('missing');
-    expect(isAnnotationErrorResponse({ ok: false, error: 'missing' })).toBe(true);
+    vi.spyOn(browser.runtime, 'sendMessage').mockResolvedValue({ mimeType: 1, base64: 'x' } as never);
+    await expect(sendBlobRead('screenshot:annotation-1')).rejects.toThrow('Invalid blob response');
   });
 });
