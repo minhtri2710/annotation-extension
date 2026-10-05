@@ -33,7 +33,7 @@ export function resolveSelector(document: Document, selector: string): Element |
 
 function buildScopedSelector(element: Element, root: Document | ShadowRoot): string {
   if (element.id) {
-    const idSelector = `#${escapeCssIdentifier(element.id)}`;
+    const idSelector = `#${CSS.escape(element.id)}`;
     if (root.querySelectorAll(idSelector).length === 1) return idSelector;
   }
 
@@ -71,35 +71,6 @@ function buildScopedSelector(element: Element, root: Document | ShadowRoot): str
   }
 
   throw new Error('Unable to build a round-trippable selector for the element');
-}
-
-function escapeCssIdentifier(value: string): string {
-  const cssEscape = (globalThis as { CSS?: { escape?: (input: string) => string } }).CSS?.escape;
-  if (cssEscape) return cssEscape(value);
-
-  let escaped = '';
-  for (let index = 0; index < value.length; index += 1) {
-    const codePoint = value.charCodeAt(index);
-    const character = value.charAt(index);
-
-    if (codePoint === 0) {
-      escaped += '\\ufffd';
-    } else if (
-      (codePoint >= 1 && codePoint <= 31) ||
-      codePoint === 127 ||
-      (index === 0 && codePoint >= 48 && codePoint <= 57) ||
-      (index === 1 && codePoint >= 48 && codePoint <= 57 && value[0] === '-')
-    ) {
-      escaped += `\\${codePoint.toString(16)} `;
-    } else if (index === 0 && character === '-' && value.length === 1) {
-      escaped += '\\\\-';
-    } else if (codePoint >= 128 || character === '-' || character === '_' || /[a-zA-Z0-9]/.test(character)) {
-      escaped += character;
-    } else {
-      escaped += `\\${character}`;
-    }
-  }
-  return escaped;
 }
 
 export function resolveElementBox(

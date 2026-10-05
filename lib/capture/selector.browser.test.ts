@@ -19,6 +19,19 @@ beforeEach(() => {
   document.body.replaceChildren();
 });
 
+describe('id selector (real browser)', () => {
+  it('escapes an id that is not a plain CSS identifier', () => {
+    const element = document.createElement('button');
+    element.id = '1 a.b';
+    document.body.append(element);
+
+    const selector = buildSelector(element);
+
+    expect(selector).toBe('#\\31 \\ a\\.b');
+    expect(resolveSelector(document, selector)).toBe(element);
+  });
+});
+
 describe('shadow selector anchor (real browser)', () => {
   it('anchors an ambiguous top-level shadow segment at the root', () => {
     const root = shadowHost('x-card', AMBIGUOUS);
