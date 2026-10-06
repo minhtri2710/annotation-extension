@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import { MAX_TEXT_LENGTH, type AnnotationWriteMessage } from '../annotation-messages';
 import type { ElementContext } from '../capture/context';
-import { createNotePanel, NOTE_PANEL_ADDED_EVENT, NOTE_PANEL_CLOSE_EVENT } from './note-panel';
+import { createNotePanel, NOTE_PANEL_CLOSE_EVENT, NOTE_PANEL_SAVED_EVENT } from './note-panel';
 import type { NotePanelPersistence } from './persistence';
 import { ScreenshotCaptureError } from '../screenshot/messages';
 
@@ -215,27 +215,27 @@ describe('note panel', () => {
           settle = mode === 'held' ? () => resolve(undefined) : () => reject(new Error('A failed'));
         }));
       const { notePanel } = await render(panel, [], { listAnnotations, sendAnnotationWrite });
-      const added = vi.fn();
-      panel.addEventListener(NOTE_PANEL_ADDED_EVENT, added);
+      const saved = vi.fn();
+      panel.addEventListener(NOTE_PANEL_SAVED_EVENT, saved);
       (panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement).value = 'Note on A';
       (panel.querySelector('[data-annotation-save]') as HTMLButtonElement).click();
       await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
-      return { panel, notePanel, added, listAnnotations, settle: () => settle(), releaseList: () => releaseList() };
+      return { panel, notePanel, saved, listAnnotations, settle: () => settle(), releaseList: () => releaseList() };
     }
 
     it('leaves another element\'s note shown and announces nothing when the held add lands', async () => {
-      const { panel, notePanel, added, settle } = await addForA('held');
+      const { panel, notePanel, saved, settle } = await addForA('held');
       await notePanel.render(contextB);
 
       settle();
       await flush();
 
       expect(shownNotes(panel)).toEqual(['Note on B']);
-      expect(added).not.toHaveBeenCalled();
+      expect(saved).not.toHaveBeenCalled();
     });
 
     it('leaves a cleared panel empty and announces nothing when the held add lands', async () => {
-      const { panel, notePanel, added, settle } = await addForA('held');
+      const { panel, notePanel, saved, settle } = await addForA('held');
       notePanel.clear();
 
       settle();
@@ -243,22 +243,22 @@ describe('note panel', () => {
 
       expect(panel.childElementCount).toBe(0);
       expect(notePanel.live.textContent).toBe('');
-      expect(added).not.toHaveBeenCalled();
+      expect(saved).not.toHaveBeenCalled();
     });
 
-    it('still updates the panel and announces once when the same element was reopened through a new context object', async () => {
-      const { panel, notePanel, added, settle } = await addForA('held');
+    it('does not dismiss a reopened note when the earlier add settles on the same element', async () => {
+      const { panel, notePanel, saved, settle } = await addForA('held');
       await notePanel.render({ ...context });
 
       settle();
       await flush();
 
       expect(shownNotes(panel)).toEqual(['Note on A']);
-      expect(added).toHaveBeenCalledTimes(1);
+      expect(saved).not.toHaveBeenCalled();
     });
 
     it('announces nothing when the panel moves to another element while the post-write read is pending', async () => {
-      const { panel, notePanel, added, listAnnotations, releaseList } = await addForA('immediate', true);
+      const { panel, notePanel, saved, listAnnotations, releaseList } = await addForA('immediate', true);
       await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
       await notePanel.render(contextB);
 
@@ -266,7 +266,7 @@ describe('note panel', () => {
       await flush();
 
       expect(shownNotes(panel)).toEqual(['Note on B']);
-      expect(added).not.toHaveBeenCalled();
+      expect(saved).not.toHaveBeenCalled();
     });
 
     it('shows no error from a held add that rejects after the panel moved to another element', async () => {
@@ -1284,14 +1284,34 @@ describe('note panel drafts', () => {
     expect(panel.querySelector('[data-annotation-status]')).toBeNull();
   });
 
-  it('keeps the edit draft when a save finds the note deleted elsewhere', async () => {
+  it('keeps an edit draft and the open panel when an update write fails', async () => {
+    const panel = document.createElement('div');
+    const { sendAnnotationWrite } = await render(panel, [annotation('Existing')], {
+      sendAnnotationWrite: vi.fn().mockRejectedValue(new Error('write failed')),
+    });
+    const saved = vi.fn();
+    panel.addEventListener(NOTE_PANEL_SAVED_EVENT, saved);
+    type(editNote(panel), 'Existing, edited');
+    (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('write failed'));
+    expect(editNote(panel).value).toBe('Existing, edited');
+    expect(saved).not.toHaveBeenCalled();
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the edit draft and open panel when a save finds the note deleted elsewhere', async () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(null);
     const { notePanel, listAnnotations } = await render(panel, [annotation('Existing')], { sendAnnotationWrite });
+    const saved = vi.fn();
+    panel.addEventListener(NOTE_PANEL_SAVED_EVENT, saved);
     type(editNote(panel), 'Existing, edited');
     (panel.querySelector('[data-annotation-edit]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+    expect(panel.querySelector('[data-annotation-status]')?.textContent).toBe('This annotation was deleted in another tab.');
+    expect(saved).not.toHaveBeenCalled();
     notePanel.clear();
     await notePanel.render(context);
     expect(editNote(panel).value).toBe('Existing, edited');
@@ -1734,6 +1754,8 @@ describe('note panel layout', () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(annotation('x'));
     const { listAnnotations } = await render(panel, [annotation('Existing')], { sendAnnotationWrite });
+    const saved = vi.fn();
+    panel.addEventListener(NOTE_PANEL_SAVED_EVENT, saved);
     const expected = (note: string) => ({
       type: 'annotation.update',
       pageUrl,
@@ -1750,6 +1772,7 @@ describe('note panel layout', () => {
         expect(panel.querySelector('form')).not.toBe(before);
         expect(panel.querySelector('form')).not.toBeNull();
       });
+      expect(saved).toHaveBeenCalledTimes(writes);
     };
 
     await saveAndSettle(' With ctrl ', () => expect(keyEnter(editNote(panel), { ctrlKey: true })).toBe(false), 1);

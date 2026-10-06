@@ -26,7 +26,7 @@ export interface NotePanel {
 }
 
 export const NOTE_PANEL_CLOSE_EVENT = 'annotation-note-close';
-export const NOTE_PANEL_ADDED_EVENT = 'annotation-note-added';
+export const NOTE_PANEL_SAVED_EVENT = 'annotation-note-saved';
 const EMPTY_NOTE_MESSAGE = 'Write a note before saving.';
 const NOTE_SAVED_MESSAGE = 'Note saved.';
 const DELETED_ELSEWHERE_MESSAGE = 'This annotation was deleted in another tab.';
@@ -39,6 +39,7 @@ export function createNotePanel(
   persistence: NotePanelPersistence = createNotePanelPersistence(),
 ): NotePanel {
   let selectedContext: ElementContext | undefined;
+  let renderSequence = 0;
   let statusMessage: string | undefined;
   let showCurrentStatus = () => {};
   let shownVersion = '';
@@ -51,6 +52,7 @@ export function createNotePanel(
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
   async function render(context: ElementContext, seed?: string): Promise<void> {
+    const sequence = ++renderSequence;
     const draftKey = newNoteDraftKey(context.url, context.selector);
     if (untouchedSeeds.delete(draftKey)) drafts.delete(draftKey);
     const seeded = seed !== undefined && !drafts.has(draftKey);
@@ -59,7 +61,7 @@ export function createNotePanel(
       untouchedSeeds.add(draftKey);
     }
     await refresh(context);
-    if (selectedContext !== context) return;
+    if (renderSequence !== sequence || selectedContext !== context) return;
     if (restoredDraft && !seeded && !statusMessage) {
       statusMessage = DRAFT_RESTORED_MESSAGE;
       showCurrentStatus();
@@ -168,7 +170,7 @@ export function createNotePanel(
         type: 'annotation.add',
         pageUrl: context.url,
         input: { note: value, selector: context.selector, elementContext: context },
-      }, context, NOTE_SAVED_MESSAGE).catch(() => undefined);
+      }, context, NOTE_SAVED_MESSAGE, true).catch(() => undefined);
     };
     save.addEventListener('click', add);
     note.addEventListener('keydown', (event) => {
@@ -209,7 +211,9 @@ export function createNotePanel(
     message: AnnotationWriteMessage,
     context: ElementContext,
     successMessage?: string,
+    dismissOnSuccess = false,
   ): Promise<void> {
+    const sequence = renderSequence;
     const refusal = annotationWriteError(message);
     if (refusal) {
       statusMessage = refusal;
@@ -221,16 +225,16 @@ export function createNotePanel(
         const result = await persistence.sendAnnotationWrite(message);
         const missing = (message.type === 'annotation.update' && result === null)
           || (message.type === 'annotation.delete' && result === false);
+        if (renderSequence !== sequence || !showsNoteOf(context)) return;
         if (!missing) dropDraft(message);
-        if (!showsNoteOf(context)) return;
         statusMessage = missing ? DELETED_ELSEWHERE_MESSAGE : successMessage;
         await refresh(context);
-        if (message.type === 'annotation.add' && showsNoteOf(context)) {
-          panel.dispatchEvent(new Event(NOTE_PANEL_ADDED_EVENT));
+        if (dismissOnSuccess && !missing && renderSequence === sequence && showsNoteOf(context)) {
+          panel.dispatchEvent(new Event(NOTE_PANEL_SAVED_EVENT));
           announce(NOTE_SAVED_MESSAGE);
         }
       } catch (error) {
-        if (!showsNoteOf(context)) return;
+        if (renderSequence !== sequence || !showsNoteOf(context)) return;
         statusMessage = errorMessage(error);
         await refresh(context);
       }
@@ -380,7 +384,7 @@ export function createNotePanel(
       const reproChange = repro.pending();
       if (reproChange) changes.repro = reproChange;
       if (Object.keys(changes).length === 0) return;
-      void mutate({ type: 'annotation.update', pageUrl: context.url, id: annotation.id, changes }, context, successMessage);
+      void mutate({ type: 'annotation.update', pageUrl: context.url, id: annotation.id, changes }, context, successMessage, true);
     }
 
     item.append(
@@ -738,6 +742,7 @@ export function createNotePanel(
   }
 
   function clear(): void {
+    renderSequence++;
     selectedContext = undefined;
     statusMessage = undefined;
     revokePreviewUrls();

@@ -551,7 +551,7 @@ describe('content script entrypoint', () => {
       expect(await listAnnotations(location.href)).toEqual([]);
     });
 
-    it('keeps the note panel open when an existing annotation\'s edit is saved, and a later Close returns to the scan', async () => {
+    it('returns to the scan when an existing annotation\'s edit is saved', async () => {
       handlers();
       addImages(2);
       await addAnnotation(location.href, { note: 'Stored note', selector: '#broken-0', elementContext: storedContext('#broken-0') });
@@ -566,10 +566,7 @@ describe('content script entrypoint', () => {
       trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-edit]')!);
 
       await vi.waitFor(async () => expect((await listAnnotations(location.href))[0]?.note).toBe('Changed note'));
-      await vi.waitFor(() => expect(panel().querySelector<HTMLTextAreaElement>('[data-annotation-edit-note]')?.defaultValue).toBe('Changed note'));
-      expect(panel().getAttribute('aria-label')).toBe('Annotation note');
-
-      trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!);
+      await vi.waitFor(() => expect(panel().getAttribute('aria-label')).toBe('Page scan'));
 
       expectScanBack(before, 0);
     });

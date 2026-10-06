@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import { listAnnotations } from '../lib/annotation-storage';
 import { ANNOTATION_EDIT_EVENT, ANNOTATION_LIST_CLOSE_EVENT, ANNOTATION_START_EVENT, createAnnotationList } from '../lib/annotation-list/annotation-list';
-import { createNotePanel, NOTE_PANEL_ADDED_EVENT, NOTE_PANEL_CLOSE_EVENT } from '../lib/notes/note-panel';
+import { createNotePanel, NOTE_PANEL_CLOSE_EVENT, NOTE_PANEL_SAVED_EVENT } from '../lib/notes/note-panel';
 import { ANNOTATION_SCAN_CLOSE_EVENT, createScanPanel, deepScanPage, scanPage } from '../lib/scan-panel/scan-panel';
 import { createPinsController, type PinsController } from '../lib/pins/pins';
 import { extractElementContext } from '../lib/capture/context';
@@ -182,8 +182,9 @@ export default defineContentScript({
         shell.panel.addEventListener(NOTE_PANEL_CLOSE_EVENT, () => {
           if (panels.mode() === 'note') panels.close();
         });
-        shell.panel.addEventListener(NOTE_PANEL_ADDED_EVENT, () => {
-          if (panels.mode() === 'note') panels.returnToScan();
+        shell.panel.addEventListener(NOTE_PANEL_SAVED_EVENT, () => {
+          panels.returnToScan();
+          if (panels.mode() === 'note') panels.close();
         });
         shell.panel.addEventListener(ANNOTATION_LIST_CLOSE_EVENT, () => {
           if (panels.mode() === 'list') panels.close();

@@ -4,14 +4,14 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import contentScript from '../../entrypoints/content';
 import type { Annotation } from '../annotation';
-import { addAnnotation } from '../annotation-storage';
+import { addAnnotation, listAnnotations } from '../annotation-storage';
 import type { ElementContext } from '../capture/context';
 import { createCaptureController, guardUntrustedOverlayEvents, interceptPageEvents, releasePageEvents, type CaptureController, type CaptureEvents } from '../capture/selection';
 import { extractElementContext } from '../capture/context';
 import { watchOutsideClick } from '../ui/outside-click';
 import { createAnnotationList } from '../annotation-list/annotation-list';
 import type { AnnotationWriteMessage } from '../annotation-messages';
-import { createNotePanel, NOTE_PANEL_CLOSE_EVENT } from '../notes/note-panel';
+import { createNotePanel, NOTE_PANEL_CLOSE_EVENT, NOTE_PANEL_SAVED_EVENT } from '../notes/note-panel';
 import { buildOverlayShell, createPanelAnchor } from '../ui/shell';
 import { createPanelMode } from './panel-mode';
 import { registerBackgroundMessageHandlers } from './background-messages';
@@ -421,51 +421,41 @@ afterEach(() => {
   attachShadowSpy = undefined;
 });
 
-describe('closing a note panel after Save near the toolbar (real browser)', () => {
-  it('leaves the panel unclamped with Close in view and clickable after Save grows a panel that started clamped', async () => {
-    const { overlayRoot, button, panel, label, click } = await startContentScript();
-    const footer = document.createElement('div');
-    footer.style.cssText = 'position: fixed; left: 0; right: 0; bottom: 0; height: 40px; background: #ccc';
-    const near = document.createElement('p');
-    document.body.append(footer, near);
-    const closed = vi.fn();
-    try {
-      await click(button('Annotate'));
-      await userEvent.click(target);
-      await vi.waitFor(() => expect(panel().querySelector('[data-annotation-new-note]')).not.toBeNull());
-      await frames();
-      const bare = panel().offsetHeight;
-      const barRect = overlayRoot.querySelector('[role="toolbar"]')!.getBoundingClientRect();
-      const box = { x: barRect.left + 10, y: barRect.top - 10 - (bare - 40) - 8 - 20, width: 100, height: 20 };
-      near.style.cssText = `position: fixed; margin: 0; left: ${box.x}px; top: ${box.y}px; width: ${box.width}px; height: ${box.height}px`;
-      panel().addEventListener(NOTE_PANEL_CLOSE_EVENT, closed);
+describe('saving a note in the content script (real browser)', () => {
+  it('dismisses the note popup after a successful Add note', async () => {
+    const { button, panel, label, click, overlayRoot } = await startContentScript();
+    await click(button('Annotate'));
+    await userEvent.click(target);
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-new-note]')).not.toBeNull());
 
-      await click(button('Annotate'));
-      await userEvent.click(near);
-      await vi.waitFor(() => expect(panel().querySelector('[data-annotation-new-note]')).not.toBeNull());
-      await frames();
+    const field = panel().querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!;
+    field.value = 'A saved note';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    await click(panel().querySelector<HTMLButtonElement>('[data-annotation-save]')!);
+    await vi.waitFor(() => expect(label()).toBeNull());
 
-      const field = panel().querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!;
-      field.value = 'A saved note';
-      field.dispatchEvent(new Event('input', { bubbles: true }));
-      await click(panel().querySelector<HTMLButtonElement>('[data-annotation-save]')!);
-      await vi.waitFor(() => expect(panel().querySelectorAll('[data-annotation-note-card]')).toHaveLength(1));
-      await frames();
+    expect((await listAnnotations(location.href)).map(({ note }) => note)).toEqual(['A saved note']);
+    expect(overlayRoot.activeElement).toBe(button('Annotate'));
+  });
 
-      const panelRect = panel().getBoundingClientRect();
-      expect(panel().scrollHeight).toBeLessThanOrEqual(panel().clientHeight + 1);
-      const close = panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!;
-      const rect = close.getBoundingClientRect();
-      expect(rect.top).toBeGreaterThanOrEqual(panelRect.top);
-      expect(rect.bottom).toBeLessThanOrEqual(panelRect.bottom);
-      expect(overlayRoot.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)).toBe(close);
-      await click(close);
-      expect(closed).toHaveBeenCalledTimes(1);
-      expect(label()).toBeNull();
-    } finally {
-      footer.remove();
-      near.remove();
-    }
+  it('dismisses the note popup after a successful update Save', async () => {
+    const { button, panel, label, click } = await startContentScript();
+    await addAnnotation(location.href, {
+      note: 'Original note',
+      selector: '#zoom-target',
+      elementContext: extractElementContext(target),
+    });
+    await click(button('Annotate'));
+    await userEvent.click(target);
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-edit-note]')).not.toBeNull());
+
+    const field = panel().querySelector<HTMLTextAreaElement>('[data-annotation-edit-note]')!;
+    field.value = 'Updated note';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    await click(panel().querySelector<HTMLButtonElement>('[data-annotation-edit]')!);
+
+    await vi.waitFor(() => expect(label()).toBeNull());
+    expect((await listAnnotations(location.href)).map(({ note }) => note)).toEqual(['Updated note']);
   });
 });
 
