@@ -478,19 +478,20 @@ describe('content script entrypoint', () => {
       expect(shadow().activeElement).toBe(row);
     });
 
-    it('an outside click brings back the scan', async () => {
+    it('an outside click closes the note without bringing the scan back', async () => {
       addImages(2);
       await start();
       await openScan();
-      const before = outlines();
       await annotate(0);
 
       outsideClick();
 
-      expectScanBack(before);
+      expect(panel().hasAttribute('aria-label')).toBe(false);
+      expect(button('Scan').getAttribute('aria-expanded')).toBe('false');
+      expect(outlines()).toEqual([]);
     });
 
-    it('carries no emphasis over from before Annotate: a Locate on another finding is gone after an outside click, hover and leave', async () => {
+    it('carries no emphasis over from before Annotate: a Locate on another finding is gone after an outside click and a reopened scan', async () => {
       addImages(2);
       await start();
       await openScan();
@@ -502,11 +503,12 @@ describe('content script entrypoint', () => {
       await vi.waitFor(() => expect(noteField()).not.toBeNull());
 
       outsideClick();
-      expectScanBack(before);
-      rowTwo.dispatchEvent(new MouseEvent('mouseenter'));
-      rowTwo.dispatchEvent(new MouseEvent('mouseleave'));
+      await openScan();
+      const reopenedRowTwo = panel().querySelector<HTMLElement>('[data-annotation-scan-number="2"]')!;
+      reopenedRowTwo.dispatchEvent(new MouseEvent('mouseenter'));
+      reopenedRowTwo.dispatchEvent(new MouseEvent('mouseleave'));
 
-      expect(before.filter((outline) => outline.hasAttribute('data-annotation-emphasis'))).toEqual([]);
+      expect(outlines().filter((outline) => outline.hasAttribute('data-annotation-emphasis'))).toEqual([]);
     });
 
     it('a saved note brings back the scan, focuses the finding\'s Annotate button and announces Note saved. in the note panel\'s live region', async () => {
@@ -1393,7 +1395,7 @@ describe('content script entrypoint', () => {
       it.each([
         ['All annotations', 'View all', 'Annotations on this page'],
         ['the scan panel', 'Scan', 'Page scan'],
-      ])('leaves %s open', async (_name, opener, label) => {
+      ])('closes %s on a trusted outside click', async (_name, opener, label) => {
         await start();
         await pushToolbar(true);
         trustedClick(button(opener));
@@ -1403,8 +1405,8 @@ describe('content script entrypoint', () => {
         pointer(outside);
         click(outside);
 
-        expect(panel().getAttribute('aria-label')).toBe(label);
-        expect(button(opener).getAttribute('aria-expanded')).toBe('true');
+        expect(panel().hasAttribute('aria-label')).toBe(false);
+        expect(button(opener).getAttribute('aria-expanded')).toBe('false');
       });
     });
   });

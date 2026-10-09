@@ -68,10 +68,14 @@ describe('annotation list', () => {
     await list.render();
 
     (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(delivery.copy).toHaveBeenCalledTimes(1));
+    expect(delivery.copy).toHaveBeenCalledTimes(1);
     const markdown = format(annotations, pageUrl);
-    expect(delivery.copy).toHaveBeenCalledWith(markdown);
+    await expect(vi.mocked(delivery.copy).mock.calls[0]?.[0]).resolves.toEqual({
+      text: markdown,
+      html: expect.stringContaining('src="data:image/webp;base64,'),
+    });
     expect(markdown).not.toContain('abc');
+    expect(store.readBlob).toHaveBeenCalledWith('screenshot:annotation-1');
     (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
     expect(delivery.download).toHaveBeenCalledWith(markdown, expect.stringMatching(/\.md$/));
     await vi.waitFor(() => expect(delivery.downloadAsset).toHaveBeenCalledTimes(2));
@@ -99,6 +103,38 @@ describe('annotation list', () => {
     await vi.waitFor(() => expect(list.live.textContent).toBe('Copy failed: Document is not focused.'));
     expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Copy failed: Document is not focused.');
     expect(panel.querySelector('[data-annotation-row]')).not.toBeNull();
+  });
+
+  it('reports a missing screenshot read as the Copy failure instead of copying text alone', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Copy me', 'image/webp')]);
+    // sendBlobRead rejects for a missing key, as the background's blob.read handler does.
+    vi.mocked(store.readBlob).mockRejectedValue(new Error('Blob was not found'));
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async (pending) => { await pending; }), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Copy failed: Blob was not found'));
+    expect(panel.querySelector('[data-annotation-status=""]')?.textContent).toBe('Copy failed: Blob was not found');
+  });
+
+  it('leaves no payload rejection unhandled when copy does not consume the payload', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Copy me', 'image/webp')]);
+    vi.mocked(store.readBlob).mockRejectedValue(new Error('Blob was not found'));
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => {}), download: vi.fn(), downloadAsset: vi.fn() };
+      const list = createAnnotationList(panel, pageUrl, store, delivery);
+      await list.render();
+      (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+      await vi.waitFor(() => expect(delivery.copy).toHaveBeenCalledTimes(1));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 
   it('downloads attachment assets even without a screenshot', async () => {

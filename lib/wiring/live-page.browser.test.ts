@@ -785,16 +785,46 @@ describe('Annotate from a scan finding (real browser)', () => {
     });
   });
 
-  it('leaves focus on the page control a real outside click landed on, and brings the scan back', async () => {
-    const { overlayRoot, outside, label, outlines, annotateButtons, openScan, annotate } = await mountScan();
+  it('leaves focus on the page control a real outside click landed on, and closes the note without bringing the scan back', async () => {
+    const { outside, label, outlines, annotateButtons, openScan, annotate } = await mountScan();
     await openScan();
     await annotate(0);
 
     await userEvent.click(outside);
 
-    await vi.waitFor(() => expect(label()).toBe('Page scan'));
-    expect(outlines()).toHaveLength(2);
+    await vi.waitFor(() => expect(label()).toBeNull());
+    expect(outlines()).toHaveLength(0);
+    expect(annotateButtons()).toHaveLength(0);
     expect(document.activeElement).toBe(outside);
-    expect(annotateButtons()).not.toContain(overlayRoot.activeElement);
+  });
+});
+
+describe('a click outside the Scan and the annotation list (real browser)', () => {
+  let fixtures: HTMLElement[] = [];
+
+  afterEach(() => {
+    for (const fixture of fixtures) fixture.remove();
+    fixtures = [];
+  });
+
+  it.each([
+    ['View all', 'Annotations on this page'],
+    ['Scan', 'Page scan'],
+  ])('closes the %s panel on a real click on page content', async (opener, name) => {
+    const { button, label, click } = await startContentScript();
+    const outside = document.createElement('button');
+    outside.textContent = 'Page control';
+    outside.style.cssText = 'position: fixed; margin: 0; left: 900px; top: 20px; width: 120px; height: 32px';
+    document.body.append(outside);
+    fixtures.push(outside);
+
+    await click(button(opener));
+    await vi.waitFor(() => expect(label()).toBe(name));
+    await frames();
+
+    await userEvent.click(outside);
+
+    await vi.waitFor(() => expect(label()).toBeNull());
+    expect(button(opener).getAttribute('aria-expanded')).toBe('false');
   });
 });

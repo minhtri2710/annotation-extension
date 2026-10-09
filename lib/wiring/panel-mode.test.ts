@@ -168,6 +168,22 @@ describe('createPanelMode', () => {
     expect(document.activeElement).toBe(inner);
   });
 
+  it('dismisses a note opened from the scan without restoring the suspended scan', () => {
+    const { panels, panel, scanToggle, scanPanel, notePanel } = setup();
+    panels.toggle('scan');
+    panels.showScanNote(context, 'Seed note');
+    expect(scanPanel.suspend).toHaveBeenCalledTimes(1);
+
+    panels.dismiss();
+
+    expect(panels.mode()).toBe('none');
+    expect(scanPanel.restore).not.toHaveBeenCalled();
+    expect(scanPanel.clear).toHaveBeenCalledTimes(1);
+    expect(notePanel.clear).toHaveBeenCalledTimes(1);
+    expect(scanToggle.getAttribute('aria-expanded')).toBe('false');
+    expect(panel.hasAttribute('aria-label')).toBe(false);
+  });
+
   it('passes the seed to the note panel and places the anchor at the context box', async () => {
     const { panels, notePanel, anchor, outside } = setup();
 
