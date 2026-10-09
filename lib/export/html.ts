@@ -85,8 +85,8 @@ async function embeddedImage(blob: Blob | undefined, alt: string): Promise<strin
 }
 
 function preformatted(text: string): string {
-  // HTML drops a newline that directly follows <pre>, so a leading newline in the text is doubled to keep it.
-  const leadingNewline = /^\r?\n/.test(text) ? '\n' : '';
+  // HTML reads CR and CRLF as LF, then drops the LF that directly follows <pre>; a leading CR or LF gets one LF in front to keep it.
+  const leadingNewline = /^[\r\n]/.test(text) ? '\n' : '';
   return `<pre>${leadingNewline}${escapeHtml(text)}</pre>`;
 }
 

@@ -168,6 +168,17 @@ describe('formatPageHtml', () => {
     expect(html).toContain('<pre>\n\nleading line</pre>');
   });
 
+  it.each([
+    ['lone CR', '\rleading line'],
+    ['CRLF', '\r\nleading line'],
+    ['LF', '\nleading line'],
+  ])('puts one LF before a %s leading newline, so the parser keeps it after dropping that LF', async (_, note) => {
+    const html = await formatPageHtml(pageUrl, [annotation({ note })], async () => undefined);
+
+    // HTML reads CR and CRLF as LF, then drops the first LF after <pre>; the note itself is left unnormalized.
+    expect(html).toContain(`<pre>\n${note}</pre>`);
+  });
+
   it('orders the page annotations by createdAt, not by storage order', async () => {
     const html = await formatPageHtml(pageUrl,
       [
