@@ -48,6 +48,8 @@ export function createNotePanel(
   const drafts = new Map<string, string>();
   const untouchedSeeds = new Set<string>();
   let restoredDraft = false;
+  // Set by Add another note; a refresh keeps that form open until the panel is cleared.
+  let expandedNewNote: string | undefined;
   const groupStates = new Map<string, boolean>();
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
@@ -185,7 +187,7 @@ export function createNotePanel(
       event.preventDefault();
       if (event.submitter !== save) add();
     });
-    if (annotations.length > 0 && !drafts.has(draftKey)) {
+    if (annotations.length > 0 && !drafts.has(draftKey) && expandedNewNote !== draftKey) {
       form.hidden = true;
       const addAnother = document.createElement('button');
       addAnother.type = 'button';
@@ -193,6 +195,7 @@ export function createNotePanel(
       addAnother.dataset.variant = 'quiet';
       addAnother.textContent = 'Add another note';
       addAnother.addEventListener('click', () => {
+        expandedNewNote = draftKey;
         form.hidden = false;
         addAnother.hidden = true;
         note.focus();
@@ -745,6 +748,7 @@ export function createNotePanel(
     renderSequence++;
     selectedContext = undefined;
     statusMessage = undefined;
+    expandedNewNote = undefined;
     revokePreviewUrls();
     panel.replaceChildren();
     announce('');

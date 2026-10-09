@@ -2069,4 +2069,33 @@ describe('note panel Add another note', () => {
     expect(form(panel).hidden).toBe(false);
     expect(addAnother(panel)?.hidden ?? true).toBe(true);
   });
+
+  it('keeps an expanded form through a storage sync and a write on the note, and folds it again once the panel is cleared', async () => {
+    const panel = document.createElement('div');
+    document.body.append(panel);
+    const changed = { ...annotation('Stored elsewhere'), updatedAt: '2024-01-02T00:00:00.000Z' };
+    const listAnnotations = vi.fn().mockResolvedValueOnce([annotation('Stored')]).mockResolvedValue([changed]);
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const { notePanel } = await render(panel, [], { listAnnotations, sendAnnotationWrite });
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    expect(form(panel).hidden).toBe(true);
+
+    addAnother(panel)!.click();
+    await notePanel.syncWithStorage();
+    expect(listAnnotations).toHaveBeenCalledTimes(3);
+    expect(form(panel).hidden).toBe(false);
+
+    panel.querySelector<HTMLButtonElement>('[data-annotation-status-toggle]')!.click();
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(1));
+    await flush();
+    expect(listAnnotations).toHaveBeenCalledTimes(4);
+    expect(form(panel).hidden).toBe(false);
+    expect(addAnother(panel)?.hidden ?? true).toBe(true);
+
+    notePanel.clear();
+    await notePanel.render(context);
+    expect(form(panel).hidden).toBe(true);
+    expect(addAnother(panel)?.hidden).toBe(false);
+    panel.remove();
+  });
 });

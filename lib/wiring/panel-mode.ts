@@ -112,7 +112,7 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
     mode: () => panelMode,
     opener: () => panelOpener,
     close,
-    dismiss: () => (scanSuspended ? restoreScan(false) : resetPanel()),
+    dismiss: () => resetPanel(),
     toggle,
     showNote: (context, opener, seed) => openNote(context, opener, seed, false),
     showScanNote: (context, seed) => openNote(context, scanToggle, seed, true),

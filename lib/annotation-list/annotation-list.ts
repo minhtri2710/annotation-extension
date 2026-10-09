@@ -1,6 +1,7 @@
 import type { Annotation } from '../annotation';
 import { errorMessage } from '../guards';
 import { annotationAssets, format, formatElementContext } from '../export/format';
+import { formatPageHtml } from '../export/html';
 import {
   productionExportDelivery,
   type AnnotationExportDelivery,
@@ -265,10 +266,14 @@ export function createAnnotationList(
     copy.textContent = 'Copy Markdown';
     copy.addEventListener('click', () => {
       const version = clearVersion;
+      const text = markdown();
+      const pending = formatPageHtml(pageUrl, annotations, (key) => persistence.readBlob(key)).then((html) => ({ text, html }));
+      // A copy may not consume the payload on every path, so its rejection is marked handled here; copy still reports it.
+      pending.catch(() => undefined);
       void (async () => {
         let message = 'Copied to clipboard.';
         try {
-          await delivery.copy(markdown());
+          await delivery.copy(pending);
         } catch (error) {
           message = `Copy failed: ${errorMessage(error)}`;
         }

@@ -15,6 +15,8 @@ import {
 import type { Annotation, AnnotationInput } from './annotation';
 import type { BlobStore } from './blob-store';
 import { attachmentKey, screenshotKey } from './blob-store';
+import { formatAllPages } from './export/format';
+import { serialize } from './json-io';
 
 const png = (tail: string) => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), tail], { type: 'image/png' });
 
@@ -202,6 +204,23 @@ describe('annotation storage', () => {
     await expect(listAnnotations(secondPage)).resolves.toEqual([other]);
     await expect(store.get(`screenshot:${first.id}`)).resolves.toBeUndefined();
     await expect(store.get(`screenshot:${other.id}`)).resolves.toBeDefined();
+  });
+
+  it('leaves a deleted annotation out of the all-pages JSON and Markdown exports', async () => {
+    const store = new MemoryBlobStore();
+    const deleted = await restoreWithScreenshot(firstPage, { ...firstInput, note: 'Deleted note' }, png('one'), { width: 1, height: 1 }, store);
+    const kept = await restoreWithScreenshot(secondPage, { ...firstInput, note: 'Kept note' }, png('two'), { width: 1, height: 1 }, store);
+
+    await deleteAnnotation(firstPage, deleted.id, store);
+    const annotations = await listAllAnnotations();
+    const { json } = await serialize(annotations, store);
+    const markdown = formatAllPages(annotations);
+
+    expect(annotations.map((annotation) => annotation.id)).toEqual([kept.id]);
+    expect(json).toContain('Kept note');
+    expect(json).not.toContain('Deleted note');
+    expect(markdown).toContain('Kept note');
+    expect(markdown).not.toContain('Deleted note');
   });
 
   it('surfaces a blob deletion failure after metadata deletion', async () => {

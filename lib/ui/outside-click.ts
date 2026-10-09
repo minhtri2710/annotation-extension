@@ -10,7 +10,7 @@ export interface OutsideClickOptions {
 export function watchOutsideClick(options: OutsideClickOptions): () => void {
   const { win, shadowHost, panels, captureActive } = options;
   const outside = (event: MouseEvent) => event.isTrusted && event.button === 0 && !event.composedPath().includes(shadowHost);
-  const armed = () => panels.mode() === 'note' && !captureActive();
+  const armed = () => panels.mode() !== 'none' && !captureActive();
   let pending = false;
   const onPointerDown = (event: PointerEvent) => {
     pending = outside(event) && armed();

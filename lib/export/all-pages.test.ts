@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
-import type { AnnotationExportDelivery } from './delivery';
+import type { AnnotationClipboard, AnnotationExportDelivery } from './delivery';
 import { exportAllPages } from './all-pages';
 import { formatAllPages } from './format';
 
@@ -31,11 +31,12 @@ function annotation(overrides: Partial<Annotation> = {}): Annotation {
 
 function recordingDelivery() {
   const events: string[] = [];
-  const copied: string[] = [];
+  const copied: AnnotationClipboard[] = [];
   const delivery: AnnotationExportDelivery = {
-    async copy(markdown) {
-      copied.push(markdown);
+    async copy(pending) {
+      // copy is invoked synchronously, before collect resolves; only the payload is awaited.
       events.push('copy');
+      copied.push(await pending);
     },
     download(_markdown, filename) {
       events.push(`download:${filename}`);
@@ -60,31 +61,105 @@ const withAssets = [
 ];
 
 describe('exportAllPages', () => {
-  it('reports zero annotations and delivers nothing', async () => {
-    const { delivery, events } = recordingDelivery();
+  it('reports zero annotations, downloads nothing and reports no copy status', async () => {
+    const { delivery, events, copied } = recordingDelivery();
     const readBlob = vi.fn();
 
     const status = await exportAllPages({ collect: async () => [], readBlob, delivery });
 
     expect(status).toBe('No annotations to export.');
-    expect(events).toEqual([]);
+    // The write starts before collect resolves, so copy is invoked; its rejected payload leaves the clipboard unchanged.
+    expect(events).toEqual(['copy']);
+    expect(copied).toEqual([]);
     expect(readBlob).not.toHaveBeenCalled();
+  });
+
+  it('starts the copy before collect resolves, so the native write runs in the click', async () => {
+    const { delivery, events } = recordingDelivery();
+    let resolveCollect!: (annotations: Annotation[]) => void;
+    const collected = new Promise<Annotation[]>((resolve) => {
+      resolveCollect = resolve;
+    });
+    const blobs: Record<string, Blob> = {
+      'screenshot:one': new Blob(['abc'], { type: 'image/webp' }),
+      'attachment:att-a': new Blob(['a'], { type: 'image/png' }),
+      'attachment:att-b': new Blob(['bb'], { type: 'image/jpeg' }),
+    };
+
+    const run = exportAllPages({ collect: () => collected, readBlob: async (key) => blobs[key], delivery });
+    expect(events).toEqual(['copy']);
+    resolveCollect(withAssets);
+
+    expect(await run).toBe('Exported 2 annotations and 3 assets.');
+  });
+
+  it('reports a collect that throws synchronously as an export failure, with no copy and no download', async () => {
+    const { delivery, events } = recordingDelivery();
+
+    const status = await exportAllPages({
+      collect: () => { throw new Error('storage unavailable'); },
+      readBlob: vi.fn(),
+      delivery,
+    });
+
+    expect(status).toBe('Export failed: storage unavailable');
+    expect(events).toEqual([]);
+  });
+
+  it('leaves no payload rejection unhandled when copy does not consume the payload', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const delivery: AnnotationExportDelivery = { copy: async () => {}, download: vi.fn(), downloadAsset: vi.fn() };
+
+      const status = await exportAllPages({ collect: async () => [], readBlob: vi.fn(), delivery });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(status).toBe('No annotations to export.');
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
+  it('copies HTML grouped by sorted host and page, ordered by createdAt, in the same order as the Markdown', async () => {
+    const { delivery, copied } = recordingDelivery();
+    const annotations = [
+      annotation({ id: 'b-late', note: 'b-x-late', pageUrl: 'https://b.test/x', createdAt: '2024-01-02T00:00:00.000Z' }),
+      annotation({ id: 'a-y', note: 'a-y', pageUrl: 'https://a.test/y', createdAt: '2024-01-03T00:00:00.000Z' }),
+      annotation({ id: 'b-early', note: 'b-x-early', pageUrl: 'https://b.test/x', createdAt: '2024-01-01T00:00:00.000Z' }),
+      annotation({ id: 'a-z', note: 'a-z', pageUrl: 'https://a.test/z', createdAt: '2024-01-01T00:00:00.000Z' }),
+    ];
+    const expectedOrder = ['a-y', 'a-z', 'b-x-early', 'b-x-late'];
+
+    await exportAllPages({ collect: async () => annotations, readBlob: vi.fn(), delivery });
+
+    const html = copied[0]!.html;
+    const markdown = formatAllPages(annotations);
+    const positions = (text: string) => expectedOrder.map((note) => text.indexOf(note));
+    expect(positions(markdown)).toEqual([...positions(markdown)].sort((left, right) => left - right));
+    expect(positions(html)).toEqual([...positions(html)].sort((left, right) => left - right));
+    expect(html.indexOf('<h2>a.test</h2>')).toBeLessThan(html.indexOf('<h2>b.test</h2>'));
+    expect(html.indexOf('<h3>https://a.test/y</h3>')).toBeLessThan(html.indexOf('<h3>https://a.test/z</h3>'));
   });
 
   it('copies and downloads the all-pages Markdown, then every asset under the per-page filenames', async () => {
     const { delivery, events, copied } = recordingDelivery();
     const blobs: Record<string, Blob> = {
-      'screenshot:one': new Blob(['abc']),
-      'attachment:att-a': new Blob(['a']),
-      'attachment:att-b': new Blob(['bb']),
+      'screenshot:one': new Blob(['abc'], { type: 'image/webp' }),
+      'attachment:att-a': new Blob(['a'], { type: 'image/png' }),
+      'attachment:att-b': new Blob(['bb'], { type: 'image/jpeg' }),
     };
 
     const status = await exportAllPages({ collect: async () => withAssets, readBlob: async (key) => blobs[key], delivery });
 
-    expect(copied).toEqual([formatAllPages(withAssets)]);
+    expect(copied).toEqual([{ text: formatAllPages(withAssets), html: expect.any(String) }]);
+    expect(copied[0]?.html).toContain('src="data:image/webp;base64,');
+    expect(copied[0]?.html).toContain('src="data:image/png;base64,');
+    expect(copied[0]?.html).toContain('src="data:image/jpeg;base64,');
     expect(events).toEqual([
-      'download:annotations-all.md',
       'copy',
+      'download:annotations-all.md',
       'asset:annotations-one.webp:3',
       'asset:annotations-one-attachment-1.png:1',
       'asset:annotations-one-attachment-2.jpeg:2',
@@ -92,37 +167,40 @@ describe('exportAllPages', () => {
     expect(status).toBe('Exported 2 annotations and 3 assets.');
   });
 
-  it('skips missing blobs and counts the skips in the status', async () => {
+  it('skips missing blobs, still downloads them, and reports the missing image as the copy failure', async () => {
     const { delivery, events } = recordingDelivery();
-    const blobs: Record<string, Blob> = { 'attachment:att-b': new Blob(['bb']) };
+    const blobs: Record<string, Blob> = { 'attachment:att-b': new Blob(['bb'], { type: 'image/jpeg' }) };
 
     const status = await exportAllPages({ collect: async () => withAssets, readBlob: async (key) => blobs[key], delivery });
 
-    expect(events).toEqual(['download:annotations-all.md', 'copy', 'asset:annotations-one-attachment-2.jpeg:2']);
-    expect(status).toBe('Exported 2 annotations and 1 asset; skipped 2 missing assets.');
+    expect(events).toEqual(['copy', 'download:annotations-all.md', 'asset:annotations-one-attachment-2.jpeg:2']);
+    expect(status).toBe(
+      'Exported 2 annotations and 1 asset; skipped 2 missing assets. '
+        + 'Downloaded; copy to clipboard failed: The image "Annotation screenshot" is missing and cannot be copied.',
+    );
   });
 
   it('stops at the first blob read error and reports it', async () => {
     const { delivery, events } = recordingDelivery();
     const readBlob = vi.fn(async (key: string) => {
       if (key === 'attachment:att-a') throw new Error('Blob transaction failed');
-      return new Blob(['x']);
+      return new Blob(['x'], { type: 'image/webp' });
     });
 
     const status = await exportAllPages({ collect: async () => withAssets, readBlob, delivery });
 
     expect(status).toBe('Export failed: Blob transaction failed');
-    expect(events).toEqual(['download:annotations-all.md', 'copy', 'asset:annotations-one.webp:1']);
-    expect(readBlob).toHaveBeenCalledTimes(2);
+    expect(events).toEqual(['copy', 'download:annotations-all.md', 'asset:annotations-one.webp:1']);
+    expect(readBlob).not.toHaveBeenCalledWith('attachment:att-b');
   });
 
   it('downloads the Markdown and every asset when the clipboard write fails, and reports the copy failure', async () => {
     const { delivery, events } = recordingDelivery();
     delivery.copy = async () => { throw new Error('Document is not focused.'); };
     const blobs: Record<string, Blob> = {
-      'screenshot:one': new Blob(['abc']),
-      'attachment:att-a': new Blob(['a']),
-      'attachment:att-b': new Blob(['bb']),
+      'screenshot:one': new Blob(['abc'], { type: 'image/webp' }),
+      'attachment:att-a': new Blob(['a'], { type: 'image/png' }),
+      'attachment:att-b': new Blob(['bb'], { type: 'image/jpeg' }),
     };
 
     const status = await exportAllPages({ collect: async () => withAssets, readBlob: async (key) => blobs[key], delivery });

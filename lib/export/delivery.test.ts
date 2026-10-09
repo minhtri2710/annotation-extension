@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clipboardFailure, productionExportDelivery } from './delivery';
+import { clipboardFailure, productionExportDelivery, type AnnotationClipboard } from './delivery';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -15,17 +15,107 @@ describe('clipboardFailure', () => {
 });
 
 describe('productionExportDelivery', () => {
-  it('copy writes the markdown to navigator.clipboard', async () => {
-    const writeText = vi.fn(async (_text: string) => {});
-    vi.stubGlobal('navigator', { clipboard: { writeText } });
+  const html = '<h2>Notes</h2><img src="data:image/png;base64,AAAA">';
+  const missingImage = 'The image "Annotation screenshot" is missing and cannot be copied.';
 
-    await productionExportDelivery.copy('# Notes');
-    expect(writeText.mock.calls).toEqual([['# Notes']]);
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  }
+
+  function stubClipboardItem() {
+    const items: { data: Record<string, Promise<Blob>> }[] = [];
+    class RecordingClipboardItem {
+      readonly data: Record<string, Promise<Blob>>;
+
+      constructor(data: Record<string, Promise<Blob>>) {
+        this.data = data;
+        items.push({ data });
+      }
+    }
+    vi.stubGlobal('ClipboardItem', RecordingClipboardItem);
+    return items;
+  }
+
+  it('copy starts the write before the payload settles, then writes the HTML and the Markdown text as one ClipboardItem', async () => {
+    const items = stubClipboardItem();
+    const payload = deferred<AnnotationClipboard>();
+    const write = vi.fn(async (_items: unknown[]) => {});
+    vi.stubGlobal('navigator', { clipboard: { write } });
+
+    const copied = productionExportDelivery.copy(payload.promise);
+    expect(write).toHaveBeenCalledTimes(1);
+    payload.resolve({ text: '# Notes', html });
+    await copied;
+
+    expect(write.mock.calls[0]?.[0]).toHaveLength(1);
+    expect(items).toHaveLength(1);
+    expect(Object.keys(items[0]!.data).sort()).toEqual(['text/html', 'text/plain']);
+    const htmlBlob = await items[0]!.data['text/html']!;
+    expect(htmlBlob.type).toBe('text/html');
+    expect(await htmlBlob.text()).toBe(html);
+    const textBlob = await items[0]!.data['text/plain']!;
+    expect(textBlob.type).toBe('text/plain');
+    expect(await textBlob.text()).toBe('# Notes');
   });
 
-  it('copy propagates a clipboard rejection', async () => {
-    vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject(new Error('denied')) } });
-    await expect(productionExportDelivery.copy('# Notes')).rejects.toThrow('denied');
+  it('copy reports the payload error, not the generic DataError the browser raises for a rejected entry', async () => {
+    stubClipboardItem();
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        write: async (items: { data: Record<string, Promise<Blob>> }[]) => {
+          await Promise.allSettled(Object.values(items[0]!.data));
+          throw new DOMException('Data provided to an operation does not meet requirements', 'DataError');
+        },
+      },
+    });
+
+    await expect(productionExportDelivery.copy(Promise.reject(new Error(missingImage)))).rejects.toThrow(missingImage);
+  });
+
+  it('copy reports the write error when the payload succeeds and the write is denied', async () => {
+    stubClipboardItem();
+    vi.stubGlobal('navigator', {
+      clipboard: { write: async () => { throw new DOMException('Write permission denied.', 'NotAllowedError'); } },
+    });
+
+    await expect(
+      productionExportDelivery.copy(Promise.resolve({ text: '# Notes', html })),
+    ).rejects.toThrow('Write permission denied.');
+  });
+
+  it('copy reports the payload error when a denied write never reads its entries', async () => {
+    stubClipboardItem();
+    vi.stubGlobal('navigator', {
+      clipboard: { write: async () => { throw new DOMException('Write permission denied.', 'NotAllowedError'); } },
+    });
+
+    await expect(productionExportDelivery.copy(Promise.reject(new Error(missingImage)))).rejects.toThrow(missingImage);
+  });
+
+  it('copy takes the legacy path without calling write when ClipboardItem is absent', async () => {
+    vi.stubGlobal('ClipboardItem', undefined);
+    vi.stubGlobal('document', { getSelection: () => null });
+    const write = vi.fn(async (_items: unknown[]) => {});
+    vi.stubGlobal('navigator', { clipboard: { write } });
+
+    await expect(productionExportDelivery.copy(Promise.resolve({ text: '# Notes', html }))).rejects.toThrow(
+      'does not support the legacy copy command',
+    );
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('copy on the legacy path reports the payload error before any selection is made', async () => {
+    vi.stubGlobal('ClipboardItem', undefined);
+    const getSelection = vi.fn(() => null);
+    vi.stubGlobal('document', { getSelection });
+    vi.stubGlobal('navigator', { clipboard: {} });
+
+    await expect(productionExportDelivery.copy(Promise.reject(new Error(missingImage)))).rejects.toThrow(missingImage);
+    expect(getSelection).not.toHaveBeenCalled();
   });
 
   function stubDownload() {
