@@ -1,7 +1,7 @@
 import type { Annotation } from '../annotation';
 import { errorMessage } from '../guards';
 import { annotationAssets, format, formatElementContext } from '../export/format';
-import { formatHtml } from '../export/html';
+import { formatPageHtml } from '../export/html';
 import {
   productionExportDelivery,
   type AnnotationExportDelivery,
@@ -267,7 +267,7 @@ export function createAnnotationList(
     copy.addEventListener('click', () => {
       const version = clearVersion;
       const text = markdown();
-      const pending = formatHtml(annotations, (key) => persistence.readBlob(key)).then((html) => ({ text, html }));
+      const pending = formatPageHtml(pageUrl, annotations, (key) => persistence.readBlob(key)).then((html) => ({ text, html }));
       // A copy may not consume the payload on every path, so its rejection is marked handled here; copy still reports it.
       pending.catch(() => undefined);
       void (async () => {

@@ -84,6 +84,36 @@ describe('annotation list', () => {
     expect(store.readBlob).toHaveBeenCalledWith('screenshot:annotation-1');
   });
 
+  it('copies a rich payload that carries every field the Markdown carries', async () => {
+    const panel = document.createElement('div');
+    const full: Annotation = {
+      ...annotation('annotation-1', 'First line\n  indented second line'),
+      elementContext: { ...elementContext, sourcePath: { fileName: 'src/Button.tsx', lineNumber: 42 } },
+      repro: { steps: ['Open the menu'], expected: 'menu opens', actual: 'menu stays closed' },
+      cssEdits: [{ property: 'color', value: '#fff', original: '#000' }],
+    };
+    const store = persistence([full]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => {}), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    expect(delivery.copy).toHaveBeenCalledTimes(1);
+    const payload = await vi.mocked(delivery.copy).mock.calls[0]![0];
+    const markdown = format([full], pageUrl);
+    expect(payload.text).toBe(markdown);
+    expect(markdown).toContain('src/Button.tsx:42');
+    for (const fragment of [
+      'src/Button.tsx:42',
+      '<pre>First line\n  indented second line</pre>',
+      'Expected: menu opens',
+      'Actual: menu stays closed',
+      'color: #000 -&gt; #fff',
+    ]) {
+      expect(payload.html).toContain(fragment);
+    }
+  });
+
   it('reports a successful Copy in the live region and the visible status', async () => {
     const panel = document.createElement('div');
     const delivery: AnnotationExportDelivery = { copy: vi.fn().mockResolvedValue(undefined), download: vi.fn(), downloadAsset: vi.fn() };

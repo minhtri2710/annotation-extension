@@ -2,7 +2,7 @@ import type { Annotation } from '../annotation';
 import { errorMessage } from '../guards';
 import { clipboardFailure, type AnnotationExportDelivery } from './delivery';
 import { annotationAssets, formatAllPages } from './format';
-import { formatHtml } from './html';
+import { formatAllPagesHtml } from './html';
 
 export interface AllPagesExportDependencies {
   collect(): Promise<Annotation[]>;
@@ -20,7 +20,7 @@ export async function exportAllPages({ collect, readBlob, delivery }: AllPagesEx
     const collected = collect();
     const payload = collected.then(async (annotations) => {
       if (annotations.length === 0) throw new Error(NO_ANNOTATIONS);
-      return { text: formatAllPages(annotations), html: await formatHtml(annotations, readBlob) };
+      return { text: formatAllPages(annotations), html: await formatAllPagesHtml(annotations, readBlob) };
     });
     // A copy may not consume the payload on every path, so its rejection is marked handled here; copy still reports it.
     payload.catch(() => undefined);

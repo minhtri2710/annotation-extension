@@ -1,4 +1,4 @@
-import type { Annotation } from '../annotation';
+import type { Annotation, CssEdit, Repro } from '../annotation';
 import type { ElementContext } from '../capture/context';
 import { attachmentKey, screenshotKey } from '../blob-store';
 
@@ -42,6 +42,25 @@ export function format(annotations: Annotation[], pageUrl: string): string {
 export function formatAllPages(annotations: Annotation[]): string {
   if (annotations.length === 0) return 'No annotations found.';
 
+  const sections = groupByHostAndPage(annotations).flatMap(({ host, pages }) => [
+    `## ${inline(host)}`,
+    ...pages.flatMap(({ pageUrl, annotations: pageAnnotations }) => [
+      `### ${inline(pageUrl)}`,
+      `Annotation count: ${pageAnnotations.length}`,
+      ...pageAnnotations.map((annotation, index) => formatAnnotationBlock(annotation, index + 1, 4)),
+    ]),
+  ]);
+
+  return ['# All annotations', `Total annotation count: ${annotations.length}`, ...sections].join('\n\n');
+}
+
+export interface HostGroup {
+  host: string;
+  pages: { pageUrl: string; annotations: Annotation[] }[];
+}
+
+// Hosts and pages sort by their string value; annotations within a page sort by createdAt.
+export function groupByHostAndPage(annotations: Annotation[]): HostGroup[] {
   const hosts = new Map<string, Map<string, Annotation[]>>();
   for (const annotation of annotations) {
     const host = new URL(annotation.pageUrl).host;
@@ -50,26 +69,33 @@ export function formatAllPages(annotations: Annotation[]): string {
     hosts.set(host, pages);
   }
 
-  const sections = [...hosts.keys()].sort().flatMap((host) => {
+  return [...hosts.keys()].sort().map((host) => {
     const pages = hosts.get(host) ?? new Map<string, Annotation[]>();
-    return [
-      `## ${inline(host)}`,
-      ...[...pages.keys()].sort().flatMap((pageUrl) => {
-        const orderedAnnotations = sortByCreatedAt(pages.get(pageUrl) ?? []);
-        return [
-          `### ${inline(pageUrl)}`,
-          `Annotation count: ${orderedAnnotations.length}`,
-          ...orderedAnnotations.map((annotation, index) => formatAnnotationBlock(annotation, index + 1, 4)),
-        ];
-      }),
-    ];
+    return {
+      host,
+      pages: [...pages.keys()].sort().map((pageUrl) => ({
+        pageUrl,
+        annotations: sortByCreatedAt(pages.get(pageUrl) ?? []),
+      })),
+    };
   });
-
-  return ['# All annotations', `Total annotation count: ${annotations.length}`, ...sections].join('\n\n');
 }
 
-function sortByCreatedAt(annotations: Annotation[]): Annotation[] {
+export function sortByCreatedAt(annotations: Annotation[]): Annotation[] {
   return [...annotations].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+// The reproduction and CSS text is shared by the Markdown and HTML renderers; each renderer adds its own syntax.
+export function reproductionText(repro: Repro): string {
+  return [
+    ...repro.steps.map((step, stepIndex) => `${stepIndex + 1}. ${step}`),
+    `Expected: ${repro.expected}`,
+    `Actual: ${repro.actual}`,
+  ].join('\n');
+}
+
+export function cssEditText(cssEdits: CssEdit[]): string {
+  return cssEdits.map(({ property, value, original }) => `${property}: ${original} -> ${value}`).join('\n');
 }
 
 function formatAnnotationBlock(annotation: Annotation, number: number, headingLevel: number): string {
@@ -97,20 +123,10 @@ function formatAnnotationBlock(annotation: Annotation, number: number, headingLe
       : undefined,
     attachmentBlock,
     annotation.repro
-      ? [
-          `${subheading} Reproduction`,
-          fenced([
-            ...annotation.repro.steps.map((step, stepIndex) => `${stepIndex + 1}. ${step}`),
-            `Expected: ${annotation.repro.expected}`,
-            `Actual: ${annotation.repro.actual}`,
-          ].join('\n')),
-        ].join('\n')
+      ? [`${subheading} Reproduction`, fenced(reproductionText(annotation.repro))].join('\n')
       : undefined,
     annotation.cssEdits && annotation.cssEdits.length > 0
-      ? [
-          `${subheading} CSS tweaks`,
-          fenced(annotation.cssEdits.map(({ property, value, original }) => `${property}: ${original} -> ${value}`).join('\n')),
-        ].join('\n')
+      ? [`${subheading} CSS tweaks`, fenced(cssEditText(annotation.cssEdits))].join('\n')
       : undefined,
   ];
   return lines.filter((line): line is string => line !== undefined).join('\n');
@@ -141,7 +157,7 @@ export function formatElementContext(elementContext: ElementContext): string | u
   return `${identity || 'element'}${normalizedText ? ` "${normalizedText}"` : ''}`;
 }
 
-function readSourcePath(elementContext: ElementContext): string | undefined {
+export function readSourcePath(elementContext: ElementContext): string | undefined {
   const sourcePath = elementContext.sourcePath;
   if (!sourcePath) return undefined;
   if (sourcePath.lineNumber !== undefined) return `${sourcePath.fileName}:${sourcePath.lineNumber}`;

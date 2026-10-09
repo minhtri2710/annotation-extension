@@ -122,6 +122,27 @@ describe('exportAllPages', () => {
     }
   });
 
+  it('copies HTML grouped by sorted host and page, ordered by createdAt, in the same order as the Markdown', async () => {
+    const { delivery, copied } = recordingDelivery();
+    const annotations = [
+      annotation({ id: 'b-late', note: 'b-x-late', pageUrl: 'https://b.test/x', createdAt: '2024-01-02T00:00:00.000Z' }),
+      annotation({ id: 'a-y', note: 'a-y', pageUrl: 'https://a.test/y', createdAt: '2024-01-03T00:00:00.000Z' }),
+      annotation({ id: 'b-early', note: 'b-x-early', pageUrl: 'https://b.test/x', createdAt: '2024-01-01T00:00:00.000Z' }),
+      annotation({ id: 'a-z', note: 'a-z', pageUrl: 'https://a.test/z', createdAt: '2024-01-01T00:00:00.000Z' }),
+    ];
+    const expectedOrder = ['a-y', 'a-z', 'b-x-early', 'b-x-late'];
+
+    await exportAllPages({ collect: async () => annotations, readBlob: vi.fn(), delivery });
+
+    const html = copied[0]!.html;
+    const markdown = formatAllPages(annotations);
+    const positions = (text: string) => expectedOrder.map((note) => text.indexOf(note));
+    expect(positions(markdown)).toEqual([...positions(markdown)].sort((left, right) => left - right));
+    expect(positions(html)).toEqual([...positions(html)].sort((left, right) => left - right));
+    expect(html.indexOf('<h2>a.test</h2>')).toBeLessThan(html.indexOf('<h2>b.test</h2>'));
+    expect(html.indexOf('<h3>https://a.test/y</h3>')).toBeLessThan(html.indexOf('<h3>https://a.test/z</h3>'));
+  });
+
   it('copies and downloads the all-pages Markdown, then every asset under the per-page filenames', async () => {
     const { delivery, events, copied } = recordingDelivery();
     const blobs: Record<string, Blob> = {
