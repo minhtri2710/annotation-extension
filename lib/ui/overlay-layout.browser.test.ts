@@ -398,7 +398,7 @@ describe('toolbar layout (real browser)', () => {
       overlayRoot: shell.root.getRootNode() as ShadowRoot,
       anchor,
       anchorToToolbar: () => shell.toolbar.getBoundingClientRect(),
-      notePanel: { render: async () => undefined, clear: () => undefined },
+      notePanel: { render: async () => undefined, clear: () => undefined, hasUnsavedDraft: () => false, confirmDiscard: () => undefined },
       scanPanel: { render: async () => undefined, clear: () => undefined, suspend: () => undefined, restore: () => undefined },
       annotationList: () => list,
       listToggle: viewAll!,

@@ -4,6 +4,7 @@ import { annotationAssets, format, formatElementContext } from '../export/format
 import { formatPageHtml } from '../export/html';
 import {
   productionExportDelivery,
+  type AnnotationClipboard,
   type AnnotationExportDelivery,
 } from '../export/delivery';
 import { listAnnotations } from '../annotation-storage';
@@ -36,6 +37,7 @@ export const ANNOTATION_EDIT_EVENT = 'annotation-edit';
 export const ANNOTATION_START_EVENT = 'annotation-start';
 export const ANNOTATION_LIST_CLOSE_EVENT = 'annotation-list-close';
 const LOCATE_MISSING_MESSAGE = 'Element not found on this page';
+const EMPTY_PAGE_MESSAGE = 'No annotations on this page.';
 
 type StatusFilter = 'all' | Annotation['status'];
 const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'open', 'resolved'];
@@ -76,6 +78,8 @@ export function createAnnotationList(
   let clearVersion = 0;
   let statusMessage: string | undefined;
   let statusFilter: StatusFilter = 'all';
+  // Counts the own writes still in flight; export is off while any is pending, and it stays off across clear().
+  let pendingWrites = 0;
   const highlight = createLocateHighlight();
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
 
@@ -117,7 +121,7 @@ export function createAnnotationList(
     if (annotations.length === 0) {
       const empty = document.createElement('p');
       empty.dataset.annotationEmptyState = '';
-      empty.textContent = 'No annotations on this page.';
+      empty.textContent = EMPTY_PAGE_MESSAGE;
       const start = document.createElement('button');
       start.type = 'button';
       start.dataset.annotationStart = '';
@@ -134,7 +138,16 @@ export function createAnnotationList(
         createFooter(document, annotations),
       );
     }
+    syncExportButtons();
     restoreFocus();
+  }
+
+  function syncExportButtons(): void {
+    panel
+      .querySelectorAll<HTMLButtonElement>('[data-annotation-export-copy], [data-annotation-export-download]')
+      .forEach((button) => {
+        button.disabled = pendingWrites > 0;
+      });
   }
 
   function createHeader(document: Document, heading: HTMLElement, count: number, onboarding: HTMLElement): HTMLElement {
@@ -181,7 +194,7 @@ export function createAnnotationList(
   function createFooter(document: Document, annotations: Annotation[]): HTMLDivElement {
     const footer = document.createElement('div');
     footer.dataset.annotationListFooter = '';
-    footer.append(createExportSection(document, annotations), createClearAll(document, annotations.length));
+    footer.append(createExportSection(document), createClearAll(document, annotations.length));
     return footer;
   }
 
@@ -254,20 +267,28 @@ export function createAnnotationList(
     return section;
   }
 
-  function createExportSection(document: Document, annotations: Annotation[]): HTMLElement {
+  // Reads the stored rows when an export starts, so it never uses the snapshot from the last render.
+  async function readExport(): Promise<AnnotationClipboard> {
+    const annotations = await persistence.listAnnotations(pageUrl);
+    if (annotations.length === 0) throw new Error(EMPTY_PAGE_MESSAGE);
+    return {
+      text: format(annotations, pageUrl),
+      html: await formatPageHtml(pageUrl, annotations, (key) => persistence.readBlob(key)),
+    };
+  }
+
+  function createExportSection(document: Document): HTMLElement {
     const section = document.createElement('section');
     section.dataset.annotationExport = '';
-
-    const markdown = () => format(annotations, pageUrl);
 
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.dataset.annotationExportCopy = '';
     copy.textContent = 'Copy Markdown';
     copy.addEventListener('click', () => {
+      if (pendingWrites > 0) return;
       const version = clearVersion;
-      const text = markdown();
-      const pending = formatPageHtml(pageUrl, annotations, (key) => persistence.readBlob(key)).then((html) => ({ text, html }));
+      const pending = readExport();
       // A copy may not consume the payload on every path, so its rejection is marked handled here; copy still reports it.
       pending.catch(() => undefined);
       void (async () => {
@@ -290,10 +311,26 @@ export function createAnnotationList(
     download.textContent = 'Download';
     download.setAttribute('aria-label', 'Download Markdown');
     download.addEventListener('click', () => {
+      if (pendingWrites > 0) return;
       const version = clearVersion;
       void (async () => {
+        let annotations: Annotation[];
         try {
-          delivery.download(markdown(), 'annotations.md');
+          annotations = await persistence.listAnnotations(pageUrl);
+        } catch (error) {
+          if (version !== clearVersion) return;
+          statusMessage = errorMessage(error);
+          await render();
+          return;
+        }
+        if (annotations.length === 0) {
+          if (version !== clearVersion) return;
+          statusMessage = EMPTY_PAGE_MESSAGE;
+          await render();
+          return;
+        }
+        try {
+          delivery.download(format(annotations, pageUrl), 'annotations.md');
         } catch (error) {
           if (version !== clearVersion) return;
           statusMessage = errorMessage(error);
@@ -409,6 +446,8 @@ export function createAnnotationList(
 
   async function mutate(message: AnnotationWriteMessage): Promise<void> {
     const version = clearVersion;
+    pendingWrites += 1;
+    syncExportButtons();
     try {
       await persistence.sendAnnotationWrite(message);
       if (version !== clearVersion) return;
@@ -418,6 +457,9 @@ export function createAnnotationList(
       if (version !== clearVersion) return;
       statusMessage = errorMessage(error);
       await render();
+    } finally {
+      pendingWrites -= 1;
+      syncExportButtons();
     }
   }
 
