@@ -143,6 +143,7 @@ export function createNotePanel(
     for (const annotation of annotations) {
       try {
         const item = await createAnnotationItem(document, annotation, positions.get(annotation.id)!, context, (error) => {
+          if (selectedContext !== context) return;
           statusMessage = errorMessage(error);
           showStatus();
         });
@@ -370,15 +371,16 @@ export function createNotePanel(
     }
   }
 
-  function reportFileSuccess(context: ElementContext): Promise<void> {
-    statusMessage = undefined;
+  // A file or screenshot write can settle after the panel moved on. Its result is stored already, so only a panel still showing this note repaints.
+  function settleWrite(context: ElementContext, failure?: string): Promise<void> {
+    if (!showsNoteOf(context)) return Promise.resolve();
+    statusMessage = failure;
     return refresh(context);
   }
 
   function reportFileError(error: unknown, context: ElementContext): void {
-    statusMessage = errorMessage(error);
-    void refresh(context).catch((renderError) => {
-      statusMessage = errorMessage(renderError);
+    void settleWrite(context, errorMessage(error)).catch((renderError) => {
+      if (showsNoteOf(context)) statusMessage = errorMessage(renderError);
     });
   }
 
@@ -430,7 +432,11 @@ export function createNotePanel(
       if (declarations) {
         const result = persistence.applyCssEdits(annotation, declarations);
         if (!result) {
-          reportReadError(new Error(CSS_ELEMENT_NOT_FOUND_MESSAGE));
+          // A Save is not an image read, so it reports while the panel still shows this note, even during a same-note re-render.
+          if (showsNoteOf(context)) {
+            statusMessage = CSS_ELEMENT_NOT_FOUND_MESSAGE;
+            showCurrentStatus();
+          }
           return;
         }
         changes.cssEdits = result.edits;
@@ -534,7 +540,7 @@ export function createNotePanel(
       if (files.length === 0) return;
       event.preventDefault();
       void whileWriting(() => addFiles(annotation, context, files).then(
-        () => reportFileSuccess(context),
+        () => settleWrite(context),
         (error) => reportFileError(error, context),
       ));
     });
@@ -559,11 +565,9 @@ export function createNotePanel(
       void whileWriting(async () => {
         try {
           await persistence.captureScreenshot(annotation, context);
-          statusMessage = undefined;
-          await refresh(context);
+          await settleWrite(context);
         } catch (error) {
-          statusMessage = screenshotFailureMessage(error);
-          await refresh(context);
+          await settleWrite(context, screenshotFailureMessage(error));
         }
       });
     });
@@ -618,7 +622,7 @@ export function createNotePanel(
       if (files.length === 0) return;
       attachmentName.textContent = files.map((file) => file.name).join(', ');
       void whileWriting(() => addFiles(annotation, context, files).then(
-        () => reportFileSuccess(context),
+        () => settleWrite(context),
         (error) => reportFileError(error, context),
       ));
       attachmentInput.value = '';
@@ -628,7 +632,7 @@ export function createNotePanel(
       if (files.length === 0) return;
       event.preventDefault();
       void whileWriting(() => addFiles(annotation, context, files).then(
-        () => reportFileSuccess(context),
+        () => settleWrite(context),
         (error) => reportFileError(error, context),
       ));
     });
@@ -659,7 +663,7 @@ export function createNotePanel(
               pageUrl: context.url,
               annotationId: annotation.id,
               attachmentId: attachment.id,
-            }).then(() => reportFileSuccess(context), (error) => reportFileError(error, context)));
+            }).then(() => settleWrite(context), (error) => reportFileError(error, context)));
           });
           wrapper.append(caption, removeAttachment);
           item.append(wrapper);

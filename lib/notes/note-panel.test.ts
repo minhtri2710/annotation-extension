@@ -1986,6 +1986,48 @@ describe('note panel one Save', () => {
     expect(updates(sendAnnotationWrite)).toHaveLength(0);
   });
 
+  it('shows the element-not-found error for a Save on the note still on screen while the same note re-renders', async () => {
+    const panel = document.createElement('div');
+    const existing = stored();
+    let releaseReopen!: (annotations: Annotation[]) => void;
+    const reopening = new Promise<Annotation[]>((resolve) => {
+      releaseReopen = resolve;
+    });
+    const listAnnotations = vi.fn().mockResolvedValueOnce([existing]).mockReturnValueOnce(reopening);
+    const applyCssEdits = vi.fn().mockReturnValue(undefined);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, applyCssEdits });
+    type(field(panel, 'edit-note'), 'Edited');
+    type(field(panel, 'css-decls'), 'color: red');
+    const reopened = notePanel.render({ ...context });
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    save(panel);
+    releaseReopen([existing]);
+    await reopened;
+    expect(panel.querySelector('[data-annotation-status]')?.textContent)
+      .toBe('Element not found on this page; CSS tweaks were not saved.');
+  });
+
+  it('shows no element-not-found error when a Save on an earlier note is clicked after the panel moved to another element', async () => {
+    const panel = document.createElement('div');
+    const existing = stored();
+    let releaseMove!: (annotations: Annotation[]) => void;
+    const moving = new Promise<Annotation[]>((resolve) => {
+      releaseMove = resolve;
+    });
+    const listAnnotations = vi.fn().mockResolvedValueOnce([existing]).mockReturnValueOnce(moving);
+    const applyCssEdits = vi.fn().mockReturnValue(undefined);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, applyCssEdits });
+    type(field(panel, 'edit-note'), 'Edited');
+    type(field(panel, 'css-decls'), 'color: red');
+    const moved = notePanel.render({ ...context, selector: '#other' });
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(2));
+    save(panel);
+    releaseMove([]);
+    await moved;
+    expect(applyCssEdits).toHaveBeenCalledTimes(1);
+    expect(panel.textContent).not.toContain('Element not found');
+  });
+
   it('keeps one Save per note item, Clear tweaks as the only CSS button and no repro button, and Clear tweaks still clears', async () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
@@ -2379,6 +2421,27 @@ describe('note panel Add note re-entry', () => {
     expect(sendAnnotationWrite).toHaveBeenCalledTimes(2);
   });
 
+  it('enables Add note on the add own note once its write settles while the panel shows another note', async () => {
+    const panel = document.createElement('div');
+    let settle = () => {};
+    const sendAnnotationWrite = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
+    const { notePanel } = await render(panel, [], { sendAnnotationWrite });
+    newNote(panel).value = 'Once';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+
+    addButton(panel).click();
+    await notePanel.render({ ...context, selector: '#other' });
+    settle();
+    await flush();
+    await notePanel.render(context);
+    expect(addButton(panel).hasAttribute('aria-disabled')).toBe(false);
+    newNote(panel).value = 'Twice';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+    addButton(panel).click();
+
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(2));
+  });
+
   it('does not close the panel when an add settles while newer text is in the field', async () => {
     const panel = document.createElement('div');
     let settle = () => {};
@@ -2667,5 +2730,258 @@ describe('note panel unsaved state while writes are pending and for raw text', (
     expect(cssDecls(panel).value).toBe('');
     write.settle();
     await flush();
+  });
+});
+
+describe('note panel file and screenshot completions after the panel moved on', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const otherContext: ElementContext = { ...context, selector: '#other' };
+  const otherAnnotation: Annotation = { ...annotation('Other note'), id: 'annotation-2', selector: '#other', elementContext: otherContext };
+  type Attachment = Awaited<ReturnType<NotePanelPersistence['addAttachment']>>;
+  type Screenshot = Awaited<ReturnType<NotePanelPersistence['captureScreenshot']>>;
+  const attachment: Attachment = { id: 'attachment-2', name: 'picked.png', mimeType: 'image/png', byteLength: 8 };
+  const deferred = <T>() => {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+  const picked = () => new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'picked.png', { type: 'image/png' });
+  const pick = (panel: HTMLElement) => {
+    const input = panel.querySelector<HTMLInputElement>('[data-annotation-attachment-input]')!;
+    Object.defineProperty(input, 'files', { value: [picked()] });
+    input.dispatchEvent(new Event('change'));
+  };
+  const paste = (panel: HTMLElement) => {
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { files: [picked()] } });
+    panel.querySelector('[data-annotation-edit-note]')!.dispatchEvent(event);
+  };
+  const drop = (panel: HTMLElement) => {
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [picked()] } });
+    panel.querySelector('[data-annotation-note-card]')!.dispatchEvent(event);
+  };
+  const capture = (panel: HTMLElement) => (panel.querySelector('[data-annotation-capture-screenshot]') as HTMLButtonElement).click();
+
+  it('does not repopulate a cleared panel when an attachment write succeeds after the clear', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Attach target');
+    const write = deferred<Attachment>();
+    const addAttachment = vi.fn(() => write.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, addAttachment });
+    pick(panel);
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    notePanel.clear();
+    const reads = listAnnotations.mock.calls.length;
+
+    write.resolve(attachment);
+    await flush();
+
+    expect(listAnnotations).toHaveBeenCalledTimes(reads);
+    expect(panel.childElementCount).toBe(0);
+  });
+
+  it('reports nothing into a cleared panel when an attachment write fails after the clear', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Attach target');
+    const write = deferred<Attachment>();
+    const addAttachment = vi.fn(() => write.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, addAttachment });
+    pick(panel);
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    notePanel.clear();
+    const reads = listAnnotations.mock.calls.length;
+
+    write.reject(new Error('write failed'));
+    await flush();
+
+    expect(listAnnotations).toHaveBeenCalledTimes(reads);
+    expect(panel.childElementCount).toBe(0);
+    expect(panel.textContent).not.toContain('write failed');
+  });
+
+  it('does not repopulate a cleared panel when a screenshot capture succeeds after the clear', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Capture target');
+    const capturing = deferred<Screenshot>();
+    const captureScreenshot = vi.fn(() => capturing.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, captureScreenshot });
+    capture(panel);
+    await vi.waitFor(() => expect(captureScreenshot).toHaveBeenCalledTimes(1));
+    notePanel.clear();
+    const reads = listAnnotations.mock.calls.length;
+
+    capturing.resolve(undefined);
+    await flush();
+
+    expect(listAnnotations).toHaveBeenCalledTimes(reads);
+    expect(panel.childElementCount).toBe(0);
+  });
+
+  it('reports nothing into a cleared panel when a screenshot capture fails after the clear', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Capture target');
+    const capturing = deferred<Screenshot>();
+    const captureScreenshot = vi.fn(() => capturing.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, captureScreenshot });
+    capture(panel);
+    await vi.waitFor(() => expect(captureScreenshot).toHaveBeenCalledTimes(1));
+    notePanel.clear();
+    const reads = listAnnotations.mock.calls.length;
+
+    capturing.reject(new Error('capture failed'));
+    await flush();
+
+    expect(listAnnotations).toHaveBeenCalledTimes(reads);
+    expect(panel.childElementCount).toBe(0);
+    expect(panel.textContent).not.toContain('capture failed');
+  });
+
+  it('keeps the newly opened note and its unsaved text when an attachment write for the old note succeeds', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Attach target');
+    const write = deferred<Attachment>();
+    const addAttachment = vi.fn(() => write.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing, otherAnnotation]);
+    const { notePanel } = await render(panel, [existing, otherAnnotation], { listAnnotations, addAttachment });
+    pick(panel);
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    await notePanel.render(otherContext);
+    const edit = panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement;
+    edit.value = 'Other edited';
+    edit.dispatchEvent(new Event('input', { bubbles: true }));
+
+    write.resolve(attachment);
+    await flush();
+
+    expect(panel.textContent).toContain('Other note');
+    expect(panel.textContent).not.toContain('Attach target');
+    expect((panel.querySelector('[data-annotation-edit-note]') as HTMLTextAreaElement).value).toBe('Other edited');
+  });
+
+  it('reports no read error into a panel that moved on to another note', async () => {
+    const panel = document.createElement('div');
+    const withAttachment = {
+      ...annotation('Read target'),
+      attachments: [{ id: 'attachment-1', name: 'a.png', mimeType: 'image/png', byteLength: 1 }],
+    };
+    const read = deferred<Blob>();
+    const readBlob = vi.fn(() => read.promise);
+    const listAnnotations = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([withAttachment]);
+    const { notePanel } = await render(panel, [], { listAnnotations, readBlob });
+    const opening = notePanel.render(context);
+    await vi.waitFor(() => expect(readBlob).toHaveBeenCalledTimes(1));
+    await notePanel.render(otherContext);
+
+    read.reject(new Error('read failed'));
+    await opening;
+
+    expect(panel.textContent).not.toContain('read failed');
+    expect(panel.querySelector('[data-annotation-status]')).toBeNull();
+  });
+
+  it('reports no read error from an earlier render of the same note once a newer render has started', async () => {
+    const panel = document.createElement('div');
+    const withAttachment = {
+      ...annotation('Read target'),
+      attachments: [{ id: 'attachment-1', name: 'a.png', mimeType: 'image/png', byteLength: 1 }],
+    };
+    const read = deferred<Blob>();
+    const readBlob = vi.fn().mockReturnValueOnce(read.promise).mockResolvedValue(new Blob(['ok'], { type: 'image/png' }));
+    const listAnnotations = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([withAttachment]);
+    const { notePanel } = await render(panel, [], { listAnnotations, readBlob });
+    const opening = notePanel.render(context);
+    await vi.waitFor(() => expect(readBlob).toHaveBeenCalledTimes(1));
+    await notePanel.render({ ...context });
+
+    read.reject(new Error('read failed'));
+    await opening;
+
+    expect(panel.textContent).not.toContain('read failed');
+    expect(panel.querySelector('[data-annotation-status]')).toBeNull();
+  });
+
+  it('does not repopulate a cleared panel when a pasted image write succeeds after the clear', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Paste target');
+    const write = deferred<Attachment>();
+    const addAttachment = vi.fn(() => write.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, addAttachment });
+    paste(panel);
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    notePanel.clear();
+    const reads = listAnnotations.mock.calls.length;
+
+    write.resolve(attachment);
+    await flush();
+
+    expect(listAnnotations).toHaveBeenCalledTimes(reads);
+    expect(panel.childElementCount).toBe(0);
+  });
+
+  it('does not repopulate a cleared panel when a dropped image write succeeds after the clear', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Drop target');
+    const write = deferred<Attachment>();
+    const addAttachment = vi.fn(() => write.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, addAttachment });
+    drop(panel);
+    await vi.waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1));
+    notePanel.clear();
+    const reads = listAnnotations.mock.calls.length;
+
+    write.resolve(attachment);
+    await flush();
+
+    expect(listAnnotations).toHaveBeenCalledTimes(reads);
+    expect(panel.childElementCount).toBe(0);
+  });
+
+  it('does not repopulate a cleared panel when a Remove write succeeds after the clear', async () => {
+    const panel = document.createElement('div');
+    const existing = {
+      ...annotation('Remove target'),
+      attachments: [{ id: 'attachment-1', name: 'a.png', mimeType: 'image/png', byteLength: 1 }],
+    };
+    const removing = deferred<boolean>();
+    const deleteAttachment = vi.fn(() => removing.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    const { notePanel } = await render(panel, [existing], { listAnnotations, deleteAttachment });
+    (panel.querySelector('[data-annotation-attachment-delete]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(deleteAttachment).toHaveBeenCalledTimes(1));
+    notePanel.clear();
+    const reads = listAnnotations.mock.calls.length;
+
+    removing.resolve(true);
+    await flush();
+
+    expect(listAnnotations).toHaveBeenCalledTimes(reads);
+    expect(panel.childElementCount).toBe(0);
+  });
+
+  it('still repaints the open note when a screenshot capture succeeds while that note stays open', async () => {
+    const panel = document.createElement('div');
+    const existing = annotation('Capture target');
+    const capturing = deferred<Screenshot>();
+    const captureScreenshot = vi.fn(() => capturing.promise);
+    const listAnnotations = vi.fn().mockResolvedValue([existing]);
+    await render(panel, [existing], { listAnnotations, captureScreenshot });
+    capture(panel);
+    await vi.waitFor(() => expect(captureScreenshot).toHaveBeenCalledTimes(1));
+    const reads = listAnnotations.mock.calls.length;
+
+    capturing.resolve(undefined);
+
+    await vi.waitFor(() => expect(listAnnotations).toHaveBeenCalledTimes(reads + 1));
   });
 });
