@@ -1408,6 +1408,135 @@ describe('content script entrypoint', () => {
         expect(panel().hasAttribute('aria-label')).toBe(false);
         expect(button(opener).getAttribute('aria-expanded')).toBe('false');
       });
+
+      describe('with an unsaved note', () => {
+        const typeNote = (text: string) => {
+          const field = panel().querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!;
+          field.value = text;
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        const prompt = () => panel().querySelector<HTMLElement>('[data-annotation-discard-prompt]');
+        const promptButton = (name: string) => [...prompt()?.querySelectorAll('button') ?? []].find((control) => control.textContent === name);
+        const openUnsavedNote = async () => {
+          await openNote();
+          await vi.waitFor(() => expect(panel().querySelector('[data-annotation-new-note]')).not.toBeNull());
+        };
+
+        it('asks Keep or Discard on a trusted outside click, and Keep leaves the panel and the typed text as they were', async () => {
+          await start();
+          await openUnsavedNote();
+          typeNote('Half written');
+          const outside = page();
+
+          pointer(outside);
+          click(outside);
+
+          expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+          expect(prompt()?.getAttribute('role')).toBe('group');
+          expect(prompt()?.getAttribute('aria-label')).toBe('Unsaved changes');
+          expect(promptButton('Discard')).toBeDefined();
+          expect(shadow().activeElement).toBe(promptButton('Keep'));
+
+          trustedClick(promptButton('Keep')!);
+
+          expect(prompt()).toBeNull();
+          expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+          expect(panel().querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!.value).toBe('Half written');
+          expect(shadow().activeElement).toBe(panel().querySelector('[data-annotation-new-note]'));
+        });
+
+        it('Discard deletes the unsaved note and closes the panel, so the same element opens empty', async () => {
+          await start();
+          await openUnsavedNote();
+          typeNote('Half written');
+          const outside = page();
+          pointer(outside);
+          click(outside);
+
+          trustedClick(promptButton('Discard')!);
+
+          expect(panel().hasAttribute('aria-label')).toBe(false);
+          await openUnsavedNote();
+          expect(panel().querySelector<HTMLTextAreaElement>('[data-annotation-new-note]')!.value).toBe('');
+          expect(panel().textContent).not.toContain('Draft restored.');
+        });
+
+        it('closes the note on a trusted outside click while its add is still being written, without asking', async () => {
+          const send = vi.spyOn(browser.runtime, 'sendMessage').mockImplementation((() => new Promise(() => {})) as never);
+          await start();
+          await openUnsavedNote();
+          typeNote('Half written');
+          trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-save]')!);
+          expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'annotation.add' }));
+          const outside = page();
+
+          pointer(outside);
+          click(outside);
+
+          expect(panel().hasAttribute('aria-label')).toBe(false);
+          expect(prompt()).toBeNull();
+        });
+
+        const seedNote = () => addAnnotation(location.href, {
+          note: 'Stored note',
+          selector: '#target',
+          elementContext: {
+            selector: '#target', tagName: 'div', id: 'target', classList: [], text: '',
+            boundingBox: { x: 0, y: 0, width: 10, height: 10 }, url: location.href,
+            viewport: { width: 800, height: 600 }, sourcePath: null,
+          },
+        });
+
+        it('asks Keep or Discard on a trusted outside click while a screenshot write is pending, when the edit text is unsaved', async () => {
+          await seedNote();
+          vi.spyOn(browser.runtime, 'sendMessage').mockImplementation((() => new Promise(() => {})) as never);
+          await start();
+          await openUnsavedNote();
+          trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-capture-screenshot]')!);
+          const edit = panel().querySelector<HTMLTextAreaElement>('[data-annotation-edit-note]')!;
+          edit.value = 'Changed note';
+          edit.dispatchEvent(new Event('input', { bubbles: true }));
+          const outside = page();
+
+          pointer(outside);
+          click(outside);
+
+          expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+          expect(prompt()).not.toBeNull();
+        });
+
+        it('asks Keep or Discard on a trusted outside click when text was typed after the add was sent', async () => {
+          vi.spyOn(browser.runtime, 'sendMessage').mockImplementation((() => new Promise(() => {})) as never);
+          await start();
+          await openUnsavedNote();
+          typeNote('Half written');
+          trustedClick(panel().querySelector<HTMLButtonElement>('[data-annotation-save]')!);
+          typeNote('Half written, and more');
+          const outside = page();
+
+          pointer(outside);
+          click(outside);
+
+          expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+          expect(prompt()).not.toBeNull();
+        });
+
+        it('asks Keep or Discard on a trusted outside click when the CSS declarations hold text Save would ignore', async () => {
+          await seedNote();
+          await start();
+          await openUnsavedNote();
+          const css = panel().querySelector<HTMLTextAreaElement>('[data-annotation-css-decls]')!;
+          css.value = 'garbage';
+          css.dispatchEvent(new Event('input', { bubbles: true }));
+          const outside = page();
+
+          pointer(outside);
+          click(outside);
+
+          expect(panel().getAttribute('aria-label')).toBe('Annotation note');
+          expect(prompt()).not.toBeNull();
+        });
+      });
     });
   });
 });

@@ -22,12 +22,15 @@ export interface NotePanel {
   clear(): void;
   teardown(): void;
   syncWithStorage(): Promise<void>;
+  hasUnsavedDraft(): boolean;
+  confirmDiscard(onDiscard: () => void): void;
   live: HTMLElement;
 }
 
 export const NOTE_PANEL_CLOSE_EVENT = 'annotation-note-close';
 export const NOTE_PANEL_SAVED_EVENT = 'annotation-note-saved';
 const EMPTY_NOTE_MESSAGE = 'Write a note before saving.';
+const NOTHING_TO_SAVE_MESSAGE = 'No changes to save.';
 const NOTE_SAVED_MESSAGE = 'Note saved.';
 const DELETED_ELSEWHERE_MESSAGE = 'This annotation was deleted in another tab.';
 const CHANGED_ELSEWHERE_MESSAGE = 'This annotation changed in another tab.';
@@ -44,14 +47,22 @@ export function createNotePanel(
   let showCurrentStatus = () => {};
   let shownVersion = '';
   let pendingWrites = 0;
+  // Add writes in flight, keyed by new-note draft key. Held here, not per rendered form, so a refresh cannot re-enable Add.
+  const pendingAdds = new Set<string>();
   const previewUrls = new Set<string>();
   const drafts = new Map<string, string>();
   const untouchedSeeds = new Set<string>();
+  // Text that a write in flight sent, keyed like drafts. A field still showing it is committed, not unsaved.
+  const inFlightText: Array<{ key: string; text: string }> = [];
+  // Each field's draft key and whether its text is unsaved; the prompt, the Unsaved markers and Discard read these.
+  const fieldStates = new WeakMap<HTMLTextAreaElement, { key: string; unsaved: () => boolean }>();
+  let discardPrompt: { element: HTMLElement; onDiscard: () => void } | undefined;
   let restoredDraft = false;
   // Set by Add another note; a refresh keeps that form open until the panel is cleared.
   let expandedNewNote: string | undefined;
   const groupStates = new Map<string, boolean>();
   const { element: live, announce } = createLiveRegion(panel.ownerDocument);
+  panel.addEventListener('input', syncUnsaved);
 
   async function render(context: ElementContext, seed?: string): Promise<void> {
     const sequence = ++renderSequence;
@@ -89,6 +100,7 @@ export function createNotePanel(
     shownVersion = versionOf(pageAnnotations, context.selector);
     restoredDraft = false;
     revokePreviewUrls();
+    const promptFocused = discardPrompt?.element.contains((panel.getRootNode() as Document | ShadowRoot).activeElement) ?? false;
     const restoreFocus = keepPanelFocus(panel);
     panel.replaceChildren();
     const document = panel.ownerDocument;
@@ -151,6 +163,7 @@ export function createNotePanel(
     noteLabel.append('Add a note', note);
     const draftKey = newNoteDraftKey(context.url, context.selector);
     restoreDraft(note, draftKey);
+    trackField(note, draftKey, (text) => !untouchedSeeds.has(draftKey) && text.trim() !== '');
     note.addEventListener('input', () => {
       untouchedSeeds.delete(draftKey);
       if (note.value.trim()) drafts.set(draftKey, note.value);
@@ -161,18 +174,29 @@ export function createNotePanel(
     save.dataset.annotationSave = '';
     if (annotations.length === 0) save.dataset.variant = 'primary';
     save.textContent = 'Add note';
+    // aria-disabled, not disabled: a disabled button drops focus that the saved panel would return to its opener.
+    if (pendingAdds.has(draftKey)) save.setAttribute('aria-disabled', 'true');
     const add = () => {
+      if (pendingAdds.has(draftKey)) return;
       const value = note.value.trim();
       if (!value) {
         statusMessage = EMPTY_NOTE_MESSAGE;
         showStatus();
         return;
       }
+      pendingAdds.add(draftKey);
+      save.setAttribute('aria-disabled', 'true');
       void mutate({
         type: 'annotation.add',
         pageUrl: context.url,
         input: { note: value, selector: context.selector, elementContext: context },
-      }, context, NOTE_SAVED_MESSAGE, true).catch(() => undefined);
+      }, context, NOTE_SAVED_MESSAGE, true, [[draftKey, value]])
+        .catch(() => undefined)
+        .finally(() => {
+          pendingAdds.delete(draftKey);
+          // The form may have been rebuilt while the add was pending, so release the one shown now.
+          if (showsNoteOf(context)) panel.querySelector('[data-annotation-save]')?.removeAttribute('aria-disabled');
+        });
     };
     save.addEventListener('click', add);
     note.addEventListener('keydown', (event) => {
@@ -204,17 +228,20 @@ export function createNotePanel(
     }
     panel.append(form);
     restoreFocus();
+    settleDiscardPrompt(promptFocused);
   }
 
   function showsNoteOf(context: ElementContext): boolean {
     return selectedContext?.url === context.url && selectedContext.selector === context.selector;
   }
 
+  // sent pairs each draft key in the write with the text it carries.
   async function mutate(
     message: AnnotationWriteMessage,
     context: ElementContext,
     successMessage?: string,
     dismissOnSuccess = false,
+    sent: Array<[string, string]> = [],
   ): Promise<void> {
     const sequence = renderSequence;
     const refusal = annotationWriteError(message);
@@ -225,14 +252,15 @@ export function createNotePanel(
     }
     await whileWriting(async () => {
       try {
-        const result = await persistence.sendAnnotationWrite(message);
+        const result = await send(message, sent);
         const missing = (message.type === 'annotation.update' && result === null)
           || (message.type === 'annotation.delete' && result === false);
+        if (!missing) dropDraft(message, sent);
         if (renderSequence !== sequence || !showsNoteOf(context)) return;
-        if (!missing) dropDraft(message);
         statusMessage = missing ? DELETED_ELSEWHERE_MESSAGE : successMessage;
         await refresh(context);
-        if (dismissOnSuccess && !missing && renderSequence === sequence && showsNoteOf(context)) {
+        // Text typed after the save is still unsaved, so the note stays open for it.
+        if (dismissOnSuccess && !missing && renderSequence === sequence && showsNoteOf(context) && !hasUnsavedDraft()) {
           panel.dispatchEvent(new Event(NOTE_PANEL_SAVED_EVENT));
           announce(NOTE_SAVED_MESSAGE);
         }
@@ -241,6 +269,17 @@ export function createNotePanel(
         statusMessage = errorMessage(error);
         await refresh(context);
       }
+    });
+  }
+
+  // The sent text is in flight only until the send settles, so the re-read after it compares with storage.
+  function send(message: AnnotationWriteMessage, sent: Array<[string, string]>): Promise<unknown> {
+    const entries = sent.map(([key, text]) => ({ key, text }));
+    inFlightText.push(...entries);
+    syncUnsaved();
+    return new Promise((resolve) => resolve(persistence.sendAnnotationWrite(message))).finally(() => {
+      for (const entry of entries) inFlightText.splice(inFlightText.indexOf(entry), 1);
+      syncUnsaved();
     });
   }
 
@@ -260,22 +299,18 @@ export function createNotePanel(
     return restoreDraft(field, key);
   }
 
-  function dropDraft(message: AnnotationWriteMessage): void {
-    if (message.type === 'annotation.add') {
-      const key = newNoteDraftKey(message.pageUrl, message.input.selector);
-      drafts.delete(key);
-      untouchedSeeds.delete(key);
+  function dropDraft(message: AnnotationWriteMessage, sent: Array<[string, string]>): void {
+    if (message.type === 'annotation.clear') return;
+    if (message.type === 'annotation.delete') {
+      for (const field of EDIT_DRAFT_FIELDS) drafts.delete(editDraftKey(message.id, field));
       return;
     }
-    if (message.type === 'annotation.clear') return;
-    const dropped: EditDraftField[] = message.type === 'annotation.delete'
-      ? ['note', 'css', ...REPRO_DRAFT_FIELDS]
-      : [
-        ...(message.changes.note !== undefined ? ['note' as const] : []),
-        ...(message.changes.cssEdits !== undefined ? ['css' as const] : []),
-        ...(message.changes.repro !== undefined ? REPRO_DRAFT_FIELDS : []),
-      ];
-    for (const field of dropped) drafts.delete(editDraftKey(message.id, field));
+    // Text typed after the write started is not part of the save, so it stays.
+    for (const [key, text] of sent) {
+      if (drafts.get(key)?.trim() !== text.trim()) continue;
+      drafts.delete(key);
+      untouchedSeeds.delete(key);
+    }
   }
 
   async function whileWriting(operation: () => Promise<void>): Promise<void> {
@@ -364,30 +399,57 @@ export function createNotePanel(
     const images = imagesSection(document, item, annotation, context, reportReadError);
     const css = cssSection(document, annotation, position, context, appliedCss?.refused);
     const repro = reproSection(document, annotation, position);
-    const note = noteSection(document, annotation, position, context, images.attachLabel, images.attachName, [...css.fields, ...repro.fields], () => save());
+    // Text that repeats the stored value is not a change, so Save does not send it.
+    const cssChange = (): CssDeclaration[] | undefined => {
+      const declarations = css.pending();
+      return declarations.length > 0 && !sameDeclarations(declarations, annotation.cssEdits) ? declarations : undefined;
+    };
+    const reproChange = (): Repro | undefined => {
+      const change = repro.pending();
+      return sameRepro(change, annotation.repro) ? undefined : change;
+    };
+    const note = noteSection(document, annotation, position, context, images.attachLabel, images.attachName, () => save());
     const hasCss = (annotation.cssEdits?.length ?? 0) > 0;
 
     function save(): void {
-      const changes: AnnotationUpdate = {};
+      // A blank note blocks the whole Save, so no CSS or repro change is applied or written without it.
       const value = note.field.value.trim();
-      if (value && value !== annotation.note) changes.note = value;
+      if (!value) {
+        statusMessage = EMPTY_NOTE_MESSAGE;
+        showCurrentStatus();
+        return;
+      }
+      const changes: AnnotationUpdate = {};
+      const sent: Array<[string, string]> = [];
+      if (value !== annotation.note) {
+        changes.note = value;
+        sent.push([editDraftKey(annotation.id, 'note'), note.field.value]);
+      }
       let successMessage: string | undefined;
-      const declarations = css.pending();
-      if (declarations.length > 0) {
+      const declarations = cssChange();
+      if (declarations) {
         const result = persistence.applyCssEdits(annotation, declarations);
         if (!result) {
           reportReadError(new Error(CSS_ELEMENT_NOT_FOUND_MESSAGE));
           return;
         }
         changes.cssEdits = result.edits;
+        sent.push(css.sent());
         if (result.refused.length > 0) {
           successMessage = `Not applied because it would load a resource: ${result.refused.map(({ property }) => property).join(', ')}.`;
         }
       }
-      const reproChange = repro.pending();
-      if (reproChange) changes.repro = reproChange;
-      if (Object.keys(changes).length === 0) return;
-      void mutate({ type: 'annotation.update', pageUrl: context.url, id: annotation.id, changes }, context, successMessage, true);
+      const reproUpdate = reproChange();
+      if (reproUpdate) {
+        changes.repro = reproUpdate;
+        sent.push(...repro.sent());
+      }
+      if (Object.keys(changes).length === 0) {
+        statusMessage = NOTHING_TO_SAVE_MESSAGE;
+        showCurrentStatus();
+        return;
+      }
+      void mutate({ type: 'annotation.update', pageUrl: context.url, id: annotation.id, changes }, context, successMessage, true, sent);
     }
 
     item.append(
@@ -401,6 +463,7 @@ export function createNotePanel(
     );
     await images.appendPreviews();
     item.append(note.footer);
+    markUnsaved(item);
     return item;
   }
 
@@ -439,7 +502,6 @@ export function createNotePanel(
     context: ElementContext,
     attachmentLabel: HTMLElement,
     attachmentName: HTMLElement,
-    editFields: HTMLTextAreaElement[],
     save: () => void,
   ): { field: HTMLTextAreaElement; media: HTMLElement; footer: HTMLElement } {
     const note = document.createElement('textarea');
@@ -449,16 +511,11 @@ export function createNotePanel(
     note.setAttribute('aria-label', `Edit note, annotation ${position}`);
     const draftKey = editDraftKey(annotation.id, 'note');
     restoreDraft(note, draftKey);
+    trackField(note, draftKey, (text) => text.trim() !== annotation.note);
     const unsaved = document.createElement('p');
     unsaved.dataset.annotationUnsaved = '';
     unsaved.textContent = 'Unsaved changes';
-    const showUnsaved = () => {
-      unsaved.hidden = ![note, ...editFields].some((field) => field.value !== field.defaultValue);
-    };
-    showUnsaved();
-    for (const field of editFields) field.addEventListener('input', showUnsaved);
     note.addEventListener('input', () => {
-      showUnsaved();
       if (note.value === annotation.note) drafts.delete(draftKey);
       else drafts.set(draftKey, note.value);
     });
@@ -620,7 +677,7 @@ export function createNotePanel(
     position: number,
     context: ElementContext,
     refused: CssDeclaration[] = [],
-  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean; fields: HTMLTextAreaElement[]; pending: () => CssDeclaration[] } {
+  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean; pending: () => CssDeclaration[]; sent: () => [string, string] } {
     const { field: cssDecls, label: cssDeclsLabel } = labelledField(
       document,
       position,
@@ -628,10 +685,13 @@ export function createNotePanel(
       annotation.cssEdits?.map(({ property, value }) => `${property}: ${value}`).join('\n') ?? '',
     );
     cssDecls.dataset.annotationCssDecls = '';
-    const restored = keepDraft(cssDecls, editDraftKey(annotation.id, 'css'));
+    const cssKey = editDraftKey(annotation.id, 'css');
+    const restored = keepDraft(cssDecls, cssKey);
+    trackField(cssDecls, cssKey, (text) => cssUnsaved(text, annotation.cssEdits));
     const pending = () => cssDecls.value === cssDecls.defaultValue ? [] : parseCssDeclarations(cssDecls.value);
+    const sent = (): [string, string] => [cssKey, cssDecls.value];
     if (!annotation.cssEdits || annotation.cssEdits.length === 0) {
-      return { controls: [cssDeclsLabel], readout: [], restored, fields: [cssDecls], pending };
+      return { controls: [cssDeclsLabel], readout: [], restored, pending, sent };
     }
     const clearCss = document.createElement('button');
     clearCss.type = 'button';
@@ -647,6 +707,9 @@ export function createNotePanel(
           changes: { cssEdits: [] },
         },
         context,
+        undefined,
+        false,
+        [sent()],
       );
     });
     const readout = document.createElement('ul');
@@ -658,14 +721,14 @@ export function createNotePanel(
       readout.append(entry);
     }
     const actions = groupActions(document, [clearCss]);
-    return { controls: [cssDeclsLabel, actions], readout: [readout], restored, fields: [cssDecls], pending };
+    return { controls: [cssDeclsLabel, actions], readout: [readout], restored, pending, sent };
   }
 
   function reproSection(
     document: Document,
     annotation: Annotation,
     position: number,
-  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean; fields: HTMLTextAreaElement[]; pending: () => Repro | undefined } {
+  ): { controls: HTMLElement[]; readout: HTMLElement[]; restored: boolean; pending: () => Repro | undefined; sent: () => Array<[string, string]> } {
     const { field: reproSteps, label: reproStepsLabel } = labelledField(
       document,
       position,
@@ -688,25 +751,33 @@ export function createNotePanel(
     );
     reproActual.dataset.annotationReproActual = '';
     for (const field of [reproSteps, reproExpected, reproActual]) field.maxLength = MAX_TEXT_LENGTH;
+    const stepsKey = editDraftKey(annotation.id, 'steps');
+    const expectedKey = editDraftKey(annotation.id, 'expected');
+    const actualKey = editDraftKey(annotation.id, 'actual');
     const restoredFields = [
-      keepDraft(reproSteps, editDraftKey(annotation.id, 'steps')),
-      keepDraft(reproExpected, editDraftKey(annotation.id, 'expected')),
-      keepDraft(reproActual, editDraftKey(annotation.id, 'actual')),
+      keepDraft(reproSteps, stepsKey),
+      keepDraft(reproExpected, expectedKey),
+      keepDraft(reproActual, actualKey),
     ];
     const restored = restoredFields.includes(true);
+    const stored = annotation.repro;
+    trackField(reproSteps, stepsKey, (text) => !sameSteps(stepsOf(text), stored?.steps ?? []));
+    trackField(reproExpected, expectedKey, (text) => text.trim() !== (stored?.expected ?? ''));
+    trackField(reproActual, actualKey, (text) => text.trim() !== (stored?.actual ?? ''));
     const pending = (): Repro | undefined => {
       if (![reproSteps, reproExpected, reproActual].some((field) => field.value !== field.defaultValue)) return undefined;
-      const steps = reproSteps.value
-        .split(/\r?\n/)
-        .map((step) => step.trim())
-        .filter(Boolean);
+      const steps = stepsOf(reproSteps.value);
       const expected = reproExpected.value.trim();
       const actual = reproActual.value.trim();
       return steps.length === 0 && !expected && !actual ? undefined : { steps, expected, actual };
     };
+    const sent = (): Array<[string, string]> => [
+      [stepsKey, reproSteps.value],
+      [expectedKey, reproExpected.value],
+      [actualKey, reproActual.value],
+    ];
     const controls = [reproStepsLabel, reproExpectedLabel, reproActualLabel];
-    const fields = [reproSteps, reproExpected, reproActual];
-    if (!annotation.repro) return { controls, readout: [], restored, fields, pending };
+    if (!annotation.repro) return { controls, readout: [], restored, pending, sent };
     const readout = document.createElement('div');
     readout.dataset.annotationRepro = '';
     const stepsList = document.createElement('ol');
@@ -720,7 +791,7 @@ export function createNotePanel(
     const actual = document.createElement('p');
     actual.textContent = `Actual: ${annotation.repro.actual}`;
     readout.append(stepsList, expected, actual);
-    return { controls, readout: [readout], restored, fields, pending };
+    return { controls, readout: [readout], restored, pending, sent };
   }
 
   function appendPreview(
@@ -744,9 +815,101 @@ export function createNotePanel(
     previewUrls.clear();
   }
 
+  // The unsaved check of a field. A write in flight counts the text it sent as committed; otherwise the text is compared with storage.
+  function trackField(field: HTMLTextAreaElement, key: string, unsavedAgainstStored: (text: string) => boolean): void {
+    fieldStates.set(field, {
+      key,
+      unsaved: () => {
+        const sent = inFlightText.filter((entry) => entry.key === key).at(-1)?.text;
+        return sent === undefined ? unsavedAgainstStored(field.value) : field.value.trim() !== sent.trim();
+      },
+    });
+  }
+
+  function unsavedFieldsIn(root: ParentNode): HTMLTextAreaElement[] {
+    return Array.from(root.querySelectorAll<HTMLTextAreaElement>('textarea')).filter((field) => fieldStates.get(field)?.unsaved());
+  }
+
+  // Typed text that a save would keep, or that Save ignores: a new note that is not an untouched seed, or a field that differs from its committed text.
+  function hasUnsavedDraft(): boolean {
+    return selectedContext !== undefined && unsavedFieldsIn(panel).length > 0;
+  }
+
+  function markUnsaved(card: HTMLElement): void {
+    const marker = card.querySelector<HTMLElement>('[data-annotation-unsaved]');
+    if (marker) marker.hidden = unsavedFieldsIn(card).length === 0;
+  }
+
+  function syncUnsaved(): void {
+    for (const card of panel.querySelectorAll<HTMLElement>('[data-annotation-note-card]')) markUnsaved(card);
+  }
+
+  // Discard deletes only the unsaved text; text an add or update is already writing stays.
+  function discardDrafts(): void {
+    for (const field of unsavedFieldsIn(panel)) {
+      const { key } = fieldStates.get(field)!;
+      drafts.delete(key);
+      untouchedSeeds.delete(key);
+    }
+  }
+
+  // A refresh rebuilds the panel, so an open prompt is put back while its text is unsaved. Once nothing is unsaved, the outside click completes.
+  function settleDiscardPrompt(keepFocus: boolean): void {
+    if (!discardPrompt) return;
+    const { element, onDiscard } = discardPrompt;
+    if (!hasUnsavedDraft()) {
+      discardPrompt = undefined;
+      onDiscard();
+      return;
+    }
+    panel.querySelector('[data-annotation-note-header]')?.after(element);
+    if (keepFocus) element.querySelector<HTMLButtonElement>('button')?.focus();
+  }
+
+  // Inline prompt for an outside click on unsaved text. Keep (and Escape) leaves the panel and its drafts; Discard deletes them, then calls onDiscard.
+  function confirmDiscard(onDiscard: () => void): void {
+    const header = panel.querySelector('[data-annotation-note-header]');
+    if (!header || discardPrompt) return;
+    const document = panel.ownerDocument;
+    const prompt = document.createElement('div');
+    prompt.dataset.annotationDiscardPrompt = '';
+    prompt.setAttribute('role', 'group');
+    prompt.setAttribute('aria-label', 'Unsaved changes');
+    const question = document.createElement('p');
+    question.textContent = 'Discard unsaved changes?';
+    const keep = document.createElement('button');
+    keep.type = 'button';
+    keep.textContent = 'Keep';
+    const discard = document.createElement('button');
+    discard.type = 'button';
+    discard.dataset.variant = 'danger';
+    discard.textContent = 'Discard';
+    keep.addEventListener('click', () => {
+      prompt.remove();
+      discardPrompt = undefined;
+      (unsavedFieldsIn(panel)[0] ?? panel.querySelector<HTMLTextAreaElement>('[data-annotation-new-note]'))?.focus();
+    });
+    discard.addEventListener('click', () => {
+      discardPrompt = undefined;
+      discardDrafts();
+      onDiscard();
+    });
+    prompt.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      // Escape answers the prompt with Keep; it must not also close the panel.
+      event.stopPropagation();
+      keep.click();
+    });
+    prompt.append(question, keep, discard);
+    discardPrompt = { element: prompt, onDiscard };
+    header.after(prompt);
+    keep.focus();
+  }
+
   function clear(): void {
     renderSequence++;
     selectedContext = undefined;
+    discardPrompt = undefined;
     statusMessage = undefined;
     expandedNewNote = undefined;
     revokePreviewUrls();
@@ -761,7 +924,7 @@ export function createNotePanel(
     persistence.revertAllCssEdits();
   }
 
-  return { render, clear, teardown, syncWithStorage, live };
+  return { render, clear, teardown, syncWithStorage, hasUnsavedDraft, confirmDiscard, live };
 }
 
 function newNoteDraftKey(url: string, selector: string): string {
@@ -770,6 +933,7 @@ function newNoteDraftKey(url: string, selector: string): string {
 
 type EditDraftField = 'note' | 'css' | 'steps' | 'expected' | 'actual';
 const REPRO_DRAFT_FIELDS: EditDraftField[] = ['steps', 'expected', 'actual'];
+const EDIT_DRAFT_FIELDS: EditDraftField[] = ['note', 'css', ...REPRO_DRAFT_FIELDS];
 
 function editDraftKey(id: string, field: EditDraftField): string {
   return `edit ${id} ${field}`;
@@ -820,4 +984,31 @@ function parseCssDeclarations(value: string): CssDeclaration[] {
     const editValue = line.slice(separator + 1).trim();
     return property && editValue ? [{ property, value: editValue }] : [];
   });
+}
+
+// Text is unsaved when its declarations differ from the stored ones, or when a line is not a declaration at all (Save ignores that line).
+function cssUnsaved(text: string, stored: CssDeclaration[] = []): boolean {
+  return !sameDeclarations(parseCssDeclarations(text), stored)
+    || text.split(/\r?\n/).some((line) => line.trim() !== '' && parseCssDeclarations(line).length === 0);
+}
+
+function sameDeclarations(declarations: CssDeclaration[], stored: CssDeclaration[] = []): boolean {
+  return declarations.length === stored.length
+    && declarations.every(({ property, value }, index) => property === stored[index]!.property && value === stored[index]!.value);
+}
+
+function stepsOf(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((step) => step.trim())
+    .filter(Boolean);
+}
+
+function sameSteps(steps: string[], stored: string[]): boolean {
+  return steps.length === stored.length && steps.every((step, index) => step === stored[index]);
+}
+
+function sameRepro(repro: Repro | undefined, stored: Repro | undefined): boolean {
+  if (!repro || !stored) return repro === stored;
+  return repro.expected === stored.expected && repro.actual === stored.actual && sameSteps(repro.steps, stored.steps);
 }

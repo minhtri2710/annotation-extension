@@ -685,17 +685,51 @@ describe('a click outside the note form (real browser)', () => {
   });
 
   it('keeps unsaved text through the close, and shows it with "Draft restored." when the same form opens again', async () => {
-    const { panel, outside, label, click, field, openFormFor } = await mountScene();
+    const { panel, label, click, field, openFormFor } = await mountScene();
     await openFormFor(target);
     await click(field()!);
     await userEvent.keyboard('Keep this draft');
 
-    await userEvent.click(outside);
+    await click(panel().querySelector<HTMLButtonElement>('[data-annotation-close]')!);
     await vi.waitFor(() => expect(label()).toBeNull());
     await openFormFor(target);
 
     expect(field()!.value).toBe('Keep this draft');
     expect(panel().textContent).toContain('Draft restored.');
+  });
+
+  it('asks Keep or Discard on a real outside click on unsaved text, and Keep leaves the text in place', async () => {
+    const { panel, outside, label, click, field, openFormFor } = await mountScene();
+    await openFormFor(target);
+    await click(field()!);
+    await userEvent.keyboard('Half written');
+
+    await userEvent.click(outside);
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-discard-prompt]')).not.toBeNull());
+    expect(label()).toBe('Annotation note');
+    const keep = [...panel().querySelectorAll<HTMLButtonElement>('[data-annotation-discard-prompt] button')].find((control) => control.textContent === 'Keep')!;
+    await click(keep);
+    await frames();
+
+    expect(panel().querySelector('[data-annotation-discard-prompt]')).toBeNull();
+    expect(label()).toBe('Annotation note');
+    expect(field()!.value).toBe('Half written');
+  });
+
+  it('Discard on the outside-click prompt deletes the unsaved text and closes the note', async () => {
+    const { panel, outside, label, click, field, openFormFor } = await mountScene();
+    await openFormFor(target);
+    await click(field()!);
+    await userEvent.keyboard('Half written');
+
+    await userEvent.click(outside);
+    await vi.waitFor(() => expect(panel().querySelector('[data-annotation-discard-prompt]')).not.toBeNull());
+    const discard = [...panel().querySelectorAll<HTMLButtonElement>('[data-annotation-discard-prompt] button')].find((control) => control.textContent === 'Discard')!;
+    await click(discard);
+
+    await vi.waitFor(() => expect(label()).toBeNull());
+    await openFormFor(target);
+    expect(field()!.value).toBe('');
   });
 });
 

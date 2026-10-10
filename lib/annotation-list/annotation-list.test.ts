@@ -77,7 +77,7 @@ describe('annotation list', () => {
     expect(markdown).not.toContain('abc');
     expect(store.readBlob).toHaveBeenCalledWith('screenshot:annotation-1');
     (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
-    expect(delivery.download).toHaveBeenCalledWith(markdown, expect.stringMatching(/\.md$/));
+    await vi.waitFor(() => expect(delivery.download).toHaveBeenCalledWith(markdown, expect.stringMatching(/\.md$/)));
     await vi.waitFor(() => expect(delivery.downloadAsset).toHaveBeenCalledTimes(2));
     expect(delivery.downloadAsset).toHaveBeenNthCalledWith(1, expect.any(Blob), 'annotations-annotation-1.webp');
     expect(delivery.downloadAsset).toHaveBeenNthCalledWith(2, expect.any(Blob), 'annotations-annotation-2.jpeg');
@@ -179,6 +179,134 @@ describe('annotation list', () => {
     await vi.waitFor(() => expect(delivery.downloadAsset).toHaveBeenCalledTimes(1));
     expect(delivery.downloadAsset).toHaveBeenCalledWith(expect.any(Blob), 'annotations-annotation-1-attachment-1.png');
     expect(store.readBlob).toHaveBeenCalledWith('attachment:attachment-1');
+  });
+
+  it('copies the rows stored now, not the rows rendered before another tab deleted one', async () => {
+    const panel = document.createElement('div');
+    const kept = annotation('annotation-2', 'Still stored');
+    const store = persistence([annotation('annotation-1', 'Deleted in another tab'), kept]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => {}), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    vi.mocked(store.listAnnotations).mockResolvedValue([kept]);
+
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    const payload = await vi.mocked(delivery.copy).mock.calls[0]![0];
+    expect(payload.text).toBe(format([kept], pageUrl));
+    expect(payload.html).not.toContain('Deleted in another tab');
+  });
+
+  it('downloads the rows and images stored now, not the rows rendered before another tab deleted one', async () => {
+    const panel = document.createElement('div');
+    const kept = annotation('annotation-2', 'Still stored', 'image/jpeg');
+    const store = persistence([annotation('annotation-1', 'Deleted in another tab', 'image/webp'), kept]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => {}), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    vi.mocked(store.listAnnotations).mockResolvedValue([kept]);
+
+    (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(delivery.download).toHaveBeenCalledWith(format([kept], pageUrl), 'annotations.md'));
+    await vi.waitFor(() => expect(delivery.downloadAsset).toHaveBeenCalledTimes(1));
+    expect(delivery.downloadAsset).toHaveBeenCalledWith(expect.any(Blob), 'annotations-annotation-2.jpeg');
+    expect(store.readBlob).not.toHaveBeenCalledWith('screenshot:annotation-1');
+  });
+
+  it('reads the stored rows again at each Copy and Download click', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Read me', 'image/webp')]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => {}), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    expect(store.listAnnotations).toHaveBeenCalledTimes(1);
+
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    expect(store.listAnnotations).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Copied to clipboard.'));
+
+    (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
+    expect(store.listAnnotations).toHaveBeenCalledTimes(4);
+  });
+
+  it('reports an empty stored list at Copy and exports nothing from the rows rendered before', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Deleted in another tab')]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async (pending) => { await pending; }), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    vi.mocked(store.listAnnotations).mockResolvedValue([]);
+
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('Copy failed: No annotations on this page.'));
+    expect(delivery.download).not.toHaveBeenCalled();
+  });
+
+  it('reports an empty stored list at Download and downloads nothing', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Deleted in another tab', 'image/webp')]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => {}), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    vi.mocked(store.listAnnotations).mockResolvedValue([]);
+
+    (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('No annotations on this page.'));
+    expect(delivery.download).not.toHaveBeenCalled();
+    expect(delivery.downloadAsset).not.toHaveBeenCalled();
+  });
+
+  it('reports a stored-list read failure at Copy and exports nothing', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Read fails')]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async (pending) => { await pending; }), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    vi.mocked(store.listAnnotations).mockRejectedValue(new Error('list read failed'));
+
+    (panel.querySelector('[data-annotation-export-copy]') as HTMLButtonElement).click();
+    await expect(vi.mocked(delivery.copy).mock.calls[0]![0]).rejects.toThrow('list read failed');
+    expect(delivery.download).not.toHaveBeenCalled();
+  });
+
+  it('reports a stored-list read failure at Download and downloads nothing', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Read fails', 'image/webp')]);
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => {}), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    vi.mocked(store.listAnnotations).mockRejectedValue(new Error('list read failed'));
+
+    (panel.querySelector('[data-annotation-export-download]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(list.live.textContent).toBe('list read failed'));
+    expect(delivery.download).not.toHaveBeenCalled();
+    expect(delivery.downloadAsset).not.toHaveBeenCalled();
+  });
+
+  it('disables Copy and Download while an own delete is pending and ignores a click that still reaches them', async () => {
+    const panel = document.createElement('div');
+    const store = persistence([annotation('annotation-1', 'Being deleted')]);
+    let resolveWrite: (value: unknown) => void = () => undefined;
+    vi.mocked(store.sendAnnotationWrite).mockReturnValue(new Promise((resolve) => { resolveWrite = resolve; }));
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => {}), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(panel, pageUrl, store, delivery);
+    await list.render();
+    (panel.querySelector('[data-annotation-delete]') as HTMLButtonElement).click();
+    (panel.querySelector('[data-annotation-delete-confirm]') as HTMLButtonElement).click();
+    expect(store.sendAnnotationWrite).toHaveBeenCalledTimes(1);
+
+    const copy = panel.querySelector<HTMLButtonElement>('[data-annotation-export-copy]')!;
+    const download = panel.querySelector<HTMLButtonElement>('[data-annotation-export-download]')!;
+    expect([copy.disabled, download.disabled]).toEqual([true, true]);
+    copy.dispatchEvent(new MouseEvent('click'));
+    download.dispatchEvent(new MouseEvent('click'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(delivery.copy).not.toHaveBeenCalled();
+    expect(delivery.download).not.toHaveBeenCalled();
+
+    resolveWrite(undefined);
+    await vi.waitFor(() => expect(store.listAnnotations).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(panel.querySelector<HTMLButtonElement>('[data-annotation-export-copy]')!.disabled).toBe(false));
+    expect(panel.querySelector<HTMLButtonElement>('[data-annotation-export-download]')!.disabled).toBe(false);
   });
 
   it('shows a write error and keeps the list after delete rejects', async () => {

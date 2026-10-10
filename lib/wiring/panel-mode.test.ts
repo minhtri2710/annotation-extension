@@ -34,7 +34,7 @@ function setup() {
   document.body.append(panel, listToggle, scanToggle, outside);
   const anchor = { place: vi.fn(), clear: vi.fn() };
   const anchorToToolbar = () => ({ x: 0, y: 0, width: 10, height: 10 });
-  const notePanel = { render: vi.fn(() => Promise.resolve()), clear: vi.fn() };
+  const notePanel = { render: vi.fn(() => Promise.resolve()), clear: vi.fn(), hasUnsavedDraft: vi.fn(() => false), confirmDiscard: vi.fn() };
   const scanPanel = { render: vi.fn(() => Promise.resolve()), clear: vi.fn(), suspend: vi.fn(), restore: vi.fn() };
   const list = { render: vi.fn(() => Promise.resolve()), clear: vi.fn() };
   const panels = createPanelMode({
@@ -182,6 +182,34 @@ describe('createPanelMode', () => {
     expect(notePanel.clear).toHaveBeenCalledTimes(1);
     expect(scanToggle.getAttribute('aria-expanded')).toBe('false');
     expect(panel.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('asks before dismissing a note with an unsaved draft, keeps the note until Discard, then clears it', () => {
+    const { panels, panel, notePanel } = setup();
+    notePanel.hasUnsavedDraft.mockReturnValue(true);
+    panels.showNote(context, undefined);
+
+    panels.dismiss();
+
+    expect(panels.mode()).toBe('note');
+    expect(notePanel.clear).not.toHaveBeenCalled();
+    expect(notePanel.confirmDiscard).toHaveBeenCalledTimes(1);
+    const [onDiscard] = notePanel.confirmDiscard.mock.calls[0]!;
+    onDiscard();
+    expect(panels.mode()).toBe('none');
+    expect(notePanel.clear).toHaveBeenCalledTimes(1);
+    expect(panel.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('dismisses a note without an unsaved draft directly, with no prompt', () => {
+    const { panels, notePanel } = setup();
+    panels.showNote(context, undefined);
+
+    panels.dismiss();
+
+    expect(panels.mode()).toBe('none');
+    expect(notePanel.confirmDiscard).not.toHaveBeenCalled();
+    expect(notePanel.clear).toHaveBeenCalledTimes(1);
   });
 
   it('passes the seed to the note panel and places the anchor at the context box', async () => {

@@ -13,7 +13,7 @@ export interface PanelModeOptions {
   overlayRoot: Document | ShadowRoot;
   anchor: Pick<PanelAnchor, 'place' | 'clear'>;
   anchorToToolbar: () => { x: number; y: number; width: number; height: number };
-  notePanel: Pick<NotePanel, 'render' | 'clear'>;
+  notePanel: Pick<NotePanel, 'render' | 'clear' | 'hasUnsavedDraft' | 'confirmDiscard'>;
   scanPanel: Pick<ScanPanel, 'render' | 'clear' | 'suspend' | 'restore'>;
   annotationList: () => Pick<AnnotationList, 'render' | 'clear'>;
   listToggle: HTMLElement;
@@ -58,6 +58,14 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
     anchor.clear();
     panelMode = 'none';
     panelOpener = undefined;
+  };
+  // The one outside-dismissal policy: a note with unsaved text asks first, and every other panel hides directly.
+  const dismiss = () => {
+    if (panelMode === 'note' && notePanel.hasUnsavedDraft()) {
+      notePanel.confirmDiscard(() => resetPanel());
+      return;
+    }
+    resetPanel();
   };
   const setPanelMode = (mode: keyof typeof PANEL_LABELS, opener: HTMLElement | undefined) => {
     panelMode = mode;
@@ -112,7 +120,7 @@ export function createPanelMode(options: PanelModeOptions): PanelMode {
     mode: () => panelMode,
     opener: () => panelOpener,
     close,
-    dismiss: () => resetPanel(),
+    dismiss,
     toggle,
     showNote: (context, opener, seed) => openNote(context, opener, seed, false),
     showScanNote: (context, seed) => openNote(context, scanToggle, seed, true),
