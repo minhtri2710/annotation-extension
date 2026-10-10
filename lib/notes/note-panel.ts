@@ -47,6 +47,8 @@ export function createNotePanel(
   let showCurrentStatus = () => {};
   let shownVersion = '';
   let pendingWrites = 0;
+  // Add writes in flight, keyed by new-note draft key. Held here, not per rendered form, so a refresh cannot re-enable Add.
+  const pendingAdds = new Set<string>();
   const previewUrls = new Set<string>();
   const drafts = new Map<string, string>();
   const untouchedSeeds = new Set<string>();
@@ -173,16 +175,16 @@ export function createNotePanel(
     if (annotations.length === 0) save.dataset.variant = 'primary';
     save.textContent = 'Add note';
     // aria-disabled, not disabled: a disabled button drops focus that the saved panel would return to its opener.
-    let adding = false;
+    if (pendingAdds.has(draftKey)) save.setAttribute('aria-disabled', 'true');
     const add = () => {
-      if (adding) return;
+      if (pendingAdds.has(draftKey)) return;
       const value = note.value.trim();
       if (!value) {
         statusMessage = EMPTY_NOTE_MESSAGE;
         showStatus();
         return;
       }
-      adding = true;
+      pendingAdds.add(draftKey);
       save.setAttribute('aria-disabled', 'true');
       void mutate({
         type: 'annotation.add',
@@ -191,8 +193,9 @@ export function createNotePanel(
       }, context, NOTE_SAVED_MESSAGE, true, [[draftKey, value]])
         .catch(() => undefined)
         .finally(() => {
-          adding = false;
-          save.removeAttribute('aria-disabled');
+          pendingAdds.delete(draftKey);
+          // The form may have been rebuilt while the add was pending, so release the one shown now.
+          if (showsNoteOf(context)) panel.querySelector('[data-annotation-save]')?.removeAttribute('aria-disabled');
         });
     };
     save.addEventListener('click', add);
@@ -409,10 +412,16 @@ export function createNotePanel(
     const hasCss = (annotation.cssEdits?.length ?? 0) > 0;
 
     function save(): void {
+      // A blank note blocks the whole Save, so no CSS or repro change is applied or written without it.
+      const value = note.field.value.trim();
+      if (!value) {
+        statusMessage = EMPTY_NOTE_MESSAGE;
+        showCurrentStatus();
+        return;
+      }
       const changes: AnnotationUpdate = {};
       const sent: Array<[string, string]> = [];
-      const value = note.field.value.trim();
-      if (value && value !== annotation.note) {
+      if (value !== annotation.note) {
         changes.note = value;
         sent.push([editDraftKey(annotation.id, 'note'), note.field.value]);
       }
@@ -436,7 +445,7 @@ export function createNotePanel(
         sent.push(...repro.sent());
       }
       if (Object.keys(changes).length === 0) {
-        statusMessage = value ? NOTHING_TO_SAVE_MESSAGE : EMPTY_NOTE_MESSAGE;
+        statusMessage = NOTHING_TO_SAVE_MESSAGE;
         showCurrentStatus();
         return;
       }

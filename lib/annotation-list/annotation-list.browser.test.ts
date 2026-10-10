@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Annotation } from '../annotation';
 import type { ElementContext } from '../capture/context';
+import type { AnnotationExportDelivery } from '../export/delivery';
 import { formatElementContext } from '../export/format';
 import { parseColor } from '../lint/color';
 import { buildOverlayShell } from '../ui/shell';
-import { createAnnotationList } from './annotation-list';
+import { createAnnotationList, type AnnotationListPersistence } from './annotation-list';
 
 const pageUrl = 'https://example.com/article';
 
@@ -217,6 +218,50 @@ describe('annotation list in a real browser', () => {
     const first = shell.panel.querySelector<HTMLElement>('[data-annotation-onboarding] li');
     expect(first?.textContent).toBe('Click Annotate or press Alt+Q, then click any element to leave a note.');
     expect(first?.getBoundingClientRect().height).toBeGreaterThan(0);
+    list.clear();
+  });
+});
+
+describe('annotation list export while an own write is pending in a real browser', () => {
+  it.each([
+    ['delete', '[data-annotation-delete]', '[data-annotation-delete-confirm]'],
+    ['clear', '[data-annotation-clear]', '[data-annotation-clear-confirm]'],
+  ])('Copy and Download ignore a click after a pending %s, even when the button is enabled again', async (_kind, trigger, confirm) => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const container = document.createElement('div');
+    host.attachShadow({ mode: 'open' }).append(container);
+    const shell = buildOverlayShell(container);
+    let resolveWrite: (value: unknown) => void = () => undefined;
+    const persistence: AnnotationListPersistence = {
+      listAnnotations: vi.fn(async () => [annotation('a1', '#a1-target')]),
+      sendAnnotationWrite: vi.fn(() => new Promise((resolve) => { resolveWrite = resolve; })),
+      readBlob: vi.fn(),
+      readOnboardingOpen: async () => false,
+      readCaptureShortcut: async () => 'Alt+Q',
+      writeOnboardingOpen: async () => undefined,
+    };
+    const delivery: AnnotationExportDelivery = { copy: vi.fn(async () => undefined), download: vi.fn(), downloadAsset: vi.fn() };
+    const list = createAnnotationList(shell.panel, pageUrl, persistence, delivery);
+    shell.root.append(list.live);
+    await list.render();
+
+    shell.panel.querySelector<HTMLButtonElement>(trigger)!.click();
+    shell.panel.querySelector<HTMLButtonElement>(confirm)!.click();
+    expect(persistence.sendAnnotationWrite).toHaveBeenCalledTimes(1);
+
+    for (const selector of ['[data-annotation-export-copy]', '[data-annotation-export-download]']) {
+      const button = shell.panel.querySelector<HTMLButtonElement>(selector)!;
+      // Enabled on purpose: the click must be refused by the handler's own pending-write check, not by the disabled state.
+      button.disabled = false;
+      button.dispatchEvent(new MouseEvent('click'));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(delivery.copy).not.toHaveBeenCalled();
+    expect(delivery.download).not.toHaveBeenCalled();
+
+    resolveWrite(undefined);
+    await vi.waitFor(() => expect(persistence.listAnnotations).toHaveBeenCalledTimes(2));
     list.clear();
   });
 });

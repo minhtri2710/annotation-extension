@@ -2134,6 +2134,49 @@ describe('note panel save feedback and unsaved state', () => {
     expect(notePanel.live.textContent).toBe('Write a note before saving.');
   });
 
+  it('writes and applies nothing for a blank note with a CSS edit, and keeps the CSS text and the item', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const applyCssEdits = vi.fn().mockReturnValue({ edits: [colorEdit], refused: [] });
+    const { notePanel } = await render(panel, [annotation('Stored')], { sendAnnotationWrite, applyCssEdits });
+    const saved = vi.fn();
+    panel.addEventListener(NOTE_PANEL_SAVED_EVENT, saved);
+
+    type(field(panel, 'edit-note'), '   ');
+    type(field(panel, 'css-decls'), 'color: red');
+    save(panel);
+    await flush();
+
+    expect(applyCssEdits).not.toHaveBeenCalled();
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    expect(saved).not.toHaveBeenCalled();
+    expect(panel.querySelector('[data-annotation-id="annotation-1"]')).not.toBeNull();
+    expect(field(panel, 'css-decls').value).toBe('color: red');
+    expect(status(panel)).toBe('Write a note before saving.');
+    expect(notePanel.live.textContent).toBe('Write a note before saving.');
+  });
+
+  it('writes nothing for a blank note with a repro edit, and keeps the repro text and the item', async () => {
+    const panel = document.createElement('div');
+    const stored = { ...annotation('Stored'), repro: { steps: ['Click'], expected: 'Opens', actual: 'Nothing' } };
+    const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
+    const { notePanel } = await render(panel, [stored], { sendAnnotationWrite });
+    const saved = vi.fn();
+    panel.addEventListener(NOTE_PANEL_SAVED_EVENT, saved);
+
+    type(field(panel, 'edit-note'), '');
+    type(field(panel, 'repro-steps'), 'Click again');
+    save(panel);
+    await flush();
+
+    expect(sendAnnotationWrite).not.toHaveBeenCalled();
+    expect(saved).not.toHaveBeenCalled();
+    expect(panel.querySelector('[data-annotation-id="annotation-1"]')).not.toBeNull();
+    expect(field(panel, 'repro-steps').value).toBe('Click again');
+    expect(status(panel)).toBe('Write a note before saving.');
+    expect(notePanel.live.textContent).toBe('Write a note before saving.');
+  });
+
   it('says Save has nothing to save when the note is untouched, without writing or announcing a save', async () => {
     const panel = document.createElement('div');
     const sendAnnotationWrite = vi.fn().mockResolvedValue(undefined);
@@ -2257,6 +2300,125 @@ describe('note panel Add note re-entry', () => {
     expect(sendAnnotationWrite).not.toHaveBeenCalled();
     expect(panel.querySelector('[data-annotation-status]')?.textContent).toContain('is longer than');
     expect(addButton(panel).hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  it('sends one add when a refresh rebuilds the form and Add note is clicked while the write is pending', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn(() => new Promise<void>(() => {}));
+    const { notePanel } = await render(panel, [], { sendAnnotationWrite });
+    newNote(panel).value = 'Once';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+
+    addButton(panel).click();
+    await notePanel.render(context);
+    addButton(panel).click();
+    await flush();
+
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends one add when Ctrl+Enter follows a refresh that rebuilt the form while the write is pending', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn(() => new Promise<void>(() => {}));
+    const { notePanel } = await render(panel, [], { sendAnnotationWrite });
+    newNote(panel).value = 'Once';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+
+    addButton(panel).click();
+    await notePanel.render(context);
+    newNote(panel).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    await flush();
+
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Add note disabled on a form that a refresh rebuilt while the write is pending', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn(() => new Promise<void>(() => {}));
+    const { notePanel } = await render(panel, [], { sendAnnotationWrite });
+    newNote(panel).value = 'Once';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+
+    addButton(panel).click();
+    await notePanel.render(context);
+
+    expect(addButton(panel).getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('releases the rebuilt form when the pending add settles, so the next add is sent', async () => {
+    const panel = document.createElement('div');
+    let settle = () => {};
+    const sendAnnotationWrite = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
+    const { notePanel } = await render(panel, [], { sendAnnotationWrite });
+    newNote(panel).value = 'Once';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+
+    addButton(panel).click();
+    await notePanel.render(context);
+    settle();
+    await vi.waitFor(() => expect(addButton(panel).hasAttribute('aria-disabled')).toBe(false));
+    newNote(panel).value = 'Twice';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+    addButton(panel).click();
+
+    await vi.waitFor(() => expect(sendAnnotationWrite).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not block an add for another element while an add is pending', async () => {
+    const panel = document.createElement('div');
+    const sendAnnotationWrite = vi.fn(() => new Promise<void>(() => {}));
+    const { notePanel } = await render(panel, [], { sendAnnotationWrite });
+    newNote(panel).value = 'Once';
+
+    addButton(panel).click();
+    await notePanel.render({ ...context, selector: '#other' });
+    newNote(panel).value = 'Twice';
+    addButton(panel).click();
+    await flush();
+
+    expect(sendAnnotationWrite).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not close the panel when an add settles while newer text is in the field', async () => {
+    const panel = document.createElement('div');
+    let settle = () => {};
+    const sendAnnotationWrite = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
+    const saved = vi.fn();
+    panel.addEventListener(NOTE_PANEL_SAVED_EVENT, saved);
+    await render(panel, [], { sendAnnotationWrite });
+    newNote(panel).value = 'First';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+
+    addButton(panel).click();
+    newNote(panel).value = 'Newer';
+    newNote(panel).dispatchEvent(new Event('input', { bubbles: true }));
+    settle();
+    await vi.waitFor(() => expect(addButton(panel).hasAttribute('aria-disabled')).toBe(false));
+
+    expect(saved).not.toHaveBeenCalled();
+    expect(newNote(panel).value).toBe('Newer');
+  });
+});
+
+describe('note panel discard prompt keys', () => {
+  it('Escape inside the prompt answers it with Keep, keeping the panel and the typed text', async () => {
+    const panel = document.createElement('div');
+    const onDiscard = vi.fn();
+    const outerKeydown = vi.fn();
+    panel.addEventListener('keydown', outerKeydown);
+    const { notePanel } = await render(panel, [annotation('Existing')]);
+    const field = panel.querySelector('[data-annotation-new-note]') as HTMLTextAreaElement;
+    field.value = 'Unsaved';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+
+    notePanel.confirmDiscard(onDiscard);
+    const keep = Array.from(panel.querySelectorAll('button')).find((button) => button.textContent === 'Keep')!;
+    keep.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+    expect(onDiscard).not.toHaveBeenCalled();
+    expect(panel.querySelector('[data-annotation-discard-prompt]')).toBeNull();
+    expect(outerKeydown).not.toHaveBeenCalled();
+    expect(field.value).toBe('Unsaved');
   });
 });
 
