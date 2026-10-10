@@ -432,7 +432,11 @@ export function createNotePanel(
       if (declarations) {
         const result = persistence.applyCssEdits(annotation, declarations);
         if (!result) {
-          reportReadError(new Error(CSS_ELEMENT_NOT_FOUND_MESSAGE));
+          // A Save is not an image read, so it reports while the panel still shows this note, even during a same-note re-render.
+          if (showsNoteOf(context)) {
+            statusMessage = CSS_ELEMENT_NOT_FOUND_MESSAGE;
+            showCurrentStatus();
+          }
           return;
         }
         changes.cssEdits = result.edits;
